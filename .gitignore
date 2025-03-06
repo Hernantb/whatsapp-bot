@@ -134,6 +134,9 @@ git push origin main
 git add package.json
 git commit -m "Added start script"
 git push origin main
+git add .
+git commit -m "Moviendo index.js a src"
+git push origin main
 
 
 
