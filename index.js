@@ -15,11 +15,12 @@ app.post('/webhook', (req, res) => {
     res.status(200).send("Webhook funcionando");
 });
 
-// Asegurar que Render detecte el puerto correcto
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => {
+// Definir el puerto
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
     console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
+
 
 
 
