@@ -128,11 +128,12 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-git add package.json
-git commit -m "Added start script"
-git push origin main
 git add index.js
 git commit -m "Fixed index.js"
 git push origin main
+git add package.json
+git commit -m "Added start script"
+git push origin main
+
 
 
