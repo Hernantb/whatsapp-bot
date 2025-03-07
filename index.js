@@ -5,81 +5,74 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-// Verifica que las variables de entorno están cargadas correctamente
+// 🔑 Verifica que las variables de entorno están cargadas correctamente
 console.log("🔑 API Keys cargadas:");
 console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_API_KEY:", process.env.GUPSHUP_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_NUMBER:", process.env.GUPSHUP_NUMBER ? "✅ OK" : "❌ FALTA");
 
-// Cargar claves de API
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
-const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
+// Cargar claves de API desde variables de entorno
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "DEFAULT_KEY";
+const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY || "DEFAULT_GUPSHUP_KEY";
+const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER || "DEFAULT_NUMBER";
 
-if (!OPENAI_API_KEY || !GUPSHUP_API_KEY || !GUPSHUP_NUMBER) {
+// Verifica que las claves están configuradas
+if (!process.env.OPENAI_API_KEY || !process.env.GUPSHUP_API_KEY || !process.env.GUPSHUP_NUMBER) {
     console.error("⚠️ ERROR: Faltan claves de API. Revisa las variables de entorno en Render.");
     process.exit(1);
 }
 
-// Ruta de prueba
+// Ruta raíz para verificar que el servidor está corriendo
 app.get('/', (req, res) => {
     res.send('Bot de WhatsApp funcionando');
 });
 
-// Webhook para recibir mensajes
+// Webhook para recibir mensajes de Gupshup
 app.post('/webhook', async (req, res) => {
     try {
         console.log("📩 Mensaje recibido en bruto:", JSON.stringify(req.body, null, 2));
 
-        const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-        if (!message) {
-            console.error("❌ Formato del mensaje incorrecto.");
+        // Verifica si el mensaje es válido
+        if (!req.body || !req.body.type || !req.body.payload || !req.body.payload.sender) {
             return res.status(400).send("Formato no válido");
         }
 
-        const sender = message.from;
-        const text = message.text?.body || "Mensaje vacío";
+        const sender = req.body.payload.sender.phone;
+        const message = req.body.payload.payload.text;
 
-        console.log(`📩 Mensaje recibido de ${sender}: ${text}`);
+        console.log(`📩 Mensaje recibido de ${sender}: ${message}`);
 
-        // Generar respuesta automática
-        const responseText = `Recibí tu mensaje: "${text}"`;
+        // Generar respuesta con OpenAI (simulado por ahora)
+        const responseText = `Recibí tu mensaje: "${message}"`;
 
-        // Enviar mensaje de vuelta a WhatsApp
-        const response = await axios.post('https://api.gupshup.io/wa/api/v1/msg', {
-            channel: "whatsapp",
-            source: GUPSHUP_NUMBER,
-            destination: String(sender),  // ✅ Convertir a string por seguridad
-            message: { type: "text", text: responseText }
-        }, {
+        // Enviar mensaje de vuelta a WhatsApp con Gupshup
+        const qs = new URLSearchParams();
+        qs.append("channel", "whatsapp");
+        qs.append("source", GUPSHUP_NUMBER);
+        qs.append("destination", sender);
+        qs.append("message", JSON.stringify({ type: "text", text: responseText }));
+
+        const response = await axios.post('https://api.gupshup.io/wa/api/v1/msg', qs.toString(), {
             headers: {
-                "Content-Type": "application/json",
-                "apikey": GUPSHUP_API_KEY // ✅ Gupshup usa "apikey", no "Authorization"
+                "Content-Type": "application/x-www-form-urlencoded",
+                "apikey": GUPSHUP_API_KEY // ✅ Gupshup usa "apikey", NO "Authorization"
             }
         });
 
-        console.log("✅ Respuesta enviada a WhatsApp:", responseText);
-        console.log("📨 Respuesta de Gupshup:", response.data);
-
+        console.log("✅ Respuesta enviada:", responseText);
         res.status(200).send("Mensaje procesado correctamente");
 
     } catch (error) {
-        console.error("❌ Error procesando mensaje:", error.response?.data || error.message);
+        console.error("❌ Error procesando mensaje:", error.message);
         res.status(500).send("Error interno");
     }
 });
 
-// Definir puerto
+// Definir el puerto
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
-
-
-
-
-
-
 
 
 
