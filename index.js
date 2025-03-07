@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
@@ -38,22 +37,28 @@ app.post('/webhook', async (req, res) => {
         }
 
         const mensaje = req.body.payload.text || "Mensaje sin texto";
+        const sender = req.body.payload.sender.phone || req.body.payload.sender || "DEFAULT_NUMBER";
+
+        console.log("👤 Mensaje recibido de:", sender);
+        console.log("💬 Contenido del mensaje:", mensaje);
 
         // Respuesta automática
-        const respuesta = `Recibí tu mensaje: "${mensaje}"`;
+        const respuesta = `Hola! Recibí tu mensaje: "${mensaje}"`;
 
         // Enviar respuesta a WhatsApp usando Gupshup
-        const response = await axios.post('https://api.gupshup.io/wa/api/v1/msg', null, {
-            params: {
-                channel: "whatsapp",
-                source: GUPSHUP_NUMBER,
-                destination: req.body.sender || "DEFAULT_NUMBER",
-                message: JSON.stringify({ type: "text", text: respuesta })
-            },
+        const response = await axios({
+            method: 'POST',
+            url: 'https://api.gupshup.io/wa/api/v1/msg',
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "apikey": GUPSHUP_API_KEY
-            }
+            },
+            data: new URLSearchParams({
+                channel: "whatsapp",
+                source: GUPSHUP_NUMBER,
+                destination: sender,
+                message: JSON.stringify({ type: "text", text: respuesta })
+            })
         });
 
         console.log("✅ Respuesta enviada:", response.data);
