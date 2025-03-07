@@ -5,13 +5,13 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-// 🔑 Verifica que las variables de entorno están cargadas correctamente
+// 🔑 Verificar que las claves están bien cargadas
 console.log("🔑 API Keys cargadas:");
 console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_API_KEY:", process.env.GUPSHUP_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_NUMBER:", process.env.GUPSHUP_NUMBER ? "✅ OK" : "❌ FALTA");
 
-// Cargar claves de API desde variables de entorno
+// Cargar claves desde variables de entorno
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
@@ -32,18 +32,21 @@ app.post('/webhook', async (req, res) => {
     try {
         console.log("📩 Mensaje recibido en bruto:", JSON.stringify(req.body, null, 2));
 
-        if (!req.body || !req.body.type || !req.body.payload) {
+        if (!req.body || !req.body.payload || !req.body.payload.sender || !req.body.payload.text) {
+            console.log("❌ Error: Formato incorrecto en el mensaje recibido.");
             return res.status(400).send("Formato no válido");
         }
 
-        const mensaje = req.body.payload.text || "Mensaje sin texto";
-        const sender = req.body.payload.sender.phone || req.body.payload.sender || "DEFAULT_NUMBER";
+        const mensaje = req.body.payload.text;
+        const sender = req.body.payload.sender.phone;
 
         console.log("👤 Mensaje recibido de:", sender);
         console.log("💬 Contenido del mensaje:", mensaje);
 
         // Respuesta automática
         const respuesta = `Hola! Recibí tu mensaje: "${mensaje}"`;
+
+        console.log("📤 Enviando respuesta a Gupshup...");
 
         // Enviar respuesta a WhatsApp usando Gupshup
         const response = await axios({
@@ -61,12 +64,17 @@ app.post('/webhook', async (req, res) => {
             })
         });
 
-        console.log("✅ Respuesta enviada:", response.data);
+        console.log("✅ Respuesta enviada con éxito a Gupshup:", response.data);
         res.status(200).send("Mensaje procesado correctamente");
 
     } catch (error) {
-        console.error("❌ Error procesando mensaje:", error.response ? error.response.data : error.message);
-        res.status(500).send("Error interno");
+        console.error("❌ Error al enviar mensaje a Gupshup:");
+        if (error.response) {
+            console.error("🔴 Respuesta de Gupshup:", error.response.data);
+        } else {
+            console.error("🔴 Error general:", error.message);
+        }
+        res.status(500).send("Error interno al procesar el mensaje.");
     }
 });
 
