@@ -32,20 +32,26 @@ app.post('/webhook', async (req, res) => {
     try {
         console.log("📩 Mensaje recibido en bruto:", JSON.stringify(req.body, null, 2));
 
-        // Validar si el mensaje recibido tiene el formato esperado
-        if (!req.body || !req.body.type || !req.body.payload) {
-            console.error("❌ Error: Formato incorrecto en el mensaje recibido.");
-            return res.status(400).send("Formato no válido");
-        }
+        // Extraer el mensaje del JSON recibido
+        let mensaje, remitente;
 
-        // Extraer información del mensaje
-        const mensaje = req.body.payload.payload.text;
-        const remitente = req.body.payload.sender.phone || req.body.payload.sender;
+        if (req.body.type === "message") {
+            if (req.body.payload && req.body.payload.type === "text") {
+                mensaje = req.body.payload.payload.text;
+                remitente = req.body.payload.sender.phone || req.body.payload.sender;
+            } else {
+                console.error("❌ Error: Mensaje no tiene el formato esperado.");
+                return res.status(400).send("Formato incorrecto en el mensaje recibido.");
+            }
+        } else {
+            console.error("❌ Error: Tipo de mensaje no soportado.");
+            return res.status(400).send("Tipo de mensaje no soportado.");
+        }
 
         console.log(`👤 Mensaje recibido de: ${remitente}`);
         console.log(`💬 Contenido del mensaje: ${mensaje}`);
 
-        // Generar una respuesta con OpenAI (simulada por ahora)
+        // Generar una respuesta automática
         const respuesta = `Recibí tu mensaje: "${mensaje}"`;
 
         // Enviar respuesta a WhatsApp usando Gupshup
@@ -53,7 +59,7 @@ app.post('/webhook', async (req, res) => {
         const gupshupResponse = await axios.post('https://api.gupshup.io/wa/api/v1/msg', null, {
             params: {
                 channel: "whatsapp",
-                source: GUPSHUP_NUMBER,
+                source: GUPSHUP_NUMBER.replace("+", ""), // Asegura que el número esté sin "+"
                 destination: remitente,
                 message: JSON.stringify({ type: "text", text: respuesta })
             },
