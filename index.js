@@ -48,7 +48,7 @@ app.post('/webhook', async (req, res) => {
 
         console.log(`👤 Mensaje recibido de ${sender}: ${mensaje}`);
 
-        // 🔹 Llamar a Hernán CUPRA Master en OpenAI
+        // 🔹 Llamar a Hernán CUPRA Master en OpenAI con el encabezado 'OpenAI-Beta: assistants=v2'
         const aiResponse = await axios.post(
             "https://api.openai.com/v1/threads",
             {
@@ -58,7 +58,8 @@ app.post('/webhook', async (req, res) => {
             {
                 headers: {
                     "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "OpenAI-Beta": "assistants=v2"
                 }
             }
         );
