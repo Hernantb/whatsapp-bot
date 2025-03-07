@@ -5,16 +5,16 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-// 🔑 Cargar variables de entorno
+// 🔑 Cargar claves de API
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 
-// 🗂 Guardar los thread_id de los usuarios para mantener el historial
+// 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
 
-// 🔍 Verificación de claves
+// 🚀 Verificar API Keys
 console.log("🔑 API Keys cargadas:");
 console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_API_KEY:", GUPSHUP_API_KEY ? "✅ OK" : "❌ FALTA");
@@ -26,17 +26,12 @@ if (!OPENAI_API_KEY || !GUPSHUP_API_KEY || !GUPSHUP_NUMBER) {
     process.exit(1);
 }
 
-// 🏠 Ruta raíz para verificar que el servidor está activo
-app.get('/', (req, res) => {
-    res.send('Bot de WhatsApp funcionando');
-});
-
 // 📩 Webhook para recibir mensajes de WhatsApp
 app.post('/webhook', async (req, res) => {
     try {
         console.log("📩 Mensaje recibido en bruto:", JSON.stringify(req.body, null, 2));
 
-        // Validación del mensaje entrante
+        // Validar estructura del mensaje
         const entry = req.body.entry?.[0];
         const changes = entry?.changes?.[0];
         const message = changes?.value?.messages?.[0];
@@ -51,13 +46,21 @@ app.post('/webhook', async (req, res) => {
 
         console.log(`👤 Mensaje recibido de ${sender}: ${mensaje}`);
 
-        // 🔹 Verificar si el usuario ya tiene un thread_id asignado
-        let threadId;
-        if (userThreads[sender]) {
-            threadId = userThreads[sender];
-            console.log(`🔄 Continuando conversación con thread_id: ${threadId}`);
-        } else {
-            // 🔹 Crear un thread en OpenAI para el usuario si es su primer mensaje
+        // 🔹 Evitar responder a mensajes duplicados
+        if (message.id && userThreads[sender]?.lastMessageId === message.id) {
+            console.log("⚠️ Mensaje duplicado detectado. Ignorando...");
+            return res.status(200).send("Mensaje duplicado, ignorado.");
+        }
+
+        // Guardar el último mensaje procesado
+        userThreads[sender] = {
+            lastMessageId: message.id,
+            threadId: userThreads[sender]?.threadId || null
+        };
+
+        // 🔹 Crear un nuevo thread si es un usuario nuevo
+        let threadId = userThreads[sender].threadId;
+        if (!threadId) {
             console.log(`🆕 Creando nuevo thread para usuario: ${sender}`);
             const threadResponse = await axios.post(
                 "https://api.openai.com/v1/threads",
@@ -71,16 +74,15 @@ app.post('/webhook', async (req, res) => {
                 }
             );
             threadId = threadResponse.data.id;
-            userThreads[sender] = threadId;
+            userThreads[sender].threadId = threadId;
+        } else {
+            console.log(`🔄 Continuando conversación con thread_id: ${threadId}`);
         }
 
         // 🔹 Enviar mensaje al asistente en OpenAI
         await axios.post(
             `https://api.openai.com/v1/threads/${threadId}/messages`,
-            {
-                role: "user",
-                content: mensaje
-            },
+            { role: "user", content: mensaje },
             {
                 headers: {
                     "Authorization": `Bearer ${OPENAI_API_KEY}`,
@@ -93,9 +95,7 @@ app.post('/webhook', async (req, res) => {
         // 🔹 Ejecutar al asistente en el thread
         const runResponse = await axios.post(
             `https://api.openai.com/v1/threads/${threadId}/runs`,
-            {
-                assistant_id: ASISTENTE_ID
-            },
+            { assistant_id: ASISTENTE_ID },
             {
                 headers: {
                     "Authorization": `Bearer ${OPENAI_API_KEY}`,
@@ -109,7 +109,8 @@ app.post('/webhook', async (req, res) => {
 
         // 🔹 Esperar la respuesta del asistente
         let aiResponse;
-        while (true) {
+        let retries = 10;
+        while (retries > 0) {
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             const statusResponse = await axios.get(
@@ -127,6 +128,7 @@ app.post('/webhook', async (req, res) => {
                 aiResponse = statusResponse.data;
                 break;
             }
+            retries--;
         }
 
         // 🔹 Obtener la respuesta del asistente
