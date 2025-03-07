@@ -32,13 +32,14 @@ app.post('/webhook', async (req, res) => {
     try {
         console.log("📩 Mensaje recibido en bruto:", JSON.stringify(req.body, null, 2));
 
-        if (!req.body || !req.body.payload || !req.body.payload.sender || !req.body.payload.text) {
-            console.log("❌ Error: Formato incorrecto en el mensaje recibido.");
+        // 🛑 Ajustamos la estructura del mensaje según los logs
+        const mensaje = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body;
+        const sender = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+
+        if (!mensaje || !sender) {
+            console.log("❌ Error: No se pudo extraer el mensaje o el remitente.");
             return res.status(400).send("Formato no válido");
         }
-
-        const mensaje = req.body.payload.text;
-        const sender = req.body.payload.sender.phone;
 
         console.log("👤 Mensaje recibido de:", sender);
         console.log("💬 Contenido del mensaje:", mensaje);
