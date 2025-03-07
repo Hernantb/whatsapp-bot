@@ -33,6 +33,7 @@ app.post('/webhook', async (req, res) => {
 
         const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
         if (!message) {
+            console.error("❌ Formato del mensaje incorrecto.");
             return res.status(400).send("Formato no válido");
         }
 
@@ -45,23 +46,25 @@ app.post('/webhook', async (req, res) => {
         const responseText = `Recibí tu mensaje: "${text}"`;
 
         // Enviar mensaje de vuelta a WhatsApp
-        await axios.post('https://api.gupshup.io/wa/api/v1/msg', {
+        const response = await axios.post('https://api.gupshup.io/wa/api/v1/msg', {
             channel: "whatsapp",
             source: GUPSHUP_NUMBER,
-            destination: sender,
+            destination: String(sender),  // ✅ Convertir a string por seguridad
             message: { type: "text", text: responseText }
         }, {
             headers: {
                 "Content-Type": "application/json",
-                "apikey": GUPSHUP_API_KEY // ← AQUÍ ESTÁ EL CAMBIO
+                "apikey": GUPSHUP_API_KEY // ✅ Gupshup usa "apikey", no "Authorization"
             }
         });
 
-        console.log("✅ Respuesta enviada:", responseText);
+        console.log("✅ Respuesta enviada a WhatsApp:", responseText);
+        console.log("📨 Respuesta de Gupshup:", response.data);
+
         res.status(200).send("Mensaje procesado correctamente");
 
     } catch (error) {
-        console.error("❌ Error procesando mensaje:", error);
+        console.error("❌ Error procesando mensaje:", error.response?.data || error.message);
         res.status(500).send("Error interno");
     }
 });
@@ -71,5 +74,14 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 });
+
+
+
+
+
+
+
+
+
 
 
