@@ -48,12 +48,27 @@ app.post('/webhook', async (req, res) => {
 
         console.log(`👤 Mensaje recibido de ${sender}: ${mensaje}`);
 
-        // 🔹 Llamar a Hernán CUPRA Master en OpenAI con el encabezado 'OpenAI-Beta: assistants=v2'
-        const aiResponse = await axios.post(
+        // 🔹 Crear un thread en OpenAI antes de enviar el mensaje al asistente
+        const threadResponse = await axios.post(
             "https://api.openai.com/v1/threads",
+            {},
             {
-                assistant_id: ASISTENTE_ID,
-                messages: [{ role: "user", content: mensaje }]
+                headers: {
+                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                    "Content-Type": "application/json",
+                    "OpenAI-Beta": "assistants=v2"
+                }
+            }
+        );
+
+        const threadId = threadResponse.data.id;
+
+        // 🔹 Enviar mensaje al asistente en OpenAI
+        await axios.post(
+            `https://api.openai.com/v1/threads/${threadId}/messages`,
+            {
+                role: "user",
+                content: mensaje
             },
             {
                 headers: {
@@ -64,7 +79,58 @@ app.post('/webhook', async (req, res) => {
             }
         );
 
-        const respuesta = aiResponse.data.choices?.[0]?.message?.content || "No tengo una respuesta en este momento.";
+        // 🔹 Ejecutar al asistente en el thread
+        const runResponse = await axios.post(
+            `https://api.openai.com/v1/threads/${threadId}/runs`,
+            {
+                assistant_id: ASISTENTE_ID
+            },
+            {
+                headers: {
+                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                    "Content-Type": "application/json",
+                    "OpenAI-Beta": "assistants=v2"
+                }
+            }
+        );
+
+        const runId = runResponse.data.id;
+
+        // 🔹 Esperar la respuesta del asistente
+        let aiResponse;
+        while (true) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            const statusResponse = await axios.get(
+                `https://api.openai.com/v1/threads/${threadId}/runs/${runId}`,
+                {
+                    headers: {
+                        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                        "Content-Type": "application/json",
+                        "OpenAI-Beta": "assistants=v2"
+                    }
+                }
+            );
+
+            if (statusResponse.data.status === "completed") {
+                aiResponse = statusResponse.data;
+                break;
+            }
+        }
+
+        // 🔹 Obtener la respuesta del asistente
+        const messagesResponse = await axios.get(
+            `https://api.openai.com/v1/threads/${threadId}/messages`,
+            {
+                headers: {
+                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                    "Content-Type": "application/json",
+                    "OpenAI-Beta": "assistants=v2"
+                }
+            }
+        );
+
+        const respuesta = messagesResponse.data.data?.[0]?.content?.[0]?.text?.value || "No tengo una respuesta en este momento.";
         console.log(`💬 Respuesta de Hernán CUPRA Master: ${respuesta}`);
 
         // 📨 Enviar la respuesta a WhatsApp mediante Gupshup
