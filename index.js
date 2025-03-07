@@ -5,16 +5,19 @@ app.post('/webhook', async (req, res) => {
         let mensaje = null;
         let remitente = null;
 
-        // Buscar el mensaje en diferentes estructuras
-        if (req.body.entry && req.body.entry[0].changes && req.body.entry[0].changes[0].value.messages) {
+        // Extraer mensaje según la estructura que envía Gupshup
+        if (
+            req.body.entry &&
+            req.body.entry[0].changes &&
+            req.body.entry[0].changes[0].value &&
+            req.body.entry[0].changes[0].value.messages &&
+            req.body.entry[0].changes[0].value.messages[0].text
+        ) {
             const messageData = req.body.entry[0].changes[0].value.messages[0];
             mensaje = messageData.text.body;
             remitente = messageData.from;
-        } else if (req.body.message) {
-            mensaje = req.body.message;
-            remitente = req.body.sender || "Número desconocido";
         } else {
-            console.error("❌ Error: Formato incorrecto en el mensaje recibido.");
+            console.error("❌ Error: No se encontró un mensaje válido en la estructura JSON.");
             return res.status(400).send("Formato incorrecto en el mensaje recibido.");
         }
 
