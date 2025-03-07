@@ -12,13 +12,13 @@ console.log("GUPSHUP_API_KEY:", process.env.GUPSHUP_API_KEY ? "✅ OK" : "❌ FA
 console.log("GUPSHUP_NUMBER:", process.env.GUPSHUP_NUMBER ? "✅ OK" : "❌ FALTA");
 
 // Cargar claves de API desde variables de entorno
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "DEFAULT_KEY";
-const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY || "DEFAULT_GUPSHUP_KEY";
-const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER || "DEFAULT_NUMBER";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
+const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 
 // Verifica que las claves están configuradas
-if (!process.env.OPENAI_API_KEY || !process.env.GUPSHUP_API_KEY || !process.env.GUPSHUP_NUMBER) {
-    console.error("⚠️ ERROR: Faltan claves de API. Revisa las variables de entorno en Render.");
+if (!OPENAI_API_KEY || !GUPSHUP_API_KEY || !GUPSHUP_NUMBER) {
+    console.error("⚠️ ERROR: Faltan claves de API. Revisa las variables de entorno.");
     process.exit(1);
 }
 
@@ -32,30 +32,30 @@ app.post('/webhook', async (req, res) => {
     try {
         console.log("📩 Mensaje recibido en bruto:", JSON.stringify(req.body, null, 2));
 
-        // Verifica que el mensaje tenga la estructura correcta
-        if (!req.body.entry || !req.body.entry[0].changes || !req.body.entry[0].changes[0].value.messages) {
+        // Validar si el mensaje recibido tiene el formato esperado
+        if (!req.body || !req.body.type || !req.body.payload) {
             console.error("❌ Error: Formato incorrecto en el mensaje recibido.");
             return res.status(400).send("Formato no válido");
         }
 
-        const mensaje = req.body.entry[0].changes[0].value.messages[0].text.body;
-        const sender = req.body.entry[0].changes[0].value.messages[0].from;
+        // Extraer información del mensaje
+        const mensaje = req.body.payload.payload.text;
+        const remitente = req.body.payload.sender.phone || req.body.payload.sender;
 
-        console.log("👤 Mensaje recibido de:", sender);
-        console.log("💬 Contenido del mensaje:", mensaje);
+        console.log(`👤 Mensaje recibido de: ${remitente}`);
+        console.log(`💬 Contenido del mensaje: ${mensaje}`);
 
-        // Genera una respuesta simple
+        // Generar una respuesta con OpenAI (simulada por ahora)
         const respuesta = `Recibí tu mensaje: "${mensaje}"`;
 
-        console.log("📤 Enviando respuesta a Gupshup...");
-
         // Enviar respuesta a WhatsApp usando Gupshup
-        const response = await axios.post('https://api.gupshup.io/wa/api/v1/msg', null, {
+        console.log("📤 Enviando respuesta a Gupshup...");
+        const gupshupResponse = await axios.post('https://api.gupshup.io/wa/api/v1/msg', null, {
             params: {
                 channel: "whatsapp",
                 source: GUPSHUP_NUMBER,
-                destination: sender,
-                message: JSON.stringify({ type: "text", text: respuesta }),
+                destination: remitente,
+                message: JSON.stringify({ type: "text", text: respuesta })
             },
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -63,7 +63,7 @@ app.post('/webhook', async (req, res) => {
             }
         });
 
-        console.log("✅ Respuesta de Gupshup:", response.data);
+        console.log("🔴 Respuesta de Gupshup:", gupshupResponse.data);
         res.status(200).send("Mensaje procesado correctamente");
 
     } catch (error) {
