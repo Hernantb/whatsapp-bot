@@ -11,6 +11,9 @@ const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 
+// 🗂 Guardar los thread_id de los usuarios para mantener el historial
+const userThreads = {};
+
 // 🔍 Verificación de claves
 console.log("🔑 API Keys cargadas:");
 console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "✅ OK" : "❌ FALTA");
@@ -48,20 +51,28 @@ app.post('/webhook', async (req, res) => {
 
         console.log(`👤 Mensaje recibido de ${sender}: ${mensaje}`);
 
-        // 🔹 Crear un thread en OpenAI antes de enviar el mensaje al asistente
-        const threadResponse = await axios.post(
-            "https://api.openai.com/v1/threads",
-            {},
-            {
-                headers: {
-                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                    "Content-Type": "application/json",
-                    "OpenAI-Beta": "assistants=v2"
+        // 🔹 Verificar si el usuario ya tiene un thread_id asignado
+        let threadId;
+        if (userThreads[sender]) {
+            threadId = userThreads[sender];
+            console.log(`🔄 Continuando conversación con thread_id: ${threadId}`);
+        } else {
+            // 🔹 Crear un thread en OpenAI para el usuario si es su primer mensaje
+            console.log(`🆕 Creando nuevo thread para usuario: ${sender}`);
+            const threadResponse = await axios.post(
+                "https://api.openai.com/v1/threads",
+                {},
+                {
+                    headers: {
+                        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                        "Content-Type": "application/json",
+                        "OpenAI-Beta": "assistants=v2"
+                    }
                 }
-            }
-        );
-
-        const threadId = threadResponse.data.id;
+            );
+            threadId = threadResponse.data.id;
+            userThreads[sender] = threadId;
+        }
 
         // 🔹 Enviar mensaje al asistente en OpenAI
         await axios.post(
@@ -134,7 +145,7 @@ app.post('/webhook', async (req, res) => {
         console.log(`💬 Respuesta de Hernán CUPRA Master: ${respuesta}`);
 
         // 📨 Enviar la respuesta a WhatsApp mediante Gupshup
-        const response = await axios.post(
+        await axios.post(
             "https://api.gupshup.io/wa/api/v1/msg",
             new URLSearchParams({
                 channel: "whatsapp",
