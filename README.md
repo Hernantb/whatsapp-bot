@@ -41,6 +41,23 @@ npm start
 
 El servidor se iniciará en el puerto especificado (por defecto 3000).
 
+## Configuración en Producción
+
+### Importante: URL del Panel de Control
+
+Cuando despliegues este servidor en producción (como Render), debes asegurarte de que la variable `CONTROL_PANEL_URL` esté configurada con la URL pública de tu servidor de panel de control, no con localhost.
+
+Por ejemplo:
+```
+# Incorrecto para producción
+CONTROL_PANEL_URL=http://localhost:4000
+
+# Correcto para producción
+CONTROL_PANEL_URL=https://tu-panel-control.onrender.com
+```
+
+Si usas `localhost` en producción, el bot intentará conectarse a un servidor en la misma máquina, lo que probablemente fallará.
+
 ## Integración con el Panel de Control
 
 Este servidor envía las respuestas del bot al servidor de control panel configurado en `CONTROL_PANEL_URL`, permitiendo que aparezcan en el panel de control y se almacenen en la base de datos Supabase.
