@@ -11,7 +11,11 @@ const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 // URL del servidor de control panel
-const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:4000';
+const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:3001';
+// Nivel de logging
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+// Forzar guardado en Supabase
+const FORCE_SAVE_TO_SUPABASE = process.env.FORCE_SAVE_TO_SUPABASE === 'true';
 
 // 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
@@ -23,10 +27,61 @@ console.log("GUPSHUP_API_KEY:", GUPSHUP_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_NUMBER:", GUPSHUP_NUMBER ? "✅ OK" : "❌ FALTA");
 console.log("CONTROL_PANEL_URL:", CONTROL_PANEL_URL);
 
+// Verificar si CONTROL_PANEL_URL es válido
+if (CONTROL_PANEL_URL.includes('api.openai.com')) {
+    console.error("🚨 ERROR GRAVE: CONTROL_PANEL_URL está configurado incorrectamente a api.openai.com");
+    console.error("🚨 Por favor, actualiza .env con la URL correcta de tu aplicación");
+} else if (CONTROL_PANEL_URL.includes('localhost') && process.env.NODE_ENV === 'production') {
+    console.warn("⚠️ Advertencia: CONTROL_PANEL_URL está configurado a localhost en entorno de producción");
+    console.warn("⚠️ Esto podría causar problemas al registrar respuestas");
+}
+
 // ❌ Si faltan claves, detener el servidor
 if (!OPENAI_API_KEY || !GUPSHUP_API_KEY || !GUPSHUP_NUMBER) {
     console.error("⚠️ ERROR: Faltan claves de API. Verifica las variables de entorno.");
     process.exit(1);
+}
+
+// Función para registrar respuestas en el control panel
+async function registerBotResponse(conversationId, message, threadId) {
+    try {
+        if (!conversationId || !message) {
+            console.error("❌ No se puede registrar la respuesta: faltan datos esenciales");
+            return { success: false, error: "Datos incompletos" };
+        }
+
+        console.log(`🔄 Registrando respuesta del bot para conversación ${conversationId}`);
+        
+        // Validar si CONTROL_PANEL_URL apunta a OpenAI (configuración incorrecta común)
+        if (CONTROL_PANEL_URL.includes('api.openai.com')) {
+            console.error("🚨 ERROR: CONTROL_PANEL_URL apunta a api.openai.com, esto es incorrecto");
+            console.error("🚨 Actualiza el archivo .env con la URL correcta");
+            return { success: false, error: "URL de control panel mal configurada" };
+        }
+        
+        const timestamp = new Date().toISOString();
+        console.log(`🔄 Registrando respuesta del bot en el control panel: ${CONTROL_PANEL_URL}/register-bot-response`);
+        
+        // Intentar enviar la respuesta al control panel
+        const response = await axios.post(`${CONTROL_PANEL_URL}/register-bot-response`, {
+            conversationId,
+            message,
+            threadId,
+            timestamp
+        });
+        
+        console.log("✅ Respuesta del bot registrada exitosamente");
+        return { success: true, data: response.data };
+    } catch (error) {
+        console.error("❌ Error al registrar respuesta en el control panel:", error.message);
+        
+        if (error.response) {
+            console.error(`🔍 Código de respuesta: ${error.response.status}`);
+            console.error("🔍 Respuesta del servidor:", error.response.data);
+        }
+        
+        return { success: false, error: error.message };
+    }
 }
 
 // 📩 Webhook para recibir mensajes de WhatsApp
@@ -186,13 +241,15 @@ app.post('/webhook', async (req, res) => {
 
         // 🔄 Registrar la respuesta del bot en el servidor de control panel
         try {
-            console.log(`🔄 Registrando respuesta del bot en el control panel: ${CONTROL_PANEL_URL}/register-bot-response`);
-            await axios.post(`${CONTROL_PANEL_URL}/register-bot-response`, {
-                conversationId: userThreads[sender].conversationId,
-                message: respuesta,
-                timestamp: new Date().toISOString()
-            });
-            console.log(`✅ Respuesta del bot registrada en el control panel`);
+            const result = await registerBotResponse(
+                userThreads[sender].conversationId,
+                respuesta,
+                threadId
+            );
+            
+            if (!result.success) {
+                console.error(`❌ Error al registrar respuesta en el control panel: ${result.error}`);
+            }
         } catch (registroError) {
             console.error(`❌ Error al registrar respuesta en el control panel:`, registroError.message);
             // No fallamos el proceso principal si el registro falla
@@ -210,7 +267,10 @@ app.post('/webhook', async (req, res) => {
 app.get('/', (req, res) => {
     res.status(200).json({
         status: "ok", 
-        message: "WhatsApp API server is running"
+        message: "WhatsApp API server is running",
+        config: {
+            control_panel: CONTROL_PANEL_URL
+        }
     });
 });
 
