@@ -1,20 +1,19 @@
 /**
  * FIX DIRECTO PARA BOT WHATSAPP
  * 
- * Este script debe copiarse y ejecutarse directamente en el servidor del bot
- * para que los mensajes se guarden correctamente en el panel de control.
- * 
- * CÓMO USAR:
- * 1. Copia este archivo al servidor del bot de WhatsApp
- * 2. Ejecútalo: node fix-real-bot.js
+ * Este script corrige el problema de URLs duplicadas en las peticiones al panel de control.
+ * Debe ser incluido al inicio del archivo principal del bot (index.js).
  */
 
 // Configuración
-const CONTROL_PANEL_URL = 'https://panel-control-whatsapp.onrender.com'; // URL CORRECTA del panel de control
+const CONTROL_PANEL_URL = 'https://panel-control-whatsapp.onrender.com'; // URL correcta del panel
 const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
-// Parchear axios
-console.log('🔧 Aplicando parche directo al bot de WhatsApp...');
+// Mensaje de inicio
+console.log('🔧 APLICANDO PARCHE PARA CORREGIR URLs DEL BOT WHATSAPP');
+console.log('CONTROL_PANEL_URL actual:', CONTROL_PANEL_URL);
+console.log('Ambiente:', process.env.NODE_ENV === 'production' ? 'Producción' : 'Desarrollo');
+console.log('URL que se usará:', CONTROL_PANEL_URL);
 
 // Guardar una referencia al require original
 const originalRequire = require;
@@ -38,6 +37,9 @@ require = function(moduleName) {
         // Detectar y corregir URLs duplicadas
         let correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
         
+        // Eliminar cualquier duplicación de ruta
+        correctUrl = correctUrl.replace(/\/register-bot-response\/register-bot-response$/, '/register-bot-response');
+        
         console.log(`🔄 Redirigiendo petición de ${url} a ${correctUrl}`);
         
         // Asegurar que business_id esté presente
@@ -56,98 +58,42 @@ require = function(moduleName) {
   return module;
 };
 
-// Crear función global para registrar mensajes
-global.registerBotMessage = async function(phoneNumber, message) {
+// Crear función global para registrar respuestas del bot
+global.registerBotResponse = async function(phoneNumber, message, businessId = BUSINESS_ID) {
   try {
     const axios = require('axios');
-    console.log(`🤖 Registrando mensaje para ${phoneNumber}`);
+    console.log(`🤖 Registrando respuesta para ${phoneNumber}`);
     
     const correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
-    const response = await axios.post(correctUrl, {
+    console.log(`📤 Enviando a: ${correctUrl}`);
+    
+    const payload = {
       conversationId: phoneNumber,
       message: message,
-      business_id: BUSINESS_ID
-    });
+      business_id: businessId
+    };
     
-    console.log('✅ Mensaje registrado correctamente:', response.data);
+    const response = await axios.post(correctUrl, payload);
+    console.log('✅ Respuesta registrada correctamente:', response.data);
     return response.data;
   } catch (error) {
-    console.error('❌ Error al registrar mensaje:', error.message);
+    console.error('❌ Error al registrar respuesta:', error.message);
+    if (error.response) {
+      console.error('Detalles de error:', error.response.data);
+    }
     throw error;
   }
 };
 
-// Encontrar el módulo real del bot
-try {
-  console.log('🔍 Buscando módulo del bot...');
-  
-  // Intentar encontrar el módulo por su nombre
-  const possibleModules = [
-    './app.js',
-    './index.js',
-    './bot.js',
-    './server.js',
-    './whatsapp-bot.js'
-  ];
-  
-  let botModule = null;
-  
-  for (const modulePath of possibleModules) {
-    try {
-      console.log(`🔍 Probando ${modulePath}...`);
-      const mod = require(modulePath);
-      console.log(`✅ Módulo encontrado: ${modulePath}`);
-      botModule = mod;
-      break;
-    } catch (e) {
-      // Ignorar errores
-    }
-  }
-  
-  if (botModule) {
-    console.log('🤖 Modificando funciones del bot...');
-    
-    // Si el bot tiene una función para manejar respuestas, guardarla como referencia
-    if (typeof botModule.registerBotResponse === 'function') {
-      const originalRegisterBotResponse = botModule.registerBotResponse;
-      
-      botModule.registerBotResponse = function(phoneNumber, message, ...args) {
-        // Registrar el mensaje primero con nuestra función
-        registerBotMessage(phoneNumber, message)
-          .then(() => console.log('✅ Mensaje registrado con éxito'))
-          .catch(err => console.error('❌ Error al registrar:', err.message));
-        
-        // Llamar a la función original para mantener la compatibilidad
-        return originalRegisterBotResponse(phoneNumber, message, ...args);
-      };
-      
-      console.log('✅ Función registerBotResponse modificada');
-    }
-  } else {
-    console.log('⚠️ No se encontró un módulo de bot conocido, aplicando parche global');
-  }
-} catch (e) {
-  console.error('❌ Error al buscar módulo del bot:', e.message);
-}
+// Mensaje de confirmación
+console.log('✅ Parche aplicado correctamente');
+console.log('📝 De ahora en adelante, las URLs duplicadas serán corregidas automáticamente');
+console.log(`🌐 En ambiente de producción, se usará: ${CONTROL_PANEL_URL}`);
+console.log('🔍 También puedes usar la función global registerBotResponse() para enviar mensajes');
 
-// Instrucciones para conexión manual
-console.log('\n📋 INSTRUCCIONES PARA CORREGIR MANUALMENTE LOS MENSAJES:');
-console.log('1. Añade este código al inicio del archivo principal del bot:');
-console.log('   require("./fix-real-bot.js");');
-console.log('2. Para registrar mensajes manualmente, usa:');
-console.log('   global.registerBotMessage(phoneNumber, message)');
-console.log('3. Para cambiar la URL del panel, edita CONTROL_PANEL_URL en este archivo');
-
-// Lista los parches aplicados
-console.log('\n✅ PARCHES APLICADOS:');
-console.log('● Interceptor de axios para corregir URLs duplicadas');
-console.log('● Función global registerBotMessage para envío manual');
-console.log('● Corrección automática de business_id faltante');
-
-console.log('\n🚀 Parche aplicado correctamente. Los mensajes ahora deberían guardarse en el panel de control.');
-
-// Exportar la función de registro
+// Exportar funciones y configuración
 module.exports = {
-  registerBotMessage: global.registerBotMessage,
-  CONTROL_PANEL_URL
+  registerBotResponse: global.registerBotResponse,
+  CONTROL_PANEL_URL,
+  BUSINESS_ID
 }; 
