@@ -1,4 +1,5 @@
 require("./fix-real-bot.js"); // Corrige URLs duplicadas en peticiones
+require("./fix-real-bot.js"); // Corrige URLs duplicadas en peticiones
 require("./fix-real-bot.js"); // Corrige URLs duplicadas en peticiones al panel de control
 require('dotenv').config();
 const express = require('express');
