@@ -44,13 +44,18 @@ const isUrlAvailable = (url) => {
 
 // Selección de URL con fallback
 const selectUrl = () => {
-  // Primera opción: URL configurada en variables de entorno
+  // En producción, forzar siempre la URL de producción
+  if (process.env.NODE_ENV === 'production') {
+    console.log(`🌐 Ambiente de PRODUCCIÓN detectado - Usando URL de producción`);
+    return DEFAULT_PROD_URL;
+  }
+  
+  // Para desarrollo, intentar usar la URL local primero
+  console.log(`🌐 Ambiente de DESARROLLO detectado - Intentando URL local`);
   const envUrl = process.env.CONTROL_PANEL_URL;
   
-  // Segunda opción: URL según ambiente
-  const defaultUrl = process.env.NODE_ENV === 'production' 
-    ? DEFAULT_PROD_URL 
-    : DEFAULT_DEV_URL;
+  // Segunda opción: URL según ambiente (ya sabemos que estamos en desarrollo)
+  const defaultUrl = DEFAULT_DEV_URL;
   
   // Verificar disponibilidad y seleccionar
   const primaryUrl = envUrl || defaultUrl;
@@ -63,7 +68,10 @@ const selectUrl = () => {
   return DEFAULT_PROD_URL;
 };
 
-const CONTROL_PANEL_URL = selectUrl();
+// Forzar la URL correcta según el ambiente
+const CONTROL_PANEL_URL = process.env.NODE_ENV === 'production' 
+  ? DEFAULT_PROD_URL  // Siempre usar la URL de producción en producción
+  : selectUrl();      // En desarrollo, usar la lógica de selección
 const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
 // Mensaje de inicio
