@@ -6,7 +6,9 @@
  */
 
 // Configuración
-const CONTROL_PANEL_URL = 'https://panel-control-whatsapp.onrender.com'; // URL correcta del panel
+const CONTROL_PANEL_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://panel-control-whatsapp.onrender.com' // URL para producción
+  : 'http://localhost:4001'; // URL para desarrollo local
 const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
 // Mensaje de inicio
