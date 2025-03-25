@@ -109,6 +109,8 @@ require('axios').post = function(url, data, config) {
   if (url.includes('/register-bot-response') || url.includes('/api/register-bot-response')) {
     // Extraer la base URL para asegurarnos de que estamos usando el dominio correcto
     let baseUrl = url;
+    
+    // Extraer solo el dominio base
     if (baseUrl.includes('/register-bot-response')) {
       baseUrl = baseUrl.substring(0, baseUrl.indexOf('/register-bot-response'));
     } else if (baseUrl.includes('/api/register-bot-response')) {
@@ -116,6 +118,7 @@ require('axios').post = function(url, data, config) {
     }
     
     // En producción, usar la ruta de API de Next.js
+    let correctUrl;
     if (process.env.NODE_ENV === 'production') {
       // Usar el endpoint de API en Next.js
       correctUrl = `${baseUrl}/api/register-bot-response`;
@@ -140,8 +143,8 @@ require('axios').post = function(url, data, config) {
         if (error.response && error.response.status === 404) {
           // Si hay un error 404, intentar la otra variante de URL
           const alternativeUrl = correctUrl.includes('/api/') 
-            ? correctUrl.replace('/api/register-bot-response', '/register-bot-response') 
-            : correctUrl.replace('/register-bot-response', '/api/register-bot-response');
+            ? `${baseUrl}/register-bot-response` 
+            : `${baseUrl}/api/register-bot-response`;
           
           console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
           return originalPost.call(this, alternativeUrl, data, config)
@@ -231,8 +234,8 @@ global.registerBotResponse = function(conversationId, message) {
       // Si hay un error 404, intentamos con la URL alternativa
       if (error.response && error.response.status === 404) {
         const alternativeUrl = url.includes('/api/') 
-          ? url.replace('/api/register-bot-response', '/register-bot-response') 
-          : url.replace('/register-bot-response', '/api/register-bot-response');
+          ? `${baseUrl}/register-bot-response`
+          : `${baseUrl}/api/register-bot-response`;
         
         console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
         return require('axios').post(alternativeUrl, data)
@@ -306,6 +309,35 @@ console.log('📦 Sistema de fallback activado: los mensajes se guardarán local
         console.log(`⚠️ La ruta API responde con código ${error.response.status} (esto puede ser normal si solo acepta POST)`);
       } else {
         console.error(`❌ Ruta API no encontrada: ${error.message}`);
+      }
+    }
+    
+    // Intentando con puerto explícito (10000) como lo indican los logs
+    if (baseUrl.includes('render-wa.onrender.com')) {
+      const portUrl = baseUrl.replace('render-wa.onrender.com', 'render-wa.onrender.com:10000');
+      console.log(`📡 Probando con puerto explícito: ${portUrl}`);
+      
+      try {
+        await axios.get(portUrl);
+        console.log('✅ Conexión exitosa con puerto explícito');
+        
+        // Si funciona, probar las rutas con el puerto
+        const portDirectRoute = `${portUrl}/register-bot-response`;
+        console.log(`📡 Probando ruta directa con puerto: ${portDirectRoute}`);
+        await axios.get(portDirectRoute);
+        console.log('✅ Ruta directa con puerto accesible');
+        
+        // Actualizar la URL para usar este puerto
+        console.log('⚠️ Actualizando URL para usar el puerto explícito');
+        global.CONTROL_PANEL_URL = portUrl;
+        CONTROL_PANEL_URL = portUrl;
+        
+      } catch (error) {
+        if (error.response) {
+          console.log(`⚠️ El servidor con puerto explícito responde con código ${error.response.status}`);
+        } else {
+          console.error(`❌ No se pudo conectar al servidor con puerto explícito: ${error.message}`);
+        }
       }
     }
     
