@@ -117,8 +117,8 @@ app.post('/webhook', async (req, res) => {
     // Enviar respuesta a WhatsApp
     await sendWhatsAppResponse(sender, response);
     
-    // Registrar respuesta en el panel de control
-    await registerBotResponse(sender, response, BUSINESS_ID);
+    // Registrar respuesta en el panel de control usando la función global
+    await global.registerBotResponse(sender, response, BUSINESS_ID);
     
     return res.status(200).send('OK');
   } catch (error) {
