@@ -9,12 +9,7 @@
 const SUPABASE_URL = 'https://wscijkxwevgxbgwhbqtm.supabase.co';
 
 // Clave anónima de tu proyecto Supabase
-// Para obtener esta clave:
-// 1. Inicia sesión en https://supabase.com
-// 2. Selecciona tu proyecto (wscijkxwevgxbgwhbqtm)
-// 3. Ve a Settings -> API
-// 4. Copia la "anon public" key y pégala aquí
-const SUPABASE_KEY = 'tu-clave-anonima';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI3NjgsImV4cCI6MjA1NzM5ODc2OH0._HSnvof7NUk6J__qqq3gJvbJRZnItCAmlI5HYAL8WVI';
 
 // ID del negocio para las conversaciones
 const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
