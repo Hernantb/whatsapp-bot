@@ -736,4 +736,71 @@ module.exports = {
   registerBotResponse: global.registerBotResponse,
   CONTROL_PANEL_URL,
   BUSINESS_ID
-}; 
+};
+
+// Al inicio del archivo, donde se importan las dependencias
+// IMPORTANTE: Agregar este código al inicio, después de las importaciones
+console.log('📡 VERIFICACIÓN DE ACCESO A SUPABASE');
+
+// Verificar si Supabase es accesible desde este entorno
+(async function testSupabaseAccess() {
+  try {
+    console.log('🔍 Intentando acceder a Supabase con Axios...');
+    const axiosResponse = await axios.get('https://ecnimzwygbbumxdcilsb.supabase.co/rest/v1/conversations?limit=1', {
+      headers: {
+        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+      },
+      timeout: 5000
+    });
+    console.log('✅ SUPABASE ACCESIBLE VIA AXIOS:', axiosResponse.status);
+    console.log('✅ CONTENIDO DE RESPUESTA:', JSON.stringify(axiosResponse.data).substring(0, 100) + '...');
+  } catch (axiosError) {
+    console.error('❌ ERROR ACCEDIENDO A SUPABASE VIA AXIOS:', axiosError.message);
+    if (axiosError.code === 'ENOTFOUND') {
+      console.error('❌ NO SE PUEDE RESOLVER EL HOSTNAME DE SUPABASE - PROBLEMA DE DNS');
+    } else if (axiosError.response) {
+      console.error('ℹ️ RESPUESTA DE ERROR:', axiosError.response.status, axiosError.response.statusText);
+    }
+  }
+
+  // Intentar con fetch nativo si está disponible
+  if (global.fetch) {
+    try {
+      console.log('🔍 Intentando acceder a Supabase con Fetch nativo...');
+      const fetchResponse = await fetch('https://ecnimzwygbbumxdcilsb.supabase.co/rest/v1/conversations?limit=1', {
+        headers: {
+          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+        }
+      });
+      const data = await fetchResponse.json();
+      console.log('✅ SUPABASE ACCESIBLE VIA FETCH NATIVO:', fetchResponse.status);
+      console.log('✅ CONTENIDO DE RESPUESTA:', JSON.stringify(data).substring(0, 100) + '...');
+    } catch (fetchError) {
+      console.error('❌ ERROR ACCEDIENDO A SUPABASE VIA FETCH NATIVO:', fetchError.message);
+    }
+  } else {
+    console.log('ℹ️ Fetch nativo no disponible en este entorno');
+  }
+  
+  // Intentar con node-fetch si está disponible
+  try {
+    const nodeFetch = require('node-fetch');
+    console.log('🔍 Intentando acceder a Supabase con node-fetch...');
+    try {
+      const nodeFetchResponse = await nodeFetch('https://ecnimzwygbbumxdcilsb.supabase.co/rest/v1/conversations?limit=1', {
+        headers: {
+          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+        }
+      });
+      const data = await nodeFetchResponse.json();
+      console.log('✅ SUPABASE ACCESIBLE VIA NODE-FETCH:', nodeFetchResponse.status);
+      console.log('✅ CONTENIDO DE RESPUESTA:', JSON.stringify(data).substring(0, 100) + '...');
+    } catch (nodeFetchError) {
+      console.error('❌ ERROR ACCEDIENDO A SUPABASE VIA NODE-FETCH:', nodeFetchError.message);
+    }
+  } catch (requireError) {
+    console.log('ℹ️ node-fetch no está instalado o no es accesible');
+  }
+
+  console.log('📡 FIN DE VERIFICACIÓN DE ACCESO A SUPABASE');
+})(); 
