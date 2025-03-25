@@ -6,9 +6,46 @@
  */
 
 // Configuración
-const CONTROL_PANEL_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://panel-control-whatsapp.onrender.com' // URL para producción
-  : 'http://localhost:4001'; // URL para desarrollo local
+const DEFAULT_PROD_URL = 'https://panel-control-whatsapp.onrender.com';
+const DEFAULT_DEV_URL = 'http://localhost:4001';
+
+// Función para verificar disponibilidad de URL (mock - siempre asume que render está disponible en producción)
+const isUrlAvailable = (url) => {
+  if (url.includes('localhost')) {
+    // En entorno de desarrollo, verificamos si hay un servidor local
+    try {
+      // Nota: esta es una verificación simulada, en un caso real
+      // se intentaría una conexión real antes de determinar disponibilidad
+      return process.env.NODE_ENV !== 'production';
+    } catch (e) {
+      return false;
+    }
+  }
+  return true; // Asumimos que URLs externas están disponibles
+};
+
+// Selección de URL con fallback
+const selectUrl = () => {
+  // Primera opción: URL configurada en variables de entorno
+  const envUrl = process.env.CONTROL_PANEL_URL;
+  
+  // Segunda opción: URL según ambiente
+  const defaultUrl = process.env.NODE_ENV === 'production' 
+    ? DEFAULT_PROD_URL 
+    : DEFAULT_DEV_URL;
+  
+  // Verificar disponibilidad y seleccionar
+  const primaryUrl = envUrl || defaultUrl;
+  if (isUrlAvailable(primaryUrl)) {
+    return primaryUrl;
+  }
+  
+  // Fallback a URL de producción si la primaria no está disponible
+  console.warn(`⚠️ URL primaria ${primaryUrl} no disponible, usando fallback: ${DEFAULT_PROD_URL}`);
+  return DEFAULT_PROD_URL;
+};
+
+const CONTROL_PANEL_URL = selectUrl();
 const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
 // Mensaje de inicio
