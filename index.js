@@ -1,5 +1,5 @@
-// Cargar la integración con Supabase
-require('./integrate-supabase.js');
+// Cargar el parche global que define registerBotResponse
+require('./global-patch.js');
 
 // Importaciones principales
 const axios = require('axios');
@@ -171,12 +171,14 @@ app.post('/webhook', async (req, res) => {
       // Registrar respuesta en el panel de control usando la función global
       console.log(`🔄 Intentando registrar respuesta con business_id: ${BUSINESS_ID}`);
       
-      // Usar saveToSupabase global para guardar en Supabase
-      if (global.saveToSupabase) {
-        const result = await global.saveToSupabase(sender, response);
+      // Usar la función global registerBotResponse para guardar en Supabase
+      const result = await global.registerBotResponse(sender, response, BUSINESS_ID);
+      
+      // Verificar resultado
+      if (result && result.success === true) {
         console.log(`✅ Respuesta guardada correctamente en Supabase`);
       } else {
-        console.error(`❌ Error al guardar en Supabase: función no disponible`);
+        console.error(`❌ Error al guardar en Supabase: ${result?.error || 'Error desconocido'}`);
       }
       
       // También usar la función local para el panel de control
