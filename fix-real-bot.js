@@ -100,10 +100,19 @@ require = function(moduleName) {
           (url.includes('/register-bot-response') || url.includes('/api/register-bot-response'))) {
         
         // Detectar y corregir URLs duplicadas
-        let correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
+        let correctUrl;
+        
+        // En producción, usar la API de Next.js
+        if (process.env.NODE_ENV === 'production') {
+          correctUrl = `${CONTROL_PANEL_URL}/api/register-bot-response`;
+        } else {
+          correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
+        }
         
         // Eliminar cualquier duplicación de ruta
-        correctUrl = correctUrl.replace(/\/register-bot-response\/register-bot-response$/, '/register-bot-response');
+        correctUrl = correctUrl
+          .replace(/\/register-bot-response\/register-bot-response$/, '/register-bot-response')
+          .replace(/\/api\/register-bot-response\/api\/register-bot-response$/, '/api/register-bot-response');
         
         console.log(`🔄 Redirigiendo petición de ${url} a ${correctUrl}`);
         
@@ -129,7 +138,15 @@ global.registerBotResponse = async function(phoneNumber, message, businessId = B
     const axios = require('axios');
     console.log(`🔄 Registrando respuesta del bot para conversación ${phoneNumber}`);
     
-    const correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
+    // Intentamos primero con la ruta directa
+    let correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
+    
+    // Verificamos si estamos en producción para intentar con la ruta API de Next.js
+    if (process.env.NODE_ENV === 'production') {
+      console.log('🔄 Intentando con ruta API de Next.js');
+      correctUrl = `${CONTROL_PANEL_URL}/api/register-bot-response`;
+    }
+    
     console.log(`🔄 Registrando respuesta del bot en el control panel: ${correctUrl}`);
     
     const payload = {
@@ -140,9 +157,24 @@ global.registerBotResponse = async function(phoneNumber, message, businessId = B
     
     console.log('📤 Payload enviado:', JSON.stringify(payload));
     
-    const response = await axios.post(correctUrl, payload);
-    console.log('✅ Respuesta registrada correctamente:', response.data);
-    return response.data;
+    try {
+      const response = await axios.post(correctUrl, payload);
+      console.log('✅ Respuesta registrada correctamente:', response.data);
+      return response.data;
+    } catch (error) {
+      if (error.response && error.response.status === 404 && correctUrl.includes('/register-bot-response') && !correctUrl.includes('/api/')) {
+        // Si fallamos con la ruta directa, intentamos con la ruta de API de Next.js
+        console.log('⚠️ Ruta directa no encontrada, intentando con ruta API de Next.js');
+        correctUrl = correctUrl.replace('/register-bot-response', '/api/register-bot-response');
+        console.log(`🔄 Nuevo intento con: ${correctUrl}`);
+        
+        const nextResponse = await axios.post(correctUrl, payload);
+        console.log('✅ Respuesta registrada correctamente en ruta alternativa:', nextResponse.data);
+        return nextResponse.data;
+      } else {
+        throw error; // Re-lanzar el error si no es un 404 o ya estamos usando la ruta API
+      }
+    }
   } catch (error) {
     console.error('❌ Error al registrar respuesta en el control panel:', error.message);
     if (error.response) {
