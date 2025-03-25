@@ -6,7 +6,7 @@
  */
 
 // Configuración
-const DEFAULT_PROD_URL = 'https://panel-control-whatsapp.onrender.com';
+const DEFAULT_PROD_URL = 'https://render-wa.onrender.com';
 const DEFAULT_DEV_URL = 'http://localhost:4001';
 
 // Función para verificar disponibilidad de URL (mock - siempre asume que render está disponible en producción)
