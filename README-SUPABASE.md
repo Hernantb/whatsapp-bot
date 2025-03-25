@@ -12,7 +12,40 @@ Se ha implementado un sistema de configuración flexible que permite cambiar fá
 2. Se modificaron los archivos `fix-real-bot.js` y `test-dns.js` para utilizar esta configuración centralizada.
 3. Se agregó soporte para variables de entorno, que tienen prioridad sobre la configuración del archivo.
 
-## Pasos para configurar un nuevo proyecto Supabase
+## Configuración actual
+
+El bot está configurado para usar el proyecto Supabase `wscijkxwevgxbgwhbqtm.supabase.co`. Las pruebas han confirmado que:
+
+1. El proyecto existe y es accesible
+2. Las tablas necesarias (`conversations` y `messages`) están creadas
+3. La integración funciona correctamente
+
+## Estructura de las tablas en Supabase
+
+El sistema utiliza dos tablas principales con la siguiente estructura:
+
+**Tabla `conversations`:**
+```
+- id (UUID): Identificador único de la conversación
+- user_id (TEXT): Número de teléfono del usuario
+- business_id (UUID): Identificador del negocio
+- name (TEXT): Nombre del usuario, por defecto 'Usuario'
+- last_message (TEXT): Último mensaje de la conversación
+- created_at (TIMESTAMP): Fecha y hora de creación
+- updated_at (TIMESTAMP): Fecha y hora de última actualización
+```
+
+**Tabla `messages`:**
+```
+- id (UUID): Identificador único del mensaje
+- conversation_id (UUID): Referencia a la conversación
+- content (TEXT): Contenido del mensaje
+- sender_type (TEXT): Tipo de remitente ('user' o 'bot')
+- read (BOOLEAN): Indica si el mensaje ha sido leído
+- created_at (TIMESTAMP): Fecha y hora de creación
+```
+
+## Pasos para configurar un nuevo proyecto Supabase (si fuera necesario)
 
 1. **Crear un nuevo proyecto en Supabase:**
    - Visita [https://supabase.com](https://supabase.com) y crea una cuenta o inicia sesión.
@@ -25,7 +58,7 @@ Se ha implementado un sistema de configuración flexible que permite cambiar fá
    ```sql
    CREATE TABLE conversations (
      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-     phone_number TEXT NOT NULL,
+     user_id TEXT NOT NULL,
      business_id UUID NOT NULL,
      name TEXT DEFAULT 'Usuario',
      last_message TEXT,
@@ -33,7 +66,7 @@ Se ha implementado un sistema de configuración flexible que permite cambiar fá
      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
    );
    
-   CREATE INDEX idx_conversations_phone_business ON conversations(phone_number, business_id);
+   CREATE INDEX idx_conversations_user_business ON conversations(user_id, business_id);
    ```
    
    **Tabla `messages`:**
@@ -41,8 +74,9 @@ Se ha implementado un sistema de configuración flexible que permite cambiar fá
    CREATE TABLE messages (
      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
      conversation_id UUID REFERENCES conversations(id),
-     message TEXT NOT NULL,
-     is_from_user BOOLEAN DEFAULT FALSE,
+     content TEXT NOT NULL,
+     sender_type TEXT DEFAULT 'bot',
+     read BOOLEAN DEFAULT FALSE,
      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
    );
    
