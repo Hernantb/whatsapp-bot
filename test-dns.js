@@ -2,7 +2,13 @@
  * Script para verificar si el DNS de Supabase es accesible
  */
 const dns = require('dns');
-const SUPABASE_HOST = 'ecnimzwygbbumxdcilsb.supabase.co';
+
+// Cargar configuración de Supabase
+let { SUPABASE_URL, SUPABASE_KEY } = require('./supabase-config');
+
+// Extraer el hostname de la URL
+const urlObj = new URL(SUPABASE_URL);
+const SUPABASE_HOST = urlObj.hostname;
 
 console.log(`🔍 Verificando acceso DNS a: ${SUPABASE_HOST}`);
 
@@ -48,6 +54,19 @@ dns.lookup(SUPABASE_HOST, (err, address, family) => {
               console.error('   ❌ DNS de Google falló:', err3.message);
               console.error('\n❌ PROBLEMA CRÍTICO: No se puede resolver Supabase con ningún proveedor DNS');
               console.error('❌ Esto sugiere un problema de conectividad a internet o bloqueo DNS específico');
+              console.error('❌ O que el proyecto Supabase no existe. Verifica las credenciales en supabase-config.js');
+              
+              // Probar con un dominio conocido para verificar si DNS funciona en general
+              console.log('\n🔍 Verificando si otros dominios funcionan (google.com)...');
+              dns.lookup('google.com', (err4, address4) => {
+                if (err4) {
+                  console.error('   ❌ No se puede resolver google.com - Problema general de DNS');
+                } else {
+                  console.log(`   ✅ google.com resuelve a: ${address4}`);
+                  console.log('   ✅ DNS general funciona, el problema es específico a Supabase');
+                  console.log('   ✅ Verifica que el proyecto Supabase exista y que la URL sea correcta');
+                }
+              });
             } else {
               console.log(`   ✅ Google DNS pudo resolver Supabase: ${address3}`);
               console.log('\n✅ SOLUCIÓN: Usa Google DNS (8.8.8.8, 8.8.4.4) en este servidor');
@@ -69,10 +88,10 @@ dns.lookup(SUPABASE_HOST, (err, address, family) => {
     console.log('\n🔍 Verificando conectividad HTTP...');
     const axios = require('axios');
     
-    axios.get(`https://${SUPABASE_HOST}/rest/v1/health`, {
+    axios.get(`${SUPABASE_URL}/rest/v1/health`, {
       timeout: 5000,
       headers: {
-        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+        'apikey': SUPABASE_KEY
       }
     })
     .then(response => {

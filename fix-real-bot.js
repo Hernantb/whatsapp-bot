@@ -11,9 +11,33 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
-// Configuración de Supabase
-const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
+// Cargar configuración de Supabase
+let { SUPABASE_URL, SUPABASE_KEY, BUSINESS_ID } = require('./supabase-config');
+
+// Verificar si las variables de entorno están definidas (tienen prioridad)
+if (process.env.SUPABASE_URL) {
+  SUPABASE_URL = process.env.SUPABASE_URL;
+  console.log('✅ Usando SUPABASE_URL desde variable de entorno');
+}
+
+if (process.env.SUPABASE_KEY) {
+  SUPABASE_KEY = process.env.SUPABASE_KEY;
+  console.log('✅ Usando SUPABASE_KEY desde variable de entorno');
+}
+
+if (process.env.BUSINESS_ID) {
+  BUSINESS_ID = process.env.BUSINESS_ID;
+  console.log('✅ Usando BUSINESS_ID desde variable de entorno');
+}
+
+// Verificar que las variables estén definidas
+if (SUPABASE_URL === 'https://tu-proyecto.supabase.co') {
+  console.error('⚠️ ADVERTENCIA: Debes configurar SUPABASE_URL en supabase-config.js o en variables de entorno');
+}
+
+if (SUPABASE_KEY === 'tu-clave-anonima') {
+  console.error('⚠️ ADVERTENCIA: Debes configurar SUPABASE_KEY en supabase-config.js o en variables de entorno');
+}
 
 // Configurar fetch para Node.js - VERSIÓN MEJORADA PARA RENDER
 let fetch;
@@ -161,8 +185,6 @@ if (CONTROL_PANEL_URL.includes('render-wa.onrender.com') && !CONTROL_PANEL_URL.i
   CONTROL_PANEL_URL = CONTROL_PANEL_URL.replace('render-wa.onrender.com', 'render-wa.onrender.com:10000');
   console.log('✅ URL con puerto:', CONTROL_PANEL_URL);
 }
-
-const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
 // Mostrar información del entorno actual
 console.log('🌐 Ambiente de ' + (process.env.NODE_ENV === 'production' ? 'PRODUCCIÓN' : 'DESARROLLO') + ' detectado - Intentando URL local');
@@ -436,10 +458,10 @@ console.log('📡 VERIFICACIÓN DE ACCESO A SUPABASE');
 // Verificar si Supabase es accesible desde este entorno
 (async function testSupabaseAccess() {
   try {
-    console.log('🔍 Intentando acceder a Supabase con Axios...');
-    const axiosResponse = await axios.get('https://ecnimzwygbbumxdcilsb.supabase.co/rest/v1/conversations?limit=1', {
+    console.log(`🔍 Intentando acceder a Supabase (${SUPABASE_URL}) con Axios...`);
+    const axiosResponse = await axios.get(`${SUPABASE_URL}/rest/v1/conversations?limit=1`, {
       headers: {
-        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+        'apikey': SUPABASE_KEY
       },
       timeout: 5000
     });
@@ -449,6 +471,7 @@ console.log('📡 VERIFICACIÓN DE ACCESO A SUPABASE');
     console.error('❌ ERROR ACCEDIENDO A SUPABASE VIA AXIOS:', axiosError.message);
     if (axiosError.code === 'ENOTFOUND') {
       console.error('❌ NO SE PUEDE RESOLVER EL HOSTNAME DE SUPABASE - PROBLEMA DE DNS');
+      console.error('ℹ️ Asegúrate de que el SUPABASE_URL en supabase-config.js sea correcto');
     } else if (axiosError.response) {
       console.error('ℹ️ RESPUESTA DE ERROR:', axiosError.response.status, axiosError.response.statusText);
     }
@@ -457,10 +480,10 @@ console.log('📡 VERIFICACIÓN DE ACCESO A SUPABASE');
   // Intentar con fetch nativo si está disponible
   if (global.fetch) {
     try {
-      console.log('🔍 Intentando acceder a Supabase con Fetch nativo...');
-      const fetchResponse = await fetch('https://ecnimzwygbbumxdcilsb.supabase.co/rest/v1/conversations?limit=1', {
+      console.log(`🔍 Intentando acceder a Supabase (${SUPABASE_URL}) con Fetch nativo...`);
+      const fetchResponse = await fetch(`${SUPABASE_URL}/rest/v1/conversations?limit=1`, {
         headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+          'apikey': SUPABASE_KEY
         }
       });
       const data = await fetchResponse.json();
@@ -476,11 +499,11 @@ console.log('📡 VERIFICACIÓN DE ACCESO A SUPABASE');
   // Intentar con node-fetch si está disponible
   try {
     const nodeFetch = require('node-fetch');
-    console.log('🔍 Intentando acceder a Supabase con node-fetch...');
+    console.log(`🔍 Intentando acceder a Supabase (${SUPABASE_URL}) con node-fetch...`);
     try {
-      const nodeFetchResponse = await nodeFetch('https://ecnimzwygbbumxdcilsb.supabase.co/rest/v1/conversations?limit=1', {
+      const nodeFetchResponse = await nodeFetch(`${SUPABASE_URL}/rest/v1/conversations?limit=1`, {
         headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+          'apikey': SUPABASE_KEY
         }
       });
       const data = await nodeFetchResponse.json();
