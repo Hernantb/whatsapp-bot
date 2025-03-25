@@ -69,9 +69,20 @@ const selectUrl = () => {
 };
 
 // Forzar la URL correcta según el ambiente
-const CONTROL_PANEL_URL = process.env.NODE_ENV === 'production' 
+let CONTROL_PANEL_URL = process.env.NODE_ENV === 'production' 
   ? DEFAULT_PROD_URL  // Siempre usar la URL de producción en producción
   : selectUrl();      // En desarrollo, usar la lógica de selección
+
+// Limpiar la URL: eliminar /register-bot-response o /api/register-bot-response si está presente
+if (CONTROL_PANEL_URL.includes('/register-bot-response') || CONTROL_PANEL_URL.includes('/api/register-bot-response')) {
+  console.log('⚠️ Detectada URL con ruta incluida. Corrigiendo para usar solo el dominio base...');
+  
+  // Eliminar cualquier ruta añadida a la URL base
+  CONTROL_PANEL_URL = CONTROL_PANEL_URL.replace(/\/(?:api\/)?register-bot-response.*$/, '');
+  
+  console.log('✅ URL corregida:', CONTROL_PANEL_URL);
+}
+
 const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
 // Mostrar información del entorno actual
@@ -94,23 +105,26 @@ console.log('URL que se usará:', correctUrl);
 // Sobrescribir el método post de axios para interceptar y corregir URLs duplicadas
 const originalPost = require('axios').post;
 require('axios').post = function(url, data, config) {
-  // Verificar si la URL contiene register-bot-response (cualquiera de las dos variantes)
+  // Verificar si la URL ya contiene una ruta completa
   if (url.includes('/register-bot-response') || url.includes('/api/register-bot-response')) {
+    // Extraer la base URL para asegurarnos de que estamos usando el dominio correcto
+    let baseUrl = url;
+    if (baseUrl.includes('/register-bot-response')) {
+      baseUrl = baseUrl.substring(0, baseUrl.indexOf('/register-bot-response'));
+    } else if (baseUrl.includes('/api/register-bot-response')) {
+      baseUrl = baseUrl.substring(0, baseUrl.indexOf('/api/register-bot-response'));
+    }
+    
     // En producción, usar la ruta de API de Next.js
     if (process.env.NODE_ENV === 'production') {
       // Usar el endpoint de API en Next.js
-      correctUrl = `${CONTROL_PANEL_URL}/api/register-bot-response`;
+      correctUrl = `${baseUrl}/api/register-bot-response`;
     } else {
       // En desarrollo, usar la ruta directa
-      correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
+      correctUrl = `${baseUrl}/register-bot-response`;
     }
     
-    // Eliminar posibles rutas duplicadas
-    const baseUrl = CONTROL_PANEL_URL.replace(/\/$/, '');
-    const endpointPath = process.env.NODE_ENV === 'production' ? '/api/register-bot-response' : '/register-bot-response';
-    correctUrl = `${baseUrl}${endpointPath}`;
-    
-    console.log(`📝 Redirección de solicitud a URL corregida: ${correctUrl}`);
+    console.log(`🔄 Redirigiendo petición de ${url} a ${correctUrl}`);
     
     // Asegurarse de que business_id esté incluido en los datos
     if (data && !data.business_id) {
@@ -125,9 +139,9 @@ require('axios').post = function(url, data, config) {
         
         if (error.response && error.response.status === 404) {
           // Si hay un error 404, intentar la otra variante de URL
-          const alternativeUrl = process.env.NODE_ENV === 'production' 
-            ? `${baseUrl}/register-bot-response` 
-            : `${baseUrl}/api/register-bot-response`;
+          const alternativeUrl = correctUrl.includes('/api/') 
+            ? correctUrl.replace('/api/register-bot-response', '/register-bot-response') 
+            : correctUrl.replace('/register-bot-response', '/api/register-bot-response');
           
           console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
           return originalPost.call(this, alternativeUrl, data, config)
@@ -204,6 +218,8 @@ global.registerBotResponse = function(conversationId, message) {
   const url = `${baseUrl}${endpointPath}`;
   
   console.log(`🚀 Enviando mensaje a: ${url}`);
+  console.log(`📝 Datos del mensaje: Conversación: ${conversationId}, Mensaje: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+  
   return require('axios').post(url, data)
     .then(response => {
       console.log('✅ Mensaje enviado correctamente');
@@ -211,6 +227,28 @@ global.registerBotResponse = function(conversationId, message) {
     })
     .catch(error => {
       console.error(`❌ Error al enviar mensaje: ${error.message}`);
+      
+      // Si hay un error 404, intentamos con la URL alternativa
+      if (error.response && error.response.status === 404) {
+        const alternativeUrl = url.includes('/api/') 
+          ? url.replace('/api/register-bot-response', '/register-bot-response') 
+          : url.replace('/register-bot-response', '/api/register-bot-response');
+        
+        console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
+        return require('axios').post(alternativeUrl, data)
+          .then(response => {
+            console.log('✅ Mensaje enviado correctamente (segundo intento)');
+            return response;
+          })
+          .catch(secondError => {
+            console.error(`❌ Error en segundo intento: ${secondError.message}`);
+            saveMessageToFallbackStorage(data);
+            throw secondError;
+          });
+      }
+      
+      // Si no es un 404 o no podemos hacer un segundo intento, guardar en fallback
+      saveMessageToFallbackStorage(data);
       throw error;
     });
 };
@@ -220,6 +258,64 @@ console.log('📝 De ahora en adelante, las URLs duplicadas serán corregidas au
 console.log('🌐 En ambiente de producción, se usará:', CONTROL_PANEL_URL);
 console.log('🔍 También puedes usar la función global registerBotResponse() para enviar mensajes');
 console.log('📦 Sistema de fallback activado: los mensajes se guardarán localmente si el servidor falla');
+
+// Realizar diagnóstico de conectividad al iniciar
+(async function diagnosticoInicial() {
+  try {
+    console.log('🔍 Iniciando diagnóstico de conectividad con el servidor...');
+    
+    const baseUrl = CONTROL_PANEL_URL;
+    const axios = require('axios');
+    
+    // Verificar la URL base
+    console.log(`📡 Probando conectividad con: ${baseUrl}`);
+    try {
+      await axios.get(baseUrl);
+      console.log('✅ Conexión a URL base exitosa');
+    } catch (error) {
+      if (error.response) {
+        // Si obtenemos una respuesta, incluso con error, el servidor está respondiendo
+        console.log(`✅ El servidor responde (código ${error.response.status}), pero la ruta raíz puede no estar configurada`);
+      } else {
+        console.error(`❌ No se pudo conectar al servidor: ${error.message}`);
+      }
+    }
+    
+    // Probar rutas de registro de bot
+    const directRoute = `${baseUrl}/register-bot-response`;
+    const apiRoute = `${baseUrl}/api/register-bot-response`;
+    
+    console.log(`📡 Probando ruta directa: ${directRoute}`);
+    try {
+      await axios.get(directRoute);
+      console.log('✅ Ruta directa accesible');
+    } catch (error) {
+      if (error.response && error.response.status !== 404) {
+        console.log(`⚠️ La ruta directa responde con código ${error.response.status} (esto puede ser normal si solo acepta POST)`);
+      } else {
+        console.error(`❌ Ruta directa no encontrada: ${error.message}`);
+      }
+    }
+    
+    console.log(`📡 Probando ruta API: ${apiRoute}`);
+    try {
+      await axios.get(apiRoute);
+      console.log('✅ Ruta API accesible');
+    } catch (error) {
+      if (error.response && error.response.status !== 404) {
+        console.log(`⚠️ La ruta API responde con código ${error.response.status} (esto puede ser normal si solo acepta POST)`);
+      } else {
+        console.error(`❌ Ruta API no encontrada: ${error.message}`);
+      }
+    }
+    
+    console.log('📊 Diagnóstico finalizado. El bot intentará ambas rutas si es necesario.');
+    console.log('🔔 IMPORTANTE: Si ninguna ruta está disponible, los mensajes se guardarán localmente.');
+    
+  } catch (error) {
+    console.error('❌ Error durante el diagnóstico:', error);
+  }
+})();
 
 // Exportar funciones y configuración
 module.exports = {
