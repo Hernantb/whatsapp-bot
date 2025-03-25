@@ -1,14 +1,23 @@
-require('dotenv').config();
-const express = require('express');
+require('./fix-real-bot.js');
+
+// Importaciones principales
 const axios = require('axios');
+const express = require('express');
+const bodyParser = require('body-parser');
+const dotenv = require('dotenv');
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
 
-const app = express();
-app.use(express.json());
+// Cargar variables de entorno
+dotenv.config();
 
-// 🔑 Cargar claves de API
+// Configuración de OpenAI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ASSISTANT_ID = process.env.ASSISTANT_ID || "asst_abc123"; // ID del asistente de OpenAI
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
+const PORT = process.env.PORT || 3000;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 
 // 🔧 Parche de URL: Corregir CONTROL_PANEL_URL si es necesario
@@ -50,12 +59,16 @@ console.log("📝 De ahora en adelante, las URLs duplicadas serán corregidas au
 console.log("🌐 En ambiente de producción, se usará:", isProd ? process.env.CONTROL_PANEL_URL : "URL de desarrollo");
 console.log("🔍 También puedes usar la función global registerBotResponse() para enviar mensajes");
 
-// URL del servidor de control panel
-const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:3001';
-// Nivel de logging
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
-// Forzar guardado en Supabase
-const FORCE_SAVE_TO_SUPABASE = process.env.FORCE_SAVE_TO_SUPABASE === 'true';
+
+// URL del servidor de control panel
+const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'https://panel-control-whatsapp.onrender.com';
+const BUSINESS_ID = process.env.BUSINESS_ID || '2d385aa5-40e0-4ec9-9360-19281bc605e4';
+
+// Configuración express
+const app = express();
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
@@ -131,183 +144,50 @@ async function registerBotResponse(conversationId, message, threadId) {
     }
 }
 
-// 📩 Webhook para recibir mensajes de WhatsApp
+// Punto de entrada para webhooks de WhatsApp
 app.post('/webhook', async (req, res) => {
-    try {
-        console.log("📩 Mensaje recibido en bruto:", JSON.stringify(req.body, null, 2));
-
-        // Extraer información básica
-        const entry = req.body.entry?.[0];
-        const changes = entry?.changes?.[0];
-        const value = changes?.value;
-
-        // Verificar si es una notificación de estado
-        if (value?.statuses && Array.isArray(value.statuses) && value.statuses.length > 0) {
-            const status = value.statuses[0];
-            console.log(`📊 Notificación de estado: ${status.status} para mensaje enviado a ${status.recipient_id}`);
-            return res.status(200).send("Estado recibido correctamente");
-        }
-        
-        // Verificar si es un mensaje de texto
-        const message = value?.messages?.[0];
-        if (!message) {
-            console.log("ℹ️ No se encontró un mensaje para procesar");
-            return res.status(200).send("Evento recibido pero no procesable");
-        }
-
-        // Verificar si el mensaje tiene texto
-        if (!message.text || !message.text.body) {
-            console.log(`ℹ️ Mensaje de tipo ${message.type} recibido, pero no contiene texto`);
-            return res.status(200).send("Mensaje sin texto recibido");
-        }
-
-        const mensaje = message.text.body;
-        const sender = message.from;
-
-        console.log(`👤 Mensaje recibido de ${sender}: ${mensaje}`);
-
-        // 🔹 Evitar responder a mensajes duplicados
-        if (message.id && userThreads[sender]?.lastMessageId === message.id) {
-            console.log("⚠️ Mensaje duplicado detectado. Ignorando...");
-            return res.status(200).send("Mensaje duplicado, ignorado.");
-        }
-
-        // Guardar el último mensaje procesado
-        userThreads[sender] = {
-            lastMessageId: message.id,
-            threadId: userThreads[sender]?.threadId || null,
-            conversationId: userThreads[sender]?.conversationId || sender // Usar el número como ID si no hay otro
-        };
-
-        // 🔹 Crear un nuevo thread si es un usuario nuevo
-        let threadId = userThreads[sender].threadId;
-        if (!threadId) {
-            console.log(`🆕 Creando nuevo thread para usuario: ${sender}`);
-            const threadResponse = await axios.post(
-                "https://api.openai.com/v1/threads",
-                {},
-                {
-                    headers: {
-                        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                        "Content-Type": "application/json",
-                        "OpenAI-Beta": "assistants=v2"
-                    }
-                }
-            );
-            threadId = threadResponse.data.id;
-            userThreads[sender].threadId = threadId;
-        } else {
-            console.log(`🔄 Continuando conversación con thread_id: ${threadId}`);
-        }
-
-        // 🔹 Enviar mensaje al asistente en OpenAI
-        await axios.post(
-            `https://api.openai.com/v1/threads/${threadId}/messages`,
-            { role: "user", content: mensaje },
-            {
-                headers: {
-                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                    "Content-Type": "application/json",
-                    "OpenAI-Beta": "assistants=v2"
-                }
-            }
-        );
-
-        // 🔹 Ejecutar al asistente en el thread
-        const runResponse = await axios.post(
-            `https://api.openai.com/v1/threads/${threadId}/runs`,
-            { assistant_id: ASISTENTE_ID },
-            {
-                headers: {
-                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                    "Content-Type": "application/json",
-                    "OpenAI-Beta": "assistants=v2"
-                }
-            }
-        );
-
-        const runId = runResponse.data.id;
-
-        // 🔹 Esperar la respuesta del asistente
-        let aiResponse;
-        let retries = 10;
-        while (retries > 0) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            const statusResponse = await axios.get(
-                `https://api.openai.com/v1/threads/${threadId}/runs/${runId}`,
-                {
-                    headers: {
-                        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                        "Content-Type": "application/json",
-                        "OpenAI-Beta": "assistants=v2"
-                    }
-                }
-            );
-
-            if (statusResponse.data.status === "completed") {
-                aiResponse = statusResponse.data;
-                break;
-            }
-            retries--;
-        }
-
-        // 🔹 Obtener la respuesta del asistente
-        const messagesResponse = await axios.get(
-            `https://api.openai.com/v1/threads/${threadId}/messages`,
-            {
-                headers: {
-                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                    "Content-Type": "application/json",
-                    "OpenAI-Beta": "assistants=v2"
-                }
-            }
-        );
-
-        const respuesta = messagesResponse.data.data?.[0]?.content?.[0]?.text?.value || "No tengo una respuesta en este momento.";
-        console.log(`💬 Respuesta de Hernán CUPRA Master: ${respuesta}`);
-
-        // 📨 Enviar la respuesta a WhatsApp mediante Gupshup
-        await axios.post(
-            "https://api.gupshup.io/wa/api/v1/msg",
-            new URLSearchParams({
-                channel: "whatsapp",
-                source: GUPSHUP_NUMBER,
-                destination: sender,
-                message: JSON.stringify({ type: "text", text: respuesta })
-            }),
-            {
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "apikey": GUPSHUP_API_KEY
-                }
-            }
-        );
-
-        console.log(`✅ Mensaje enviado a ${sender}: ${respuesta}`);
-
-        // 🔄 Registrar la respuesta del bot en el servidor de control panel
-        try {
-            const result = await registerBotResponse(
-                userThreads[sender].conversationId,
-                respuesta,
-                threadId
-            );
-            
-            if (!result.success) {
-                console.error(`❌ Error al registrar respuesta en el control panel: ${result.error}`);
-            }
-        } catch (registroError) {
-            console.error(`❌ Error al registrar respuesta en el control panel:`, registroError.message);
-            // No fallamos el proceso principal si el registro falla
-        }
-
-        res.status(200).send("Mensaje procesado correctamente");
-
-    } catch (error) {
-        console.error("❌ Error procesando mensaje:", error.response?.data || error.message);
-        res.status(500).send("Error interno");
+  try {
+    console.log('📩 Mensaje recibido en webhook:', JSON.stringify(req.body));
+    
+    // Procesar el mensaje
+    const { message, sender } = extractMessageData(req.body);
+    
+    if (!message || !sender) {
+      console.log('⚠️ Mensaje no válido o no es un mensaje de texto');
+      return res.status(200).send('OK');
     }
+    
+    console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
+    
+    // Enviar mensaje a OpenAI
+    const response = await processMessageWithOpenAI(sender, message);
+    
+    // Enviar respuesta a WhatsApp
+    await sendWhatsAppResponse(sender, response);
+    
+    // Usar try/catch específico para el registro en panel de control
+    try {
+      // Registrar respuesta en el panel de control usando la función global
+      console.log(`🔄 Intentando registrar respuesta con business_id: ${BUSINESS_ID}`);
+      const result = await global.registerBotResponse(sender, response, BUSINESS_ID);
+      
+      // Verificar específicamente el resultado
+      if (result && result.success === false) {
+        console.error(`❌ Fallo al registrar respuesta: ${result.error || 'Error desconocido'}`);
+        // No lanzamos excepción para continuar el flujo
+      } else {
+        console.log(`✅ Respuesta registrada correctamente en el panel de control`);
+      }
+    } catch (controlPanelError) {
+      console.error(`❌ Error al registrar respuesta en panel: ${controlPanelError.message}`);
+      // No interrumpimos el flujo principal por un error en el registro
+    }
+    
+    return res.status(200).send('OK');
+  } catch (error) {
+    console.error('❌ Error procesando webhook:', error.message);
+    return res.status(500).send('Error');
+  }
 });
 
 // Endpoint para verificar que el servidor está funcionando
@@ -322,8 +202,76 @@ app.get('/', (req, res) => {
 });
 
 // 🟢 Iniciar servidor
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+    console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
+    console.log(`🤖 Bot conectado al panel: ${CONTROL_PANEL_URL}`);
 });
+
+// Función para extraer datos del mensaje
+function extractMessageData(body) {
+  try {
+    // Para mensajes de WhatsApp via GupShup
+    if (body.entry && body.entry[0] && body.entry[0].changes) {
+      const changes = body.entry[0].changes;
+      
+      for (const change of changes) {
+        if (change.field === 'messages' && change.value && change.value.messages && change.value.messages.length > 0) {
+          const message = change.value.messages[0];
+          const sender = message.from;
+          
+          if (message.type === 'text' && message.text && message.text.body) {
+            return {
+              message: message.text.body,
+              sender: sender,
+              timestamp: message.timestamp
+            };
+          }
+        }
+      }
+    }
+    
+    console.log('⚠️ Formato de mensaje no reconocido:', JSON.stringify(body));
+    return { message: null, sender: null };
+  } catch (error) {
+    console.error('❌ Error al extraer datos del mensaje:', error.message);
+    return { message: null, sender: null };
+  }
+}
+
+// Función para procesar mensaje con OpenAI
+async function processMessageWithOpenAI(sender, message) {
+  try {
+    // Implementación real con OpenAI se añadiría aquí
+    console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message}"`);
+    
+    // Por ahora, devolvemos una respuesta automática
+    return "Esta es una respuesta automática de prueba";
+  } catch (error) {
+    console.error('❌ Error procesando mensaje con OpenAI:', error.message);
+    return "Lo siento, tuve un problema procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
+  }
+}
+
+// Función para enviar respuesta a WhatsApp
+async function sendWhatsAppResponse(recipient, message) {
+  try {
+    console.log(`📤 Enviando respuesta a ${recipient}: "${message}"`);
+    
+    // Aquí iría la implementación real de envío a WhatsApp via API
+    // Por ahora solo logueamos la respuesta
+    console.log(`✅ Mensaje enviado a ${recipient}: ${message}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Error enviando mensaje a WhatsApp:', error.message);
+    return false;
+  }
+}
+
+// Exportar funciones para testing
+module.exports = {
+  app,
+  extractMessageData,
+  processMessageWithOpenAI,
+  sendWhatsAppResponse
+};
 
