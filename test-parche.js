@@ -1,5 +1,5 @@
 // Script de prueba para el parche de URL del bot
-require('./fix-real-bot.js');
+require('./global-patch.js');
 
 // Definir datos de prueba
 const phoneNumber = '5212221192568';
