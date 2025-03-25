@@ -11,16 +11,34 @@ const DEFAULT_DEV_URL = 'http://localhost:4001';
 
 // Función para verificar disponibilidad de URL (mock - siempre asume que render está disponible en producción)
 const isUrlAvailable = (url) => {
+  // En producción, si la URL viene de una variable de entorno, úsala
+  if (process.env.NODE_ENV === 'production' && process.env.CONTROL_PANEL_URL) {
+    console.log(`🔍 Usando URL de variable de entorno en producción: ${process.env.CONTROL_PANEL_URL}`);
+    return true;
+  }
+  
+  // En producción sin variable de entorno, asume que la URL de producción está disponible
+  if (process.env.NODE_ENV === 'production' && url === DEFAULT_PROD_URL) {
+    console.log(`🔍 Usando URL predeterminada de producción: ${DEFAULT_PROD_URL}`);
+    return true;
+  }
+  
+  // Para entorno local
   if (url.includes('localhost')) {
     // En entorno de desarrollo, verificamos si hay un servidor local
     try {
       // Nota: esta es una verificación simulada, en un caso real
       // se intentaría una conexión real antes de determinar disponibilidad
-      return process.env.NODE_ENV !== 'production';
+      const isDev = process.env.NODE_ENV !== 'production';
+      console.log(`🔍 Verificando disponibilidad de servidor local en desarrollo: ${isDev ? 'disponible' : 'no disponible'}`);
+      return isDev;
     } catch (e) {
+      console.log(`❌ Error verificando disponibilidad local: ${e.message}`);
       return false;
     }
   }
+  
+  console.log(`🔍 Usando URL externa: ${url}`);
   return true; // Asumimos que URLs externas están disponibles
 };
 
