@@ -246,7 +246,7 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
         const { data: conversations, error } = await supabase
           .from('conversations')
           .select('id')
-          .eq('phone_number', conversationId)
+          .eq('user_id', conversationId)
           .eq('business_id', business_id)
           .limit(1);
           
@@ -257,7 +257,7 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
         
         // Si falla, usar API REST directa
         const { data, error } = await directSupabaseAxios(
-          `conversations?phone_number=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
+          `conversations?user_id=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
           'get'
         );
         
@@ -267,7 +267,7 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
     } else {
       // Si no hay cliente, usar directamente API REST
       const { data, error } = await directSupabaseAxios(
-        `conversations?phone_number=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
+        `conversations?user_id=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
         'get'
       );
       
@@ -282,7 +282,7 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
       console.log('🆕 No se encontró conversación existente, creando nueva...');
       
       const newConversation = {
-        phone_number: conversationId,
+        user_id: conversationId,
         business_id,
         name: 'Usuario',
         last_message: message,
@@ -321,8 +321,9 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
     // 3. Guardar el mensaje
     const newMessage = {
       conversation_id: conversationDbId,
-      message: message,
-      is_from_user: false,
+      content: message,
+      sender_type: 'bot',
+      read: false,
       created_at: new Date().toISOString()
     };
     
