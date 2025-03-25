@@ -10,7 +10,12 @@
     "type": "git",
     "url": "https://github.com/Hernantb/whatsapp-bot.git"
   },
-  "keywords": ["whatsapp", "bot", "openai", "gupshup"],
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "openai",
+    "gupshup"
+  ],
   "author": "Hernán Tenorio",
   "license": "ISC",
   "bugs": {
@@ -20,7 +25,7 @@
   "dependencies": {
     "axios": "^1.8.1",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "uuid": "^11.1.0"
   }
 }
-
