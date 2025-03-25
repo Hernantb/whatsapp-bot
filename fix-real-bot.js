@@ -62,10 +62,10 @@ require = function(moduleName) {
 global.registerBotResponse = async function(phoneNumber, message, businessId = BUSINESS_ID) {
   try {
     const axios = require('axios');
-    console.log(`🤖 Registrando respuesta para ${phoneNumber}`);
+    console.log(`🔄 Registrando respuesta del bot para conversación ${phoneNumber}`);
     
     const correctUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
-    console.log(`📤 Enviando a: ${correctUrl}`);
+    console.log(`🔄 Registrando respuesta del bot en el control panel: ${correctUrl}`);
     
     const payload = {
       conversationId: phoneNumber,
@@ -73,15 +73,22 @@ global.registerBotResponse = async function(phoneNumber, message, businessId = B
       business_id: businessId
     };
     
+    console.log('📤 Payload enviado:', JSON.stringify(payload));
+    
     const response = await axios.post(correctUrl, payload);
     console.log('✅ Respuesta registrada correctamente:', response.data);
     return response.data;
   } catch (error) {
-    console.error('❌ Error al registrar respuesta:', error.message);
+    console.error('❌ Error al registrar respuesta en el control panel:', error.message);
     if (error.response) {
-      console.error('Detalles de error:', error.response.data);
+      console.error('🔍 Código de respuesta:', error.response.status);
+      console.error('🔍 Respuesta del servidor:', error.response.data);
+    } else if (error.request) {
+      console.error('🔍 No se recibió respuesta del servidor');
+      console.error('🔍 Detalles de la solicitud:', error.request);
     }
-    throw error;
+    // No lanzamos el error para evitar interrumpir el flujo del bot
+    return { success: false, error: error.message };
   }
 };
 
