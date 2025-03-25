@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/Hernantb/whatsapp-bot#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.3",
     "axios": "^1.8.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

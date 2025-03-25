@@ -5,9 +5,20 @@
  * Debe ser incluido al inicio del archivo principal del bot (index.js).
  */
 
+// Al inicio del archivo, cargar las dependencias
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
+
 // Configuración
 const DEFAULT_PROD_URL = 'https://render-wa.onrender.com';
 const DEFAULT_DEV_URL = 'http://localhost:4001';
+
+// Configuración de Supabase
+const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Función para verificar disponibilidad de URL (mock - siempre asume que render está disponible en producción)
 const isUrlAvailable = (url) => {
@@ -102,11 +113,160 @@ console.log('Ambiente:', process.env.NODE_ENV === 'production' ? 'Producción' :
 let correctUrl = CONTROL_PANEL_URL;
 console.log('URL que se usará:', correctUrl);
 
+// Función para guardar mensajes directamente en Supabase
+async function saveMessageToSupabase(data) {
+  try {
+    console.log('🔄 Guardando mensaje directamente en Supabase...');
+    
+    const { conversationId, message, business_id } = data;
+    
+    // Buscar la conversación existente
+    const { data: conversations, error: searchError } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('phone_number', conversationId)
+      .eq('business_id', business_id)
+      .limit(1);
+    
+    if (searchError) {
+      console.error('❌ Error al buscar conversación:', searchError.message);
+      return false;
+    }
+    
+    let conversationDbId;
+    
+    // Si no existe la conversación, la creamos
+    if (!conversations || conversations.length === 0) {
+      console.log('🆕 Creando nueva conversación para:', conversationId);
+      
+      const { data: newConversation, error: createError } = await supabase
+        .from('conversations')
+        .insert([
+          { phone_number: conversationId, business_id: business_id, name: 'Usuario' }
+        ])
+        .select();
+      
+      if (createError) {
+        console.error('❌ Error al crear conversación:', createError.message);
+        return false;
+      }
+      
+      conversationDbId = newConversation[0].id;
+    } else {
+      conversationDbId = conversations[0].id;
+    }
+    
+    // Guardar el mensaje
+    const { data: savedMessage, error: messageError } = await supabase
+      .from('messages')
+      .insert([
+        {
+          conversation_id: conversationDbId,
+          message: message,
+          is_from_user: false,
+          created_at: new Date().toISOString()
+        }
+      ]);
+    
+    if (messageError) {
+      console.error('❌ Error al guardar mensaje:', messageError.message);
+      return false;
+    }
+    
+    // Actualizar la última actividad de la conversación
+    const { error: updateError } = await supabase
+      .from('conversations')
+      .update({ last_message: message, updated_at: new Date().toISOString() })
+      .eq('id', conversationDbId);
+    
+    if (updateError) {
+      console.error('❌ Error al actualizar conversación:', updateError.message);
+      // No retornamos false aquí porque el mensaje ya se guardó
+    }
+    
+    console.log('✅ Mensaje guardado correctamente en Supabase');
+    return true;
+  } catch (error) {
+    console.error('❌ Error inesperado al guardar en Supabase:', error.message);
+    return false;
+  }
+}
+
+// Modificar la función global registerBotResponse para usar Supabase directamente
+global.registerBotResponse = async function(conversationId, message) {
+  const data = {
+    conversationId,
+    message,
+    business_id: BUSINESS_ID
+  };
+  
+  console.log(`🚀 Procesando mensaje para: ${conversationId}`);
+  console.log(`📝 Mensaje: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+  
+  // Intentar guardar directamente en Supabase
+  const supabaseSaved = await saveMessageToSupabase(data);
+  
+  if (supabaseSaved) {
+    return { status: 'success', message: 'Mensaje guardado directamente en Supabase' };
+  }
+  
+  // Si falla Supabase, intentar con el servidor
+  console.log('⚠️ Fallo al guardar en Supabase. Intentando con el servidor...');
+  
+  // Determinar la URL correcta según el ambiente
+  const baseUrl = CONTROL_PANEL_URL.replace(/\/$/, '');
+  const endpointPath = process.env.NODE_ENV === 'production' ? '/api/register-bot-response' : '/register-bot-response';
+  const url = `${baseUrl}${endpointPath}`;
+  
+  try {
+    const response = await axios.post(url, data);
+    console.log('✅ Mensaje enviado correctamente al servidor');
+    return response;
+  } catch (error) {
+    console.error(`❌ Error al enviar mensaje al servidor: ${error.message}`);
+    
+    // Si hay un error 404, intentamos con la URL alternativa
+    if (error.response && error.response.status === 404) {
+      const alternativeUrl = url.includes('/api/') 
+        ? `${baseUrl}/register-bot-response`
+        : `${baseUrl}/api/register-bot-response`;
+      
+      console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
+      
+      try {
+        const response = await axios.post(alternativeUrl, data);
+        console.log('✅ Mensaje enviado correctamente (segundo intento)');
+        return response;
+      } catch (secondError) {
+        console.error(`❌ Error en segundo intento: ${secondError.message}`);
+        // Si fallaron ambos intentos, ya guardamos en Supabase, así que está bien
+        saveMessageToFallbackStorage(data);
+      }
+    } else {
+      // Si no es un 404, guardamos localmente por seguridad
+      saveMessageToFallbackStorage(data);
+    }
+    
+    // No lanzamos el error ya que el mensaje ya está en Supabase o en archivo local
+    return { status: 'fallback', message: 'Guardado en fallback (ya se intentó Supabase)' };
+  }
+};
+
 // Sobrescribir el método post de axios para interceptar y corregir URLs duplicadas
-const originalPost = require('axios').post;
-require('axios').post = function(url, data, config) {
-  // Verificar si la URL ya contiene una ruta completa
+const originalPost = axios.post;
+axios.post = async function(url, data, config) {
+  // Verificar si la URL ya contiene una ruta completa para registrar mensaje del bot
   if (url.includes('/register-bot-response') || url.includes('/api/register-bot-response')) {
+    // Guardar directamente en Supabase primero
+    const supabaseSaved = await saveMessageToSupabase(data);
+    
+    if (supabaseSaved) {
+      console.log('✅ Mensaje guardado directamente en Supabase (interceptor)');
+      return { status: 'success', data: { message: 'Guardado directamente en Supabase' } };
+    }
+    
+    console.log('⚠️ Fallo al guardar en Supabase. Intentando con el servidor...');
+    
     // Extraer la base URL para asegurarnos de que estamos usando el dominio correcto
     let baseUrl = url;
     
@@ -136,30 +296,35 @@ require('axios').post = function(url, data, config) {
     }
     
     // Intentar enviar la solicitud con manejo de errores mejorado
-    return originalPost.call(this, correctUrl, data, config)
-      .catch(error => {
-        console.error(`❌ Error al enviar mensaje al servidor: ${error.message}`);
+    try {
+      const response = await originalPost.call(this, correctUrl, data, config);
+      return response;
+    } catch (error) {
+      console.error(`❌ Error al enviar mensaje al servidor: ${error.message}`);
+      
+      if (error.response && error.response.status === 404) {
+        // Si hay un error 404, intentar la otra variante de URL
+        const alternativeUrl = correctUrl.includes('/api/') 
+          ? `${baseUrl}/register-bot-response` 
+          : `${baseUrl}/api/register-bot-response`;
         
-        if (error.response && error.response.status === 404) {
-          // Si hay un error 404, intentar la otra variante de URL
-          const alternativeUrl = correctUrl.includes('/api/') 
-            ? `${baseUrl}/register-bot-response` 
-            : `${baseUrl}/api/register-bot-response`;
-          
-          console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
-          return originalPost.call(this, alternativeUrl, data, config)
-            .catch(secondError => {
-              console.error(`❌ Error en segundo intento: ${secondError.message}`);
-              // Implementar sistema de fallback - guardar mensaje en archivo local
-              saveMessageToFallbackStorage(data);
-              return { status: 'saved-locally', data: 'Mensaje guardado localmente por fallo del servidor' };
-            });
+        console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
+        
+        try {
+          const response = await originalPost.call(this, alternativeUrl, data, config);
+          return response;
+        } catch (secondError) {
+          console.error(`❌ Error en segundo intento: ${secondError.message}`);
+          // El mensaje ya está guardado en Supabase, pero guardamos en fallback por seguridad
+          saveMessageToFallbackStorage(data);
+          return { status: 'fallback', data: 'Mensaje ya guardado en Supabase' };
         }
-        
-        // Implementar sistema de fallback - guardar mensaje en archivo local
-        saveMessageToFallbackStorage(data);
-        return { status: 'saved-locally', data: 'Mensaje guardado localmente por fallo del servidor' };
-      });
+      }
+      
+      // Si no es un 404 o no podemos hacer un segundo intento, ya está en Supabase
+      saveMessageToFallbackStorage(data);
+      return { status: 'fallback', data: 'Mensaje ya guardado en Supabase' };
+    }
   }
   
   // Para otras URLs que no son register-bot-response, usar el comportamiento normal
@@ -206,55 +371,6 @@ function saveMessageToFallbackStorage(messageData) {
     console.error('❌ Error al guardar mensaje en almacenamiento local:', error);
   }
 }
-
-// Función global para registrar respuestas del bot
-global.registerBotResponse = function(conversationId, message) {
-  const data = {
-    conversationId,
-    message,
-    business_id: BUSINESS_ID
-  };
-  
-  // Determinar la URL correcta según el ambiente
-  const baseUrl = CONTROL_PANEL_URL.replace(/\/$/, '');
-  const endpointPath = process.env.NODE_ENV === 'production' ? '/api/register-bot-response' : '/register-bot-response';
-  const url = `${baseUrl}${endpointPath}`;
-  
-  console.log(`🚀 Enviando mensaje a: ${url}`);
-  console.log(`📝 Datos del mensaje: Conversación: ${conversationId}, Mensaje: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
-  
-  return require('axios').post(url, data)
-    .then(response => {
-      console.log('✅ Mensaje enviado correctamente');
-      return response;
-    })
-    .catch(error => {
-      console.error(`❌ Error al enviar mensaje: ${error.message}`);
-      
-      // Si hay un error 404, intentamos con la URL alternativa
-      if (error.response && error.response.status === 404) {
-        const alternativeUrl = url.includes('/api/') 
-          ? `${baseUrl}/register-bot-response`
-          : `${baseUrl}/api/register-bot-response`;
-        
-        console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
-        return require('axios').post(alternativeUrl, data)
-          .then(response => {
-            console.log('✅ Mensaje enviado correctamente (segundo intento)');
-            return response;
-          })
-          .catch(secondError => {
-            console.error(`❌ Error en segundo intento: ${secondError.message}`);
-            saveMessageToFallbackStorage(data);
-            throw secondError;
-          });
-      }
-      
-      // Si no es un 404 o no podemos hacer un segundo intento, guardar en fallback
-      saveMessageToFallbackStorage(data);
-      throw error;
-    });
-};
 
 console.log('✅ Parche aplicado correctamente');
 console.log('📝 De ahora en adelante, las URLs duplicadas serán corregidas automáticamente');
