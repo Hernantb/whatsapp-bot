@@ -9,16 +9,47 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const { createClient } = require('@supabase/supabase-js');
+
+// Configurar fetch para Node.js
+let fetch;
+try {
+  // Intentar usar fetch global (disponible en Node.js más reciente)
+  fetch = global.fetch;
+} catch (error) {
+  try {
+    // Intentar cargar node-fetch
+    const nodeFetch = require('node-fetch');
+    fetch = nodeFetch;
+    global.fetch = nodeFetch;
+  } catch (e) {
+    console.warn('⚠️ No se pudo cargar node-fetch. Si es necesario, instálalo con npm install node-fetch');
+  }
+}
+
+// Importar Supabase solo si fetch está disponible
+let supabase;
+try {
+  const { createClient } = require('@supabase/supabase-js');
+  
+  // Configuración de Supabase
+  const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
+  
+  const options = {};
+  if (fetch) {
+    options.fetch = fetch;
+  }
+  
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, options);
+  console.log('✅ Cliente de Supabase creado correctamente');
+} catch (error) {
+  console.error('❌ Error al crear cliente de Supabase:', error.message);
+  supabase = null;
+}
 
 // Configuración
 const DEFAULT_PROD_URL = 'https://render-wa.onrender.com';
 const DEFAULT_DEV_URL = 'http://localhost:4001';
-
-// Configuración de Supabase
-const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Función para verificar disponibilidad de URL (mock - siempre asume que render está disponible en producción)
 const isUrlAvailable = (url) => {
@@ -118,6 +149,18 @@ async function saveMessageToSupabase(data) {
   try {
     console.log('🔄 Guardando mensaje directamente en Supabase...');
     
+    // Comprobar que Supabase está disponible
+    try {
+      // Intenta una consulta simple para verificar la conexión
+      await supabase.from('conversations').select('count').limit(1);
+      console.log('✅ Conexión a Supabase establecida correctamente');
+    } catch (connError) {
+      console.error('❌ Error de conexión a Supabase:', connError.message);
+      console.error('⚠️ Detalle del error:', JSON.stringify(connError));
+      console.error('⚠️ Es posible que estés en un entorno de desarrollo sin conexión a internet o que la API key no sea válida');
+      return false;
+    }
+    
     const { conversationId, message, business_id } = data;
     
     // Buscar la conversación existente
@@ -130,6 +173,7 @@ async function saveMessageToSupabase(data) {
     
     if (searchError) {
       console.error('❌ Error al buscar conversación:', searchError.message);
+      console.error('⚠️ Detalles del error:', JSON.stringify(searchError));
       return false;
     }
     
@@ -142,18 +186,27 @@ async function saveMessageToSupabase(data) {
       const { data: newConversation, error: createError } = await supabase
         .from('conversations')
         .insert([
-          { phone_number: conversationId, business_id: business_id, name: 'Usuario' }
+          { 
+            phone_number: conversationId, 
+            business_id: business_id, 
+            name: 'Usuario',
+            last_message: message,
+            updated_at: new Date().toISOString()
+          }
         ])
         .select();
       
       if (createError) {
         console.error('❌ Error al crear conversación:', createError.message);
+        console.error('⚠️ Detalles del error:', JSON.stringify(createError));
         return false;
       }
       
       conversationDbId = newConversation[0].id;
+      console.log('✅ Nueva conversación creada con ID:', conversationDbId);
     } else {
       conversationDbId = conversations[0].id;
+      console.log('ℹ️ Usando conversación existente con ID:', conversationDbId);
     }
     
     // Guardar el mensaje
@@ -170,17 +223,22 @@ async function saveMessageToSupabase(data) {
     
     if (messageError) {
       console.error('❌ Error al guardar mensaje:', messageError.message);
+      console.error('⚠️ Detalles del error:', JSON.stringify(messageError));
       return false;
     }
     
     // Actualizar la última actividad de la conversación
     const { error: updateError } = await supabase
       .from('conversations')
-      .update({ last_message: message, updated_at: new Date().toISOString() })
+      .update({ 
+        last_message: message, 
+        updated_at: new Date().toISOString() 
+      })
       .eq('id', conversationDbId);
     
     if (updateError) {
       console.error('❌ Error al actualizar conversación:', updateError.message);
+      console.error('⚠️ Detalles del error:', JSON.stringify(updateError));
       // No retornamos false aquí porque el mensaje ya se guardó
     }
     
@@ -188,6 +246,7 @@ async function saveMessageToSupabase(data) {
     return true;
   } catch (error) {
     console.error('❌ Error inesperado al guardar en Supabase:', error.message);
+    console.error('⚠️ Stack de error:', error.stack);
     return false;
   }
 }
