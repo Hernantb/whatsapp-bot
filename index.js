@@ -18,6 +18,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ASSISTANT_ID = process.env.ASSISTANT_ID || "asst_abc123"; // ID del asistente de OpenAI
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
+const GUPSHUP_USERID = process.env.GUPSHUP_USERID || '2000233790';
 const PORT = process.env.PORT || 3000;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 
@@ -79,6 +80,7 @@ console.log("🔑 API Keys cargadas:");
 console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_API_KEY:", GUPSHUP_API_KEY ? "✅ OK" : "❌ FALTA");
 console.log("GUPSHUP_NUMBER:", GUPSHUP_NUMBER ? "✅ OK" : "❌ FALTA");
+console.log("GUPSHUP_USERID:", GUPSHUP_USERID ? "✅ OK" : "❌ FALTA");
 console.log("CONTROL_PANEL_URL:", CONTROL_PANEL_URL);
 
 // Verificar si CONTROL_PANEL_URL es válido
@@ -253,13 +255,48 @@ function extractMessageData(body) {
 // Función para procesar mensaje con OpenAI
 async function processMessageWithOpenAI(sender, message) {
   try {
-    // Implementación real con OpenAI se añadiría aquí
     console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message}"`);
     
-    // Por ahora, devolvemos una respuesta automática
-    return "Esta es una respuesta automática de prueba";
+    // Crear o obtener un thread para este usuario para mantener contexto
+    if (!userThreads[sender]) {
+      console.log(`🧵 Creando nuevo thread para usuario ${sender}`);
+      userThreads[sender] = uuidv4();
+    }
+    
+    const threadId = userThreads[sender];
+    console.log(`🧵 Usando thread ${threadId} para usuario ${sender}`);
+    
+    // Llamar a la API de OpenAI
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: "gpt-3.5-turbo", // Puedes cambiar a gpt-4 si lo prefieres
+      messages: [
+        { role: "system", content: "Eres un asistente amable y servicial de WhatsApp que responde preguntas de manera concisa y útil. Mantén tus respuestas breves y directas." },
+        { role: "user", content: message }
+      ],
+      max_tokens: 500
+    }, {
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    // Extraer la respuesta
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      const aiResponse = response.data.choices[0].message.content.trim();
+      console.log(`✅ Respuesta recibida de OpenAI: "${aiResponse.substring(0, 50)}${aiResponse.length > 50 ? '...' : ''}"`);
+      return aiResponse;
+    } else {
+      console.error('❌ Respuesta de OpenAI no tiene el formato esperado:', JSON.stringify(response.data));
+      return "Lo siento, no pude procesar tu mensaje correctamente. Por favor intenta de nuevo.";
+    }
   } catch (error) {
     console.error('❌ Error procesando mensaje con OpenAI:', error.message);
+    if (error.response) {
+      console.error('📄 Respuesta de error de OpenAI:', 
+                   error.response.status, 
+                   JSON.stringify(error.response.data).substring(0, 200));
+    }
     return "Lo siento, tuve un problema procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
   }
 }
@@ -269,12 +306,43 @@ async function sendWhatsAppResponse(recipient, message) {
   try {
     console.log(`📤 Enviando respuesta a ${recipient}: "${message}"`);
     
-    // Aquí iría la implementación real de envío a WhatsApp via API
-    // Por ahora solo logueamos la respuesta
-    console.log(`✅ Mensaje enviado a ${recipient}: ${message}`);
-    return true;
+    // Formatear los datos según la API de GupShup
+    const gupshupUrl = 'https://media.smsgupshup.com/GatewayAPI/rest';
+    const formData = new URLSearchParams();
+    
+    formData.append('v', '1.1');
+    formData.append('format', 'json');
+    formData.append('auth_scheme', 'plain');
+    formData.append('userId', GUPSHUP_USERID);
+    formData.append('password', GUPSHUP_API_KEY);
+    formData.append('channel', 'whatsapp');
+    formData.append('source', GUPSHUP_NUMBER);
+    formData.append('destination', recipient);
+    formData.append('message_type', 'text');
+    formData.append('message', message);
+    
+    // Enviar mensaje a través de GupShup
+    const response = await axios.post(gupshupUrl, formData, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+    
+    if (response.data && response.data.response && response.data.response.status === 'success') {
+      console.log(`✅ Mensaje enviado exitosamente a ${recipient}`);
+      console.log(`📡 Detalles: ${JSON.stringify(response.data).substring(0, 100)}...`);
+      return true;
+    } else {
+      console.error(`❌ Error en respuesta de GupShup:`, JSON.stringify(response.data));
+      return false;
+    }
   } catch (error) {
     console.error('❌ Error enviando mensaje a WhatsApp:', error.message);
+    if (error.response) {
+      console.error('📄 Detalles del error:', 
+                  error.response.status, 
+                  JSON.stringify(error.response.data).substring(0, 200));
+    }
     return false;
   }
 }
