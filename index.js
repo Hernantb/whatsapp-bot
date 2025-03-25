@@ -10,6 +10,46 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
+
+// 🔧 Parche de URL: Corregir CONTROL_PANEL_URL si es necesario
+console.log("🔧 APLICANDO PARCHE PARA CORREGIR URLs DEL BOT WHATSAPP");
+let originalUrl = process.env.CONTROL_PANEL_URL || 'http://localhost:3001';
+console.log("CONTROL_PANEL_URL actual:", originalUrl);
+
+// Detectar entorno
+const isProd = process.env.NODE_ENV === 'production';
+console.log("Ambiente:", isProd ? "Producción" : "Desarrollo");
+
+// Corregir URL duplicada
+if (originalUrl.includes('/register-bot-response/register-bot-response')) {
+    originalUrl = originalUrl.replace('/register-bot-response/register-bot-response', '/register-bot-response');
+}
+
+// Verificar dominios antiguos y corregirlos
+if (isProd && originalUrl.includes('panel-control-whatsapp.onrender.com')) {
+    originalUrl = originalUrl.replace('panel-control-whatsapp.onrender.com', 'render-wa.onrender.com');
+}
+
+// Corregir estructura
+if (originalUrl.endsWith('/register-bot-response')) {
+    // URL ya tiene el endpoint, no necesita cambios
+    process.env.CONTROL_PANEL_URL = originalUrl.trim();
+} else if (originalUrl.includes('/register-bot-response/')) {
+    // URL tiene endpoint duplicado
+    process.env.CONTROL_PANEL_URL = originalUrl.split('/register-bot-response/')[0] + '/register-bot-response';
+} else {
+    // URL no tiene endpoint, agregar si no termina en /
+    process.env.CONTROL_PANEL_URL = originalUrl.endsWith('/') 
+        ? originalUrl.slice(0, -1) + '/register-bot-response'
+        : originalUrl + '/register-bot-response';
+}
+
+console.log("URL que se usará:", process.env.CONTROL_PANEL_URL);
+console.log("✅ Parche aplicado correctamente");
+console.log("📝 De ahora en adelante, las URLs duplicadas serán corregidas automáticamente");
+console.log("🌐 En ambiente de producción, se usará:", isProd ? process.env.CONTROL_PANEL_URL : "URL de desarrollo");
+console.log("🔍 También puedes usar la función global registerBotResponse() para enviar mensajes");
+
 // URL del servidor de control panel
 const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:3001';
 // Nivel de logging
@@ -60,10 +100,17 @@ async function registerBotResponse(conversationId, message, threadId) {
         }
         
         const timestamp = new Date().toISOString();
-        console.log(`🔄 Registrando respuesta del bot en el control panel: ${CONTROL_PANEL_URL}/register-bot-response`);
+        
+        // Evitar duplicación de /register-bot-response en la URL
+        let apiUrl = CONTROL_PANEL_URL;
+        if (!apiUrl.endsWith('/register-bot-response')) {
+            apiUrl = `${apiUrl}/register-bot-response`;
+        }
+        
+        console.log(`🔄 Registrando respuesta del bot en el control panel: ${apiUrl}`);
         
         // Intentar enviar la respuesta al control panel
-        const response = await axios.post(`${CONTROL_PANEL_URL}/register-bot-response`, {
+        const response = await axios.post(apiUrl, {
             conversationId,
             message,
             threadId,
