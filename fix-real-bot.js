@@ -10,23 +10,27 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
-// Configurar fetch para Node.js
+// Configurar fetch para Node.js - VERSIÓN MEJORADA PARA RENDER
 let fetch;
 try {
-  // Intentar usar fetch global (disponible en Node.js más reciente)
-  fetch = global.fetch;
-} catch (error) {
+  // Intentar usar node-fetch primero (más estable en entornos de servidor)
   try {
-    // Intentar cargar node-fetch
     const nodeFetch = require('node-fetch');
-    fetch = nodeFetch;
-    global.fetch = nodeFetch;
+    fetch = nodeFetch.default || nodeFetch;  // Manejar diferentes versiones
+    global.fetch = fetch;
+    console.log('✅ node-fetch cargado exitosamente');
   } catch (e) {
-    console.warn('⚠️ No se pudo cargar node-fetch. Si es necesario, instálalo con npm install node-fetch');
+    console.log('⚠️ node-fetch no disponible, intentando usar fetch nativo...');
+    // Intentar usar fetch global (disponible en Node.js más reciente)
+    fetch = global.fetch;
+    console.log('✅ fetch nativo disponible en Node.js');
   }
+} catch (error) {
+  console.warn('⚠️ No se pudo cargar fetch. Los servicios que lo requieran pueden fallar.');
+  console.warn('⚠️ Instala node-fetch v2 con: npm install node-fetch@2');
 }
 
-// Importar Supabase solo si fetch está disponible
+// Importar Supabase con configuración mejorada
 let supabase;
 try {
   const { createClient } = require('@supabase/supabase-js');
@@ -35,15 +39,36 @@ try {
   const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
   const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
   
-  const options = {};
+  // Configuración para entornos Node.js
+  const options = {
+    auth: {
+      persistSession: false  // Mejor para entornos servidor
+    }
+  };
+  
+  // Solo usar fetch personalizado si está disponible
   if (fetch) {
-    options.fetch = fetch;
+    options.global = { 
+      fetch: fetch  // Usar la implementación de fetch que encontramos
+    };
   }
   
+  // Crear cliente con opciones mejoradas
   supabase = createClient(SUPABASE_URL, SUPABASE_KEY, options);
   console.log('✅ Cliente de Supabase creado correctamente');
+  
+  // Verificar conexión inmediatamente
+  (async function() {
+    try {
+      const { count } = await supabase.from('conversations').select('*', { count: 'exact', head: true });
+      console.log(`✅ Conexión a Supabase verificada - ${count !== undefined ? 'tablas accesibles' : 'conexión establecida'}`);
+    } catch (e) {
+      console.error('⚠️ La conexión a Supabase se estableció pero podría haber problemas de acceso:', e.message);
+    }
+  })();
 } catch (error) {
   console.error('❌ Error al crear cliente de Supabase:', error.message);
+  if (error.stack) console.error('⚠️ Stack de error:', error.stack.split('\n').slice(0, 3).join('\n'));
   supabase = null;
 }
 
@@ -149,13 +174,53 @@ async function saveMessageToSupabase(data) {
   try {
     console.log('🔄 Guardando mensaje directamente en Supabase...');
     
-    // Comprobar que Supabase está disponible
+    // Si no hay cliente de Supabase, salir
+    if (!supabase) {
+      console.error('❌ Cliente de Supabase no disponible');
+      return false;
+    }
+    
+    // Comprobar que Supabase está disponible con manejo mejorado de errores
     try {
-      // Intenta una consulta simple para verificar la conexión
-      await supabase.from('conversations').select('count').limit(1);
+      // Usar una consulta simple con timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout al conectar con Supabase')), 5000)
+      );
+      
+      const queryPromise = supabase.from('conversations').select('count').limit(1);
+      await Promise.race([queryPromise, timeoutPromise]);
+      
       console.log('✅ Conexión a Supabase establecida correctamente');
     } catch (connError) {
       console.error('❌ Error de conexión a Supabase:', connError.message);
+      
+      // Intentar usar una implementación alternativa si es un error de fetch
+      if (connError.message.includes('fetch failed')) {
+        console.log('⚠️ Error con fetch detectado. Intentando método alternativo...');
+        
+        try {
+          // Usar axios como fallback para comprobar si Supabase está accesible
+          await axios.get(
+            'https://ecnimzwygbbumxdcilsb.supabase.co/rest/v1/conversations?limit=1',
+            {
+              headers: {
+                'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs',
+                'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs'
+              }
+            }
+          );
+          console.log('✅ Supabase REST API accesible. El problema es con fetch, no con la conexión.');
+          
+          // Como podemos conectar pero el cliente falla, guardamos como fallback
+          saveMessageToFallbackStorage(data);
+          console.log('📥 Mensaje guardado en fallback para sincronización posterior');
+          return false;
+        } catch (axiosErr) {
+          console.error('❌ Supabase no está accesible por ningún método:', axiosErr.message);
+          return false;
+        }
+      }
+      
       console.error('⚠️ Detalle del error:', JSON.stringify(connError));
       console.error('⚠️ Es posible que estés en un entorno de desarrollo sin conexión a internet o que la API key no sea válida');
       return false;
@@ -163,90 +228,105 @@ async function saveMessageToSupabase(data) {
     
     const { conversationId, message, business_id } = data;
     
-    // Buscar la conversación existente
-    const { data: conversations, error: searchError } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('phone_number', conversationId)
-      .eq('business_id', business_id)
-      .limit(1);
-    
-    if (searchError) {
-      console.error('❌ Error al buscar conversación:', searchError.message);
-      console.error('⚠️ Detalles del error:', JSON.stringify(searchError));
-      return false;
-    }
-    
-    let conversationDbId;
-    
-    // Si no existe la conversación, la creamos
-    if (!conversations || conversations.length === 0) {
-      console.log('🆕 Creando nueva conversación para:', conversationId);
-      
-      const { data: newConversation, error: createError } = await supabase
+    // Buscar la conversación existente con manejo mejorado de errores
+    try {
+      const { data: conversations, error: searchError } = await supabase
         .from('conversations')
-        .insert([
-          { 
-            phone_number: conversationId, 
-            business_id: business_id, 
-            name: 'Usuario',
-            last_message: message,
-            updated_at: new Date().toISOString()
-          }
-        ])
-        .select();
+        .select('id')
+        .eq('phone_number', conversationId)
+        .eq('business_id', business_id)
+        .limit(1);
       
-      if (createError) {
-        console.error('❌ Error al crear conversación:', createError.message);
-        console.error('⚠️ Detalles del error:', JSON.stringify(createError));
-        return false;
+      if (searchError) {
+        throw searchError;
       }
       
-      conversationDbId = newConversation[0].id;
-      console.log('✅ Nueva conversación creada con ID:', conversationDbId);
-    } else {
-      conversationDbId = conversations[0].id;
-      console.log('ℹ️ Usando conversación existente con ID:', conversationDbId);
-    }
-    
-    // Guardar el mensaje
-    const { data: savedMessage, error: messageError } = await supabase
-      .from('messages')
-      .insert([
-        {
-          conversation_id: conversationDbId,
-          message: message,
-          is_from_user: false,
-          created_at: new Date().toISOString()
+      let conversationDbId;
+      
+      // Si no existe la conversación, la creamos
+      if (!conversations || conversations.length === 0) {
+        console.log('🆕 Creando nueva conversación para:', conversationId);
+        
+        const { data: newConversation, error: createError } = await supabase
+          .from('conversations')
+          .insert([
+            { 
+              phone_number: conversationId, 
+              business_id: business_id, 
+              name: 'Usuario',
+              last_message: message,
+              updated_at: new Date().toISOString()
+            }
+          ])
+          .select();
+        
+        if (createError) {
+          throw createError;
         }
-      ]);
-    
-    if (messageError) {
-      console.error('❌ Error al guardar mensaje:', messageError.message);
-      console.error('⚠️ Detalles del error:', JSON.stringify(messageError));
+        
+        conversationDbId = newConversation[0].id;
+        console.log('✅ Nueva conversación creada con ID:', conversationDbId);
+      } else {
+        conversationDbId = conversations[0].id;
+        console.log('ℹ️ Usando conversación existente con ID:', conversationDbId);
+      }
+      
+      // Guardar el mensaje
+      const { error: messageError } = await supabase
+        .from('messages')
+        .insert([
+          {
+            conversation_id: conversationDbId,
+            message: message,
+            is_from_user: false,
+            created_at: new Date().toISOString()
+          }
+        ]);
+      
+      if (messageError) {
+        throw messageError;
+      }
+      
+      // Actualizar la última actividad de la conversación
+      const { error: updateError } = await supabase
+        .from('conversations')
+        .update({ 
+          last_message: message, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', conversationDbId);
+      
+      if (updateError) {
+        console.error('❌ Error al actualizar conversación:', updateError.message);
+        // No lanzamos error aquí porque el mensaje ya se guardó
+      }
+      
+      console.log('✅ Mensaje guardado correctamente en Supabase');
+      return true;
+      
+    } catch (dbError) {
+      console.error('❌ Error en operación de base de datos:', dbError.message);
+      console.error('⚠️ Detalles del error:', JSON.stringify(dbError));
+      
+      // Si el error parece ser de conexión o red, guardar en fallback
+      if (dbError.message.includes('fetch') || 
+          dbError.message.includes('network') || 
+          dbError.message.includes('timeout') ||
+          dbError.message.includes('connection')) {
+        saveMessageToFallbackStorage(data);
+        console.log('📥 Mensaje guardado en fallback para sincronización posterior');
+      }
+      
       return false;
     }
-    
-    // Actualizar la última actividad de la conversación
-    const { error: updateError } = await supabase
-      .from('conversations')
-      .update({ 
-        last_message: message, 
-        updated_at: new Date().toISOString() 
-      })
-      .eq('id', conversationDbId);
-    
-    if (updateError) {
-      console.error('❌ Error al actualizar conversación:', updateError.message);
-      console.error('⚠️ Detalles del error:', JSON.stringify(updateError));
-      // No retornamos false aquí porque el mensaje ya se guardó
-    }
-    
-    console.log('✅ Mensaje guardado correctamente en Supabase');
-    return true;
   } catch (error) {
     console.error('❌ Error inesperado al guardar en Supabase:', error.message);
     console.error('⚠️ Stack de error:', error.stack);
+    
+    // Guardar en fallback como último recurso
+    saveMessageToFallbackStorage(data);
+    console.log('📥 Mensaje guardado en fallback como último recurso');
+    
     return false;
   }
 }
