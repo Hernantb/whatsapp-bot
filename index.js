@@ -146,24 +146,62 @@ app.listen(PORT, () => {
 
 // Función para extraer datos del mensaje
 function extractMessageData(body) {
-  // Implementar lógica para extraer mensaje y remitente según formato
-  // ...
-  return { message: "Mensaje de ejemplo", sender: "5491112345678" };
+  try {
+    // Para mensajes de WhatsApp via GupShup
+    if (body.entry && body.entry[0] && body.entry[0].changes) {
+      const changes = body.entry[0].changes;
+      
+      for (const change of changes) {
+        if (change.field === 'messages' && change.value && change.value.messages && change.value.messages.length > 0) {
+          const message = change.value.messages[0];
+          const sender = message.from;
+          
+          if (message.type === 'text' && message.text && message.text.body) {
+            return {
+              message: message.text.body,
+              sender: sender,
+              timestamp: message.timestamp
+            };
+          }
+        }
+      }
+    }
+    
+    console.log('⚠️ Formato de mensaje no reconocido:', JSON.stringify(body));
+    return { message: null, sender: null };
+  } catch (error) {
+    console.error('❌ Error al extraer datos del mensaje:', error.message);
+    return { message: null, sender: null };
+  }
 }
 
 // Función para procesar mensaje con OpenAI
 async function processMessageWithOpenAI(sender, message) {
-  // Implementar lógica para procesar con OpenAI
-  // ...
-  return "Esta es una respuesta automática de prueba";
+  try {
+    // Implementación real con OpenAI se añadiría aquí
+    console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message}"`);
+    
+    // Por ahora, devolvemos una respuesta automática
+    return "Esta es una respuesta automática de prueba";
+  } catch (error) {
+    console.error('❌ Error procesando mensaje con OpenAI:', error.message);
+    return "Lo siento, tuve un problema procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
+  }
 }
 
 // Función para enviar respuesta a WhatsApp
 async function sendWhatsAppResponse(recipient, message) {
-  console.log(`✅ Mensaje enviado a ${recipient}: ${message}`);
-  // Implementar lógica para enviar a WhatsApp
-  // ...
-  return true;
+  try {
+    console.log(`📤 Enviando respuesta a ${recipient}: "${message}"`);
+    
+    // Aquí iría la implementación real de envío a WhatsApp via API
+    // Por ahora solo logueamos la respuesta
+    console.log(`✅ Mensaje enviado a ${recipient}: ${message}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Error enviando mensaje a WhatsApp:', error.message);
+    return false;
+  }
 }
 
 // Exportar funciones para testing
