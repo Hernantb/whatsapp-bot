@@ -1,4 +1,5 @@
-require('./fix-real-bot.js');
+// Cargar la integración con Supabase
+require('./integrate-supabase.js');
 
 // Importaciones principales
 const axios = require('axios');
@@ -169,17 +170,26 @@ app.post('/webhook', async (req, res) => {
     try {
       // Registrar respuesta en el panel de control usando la función global
       console.log(`🔄 Intentando registrar respuesta con business_id: ${BUSINESS_ID}`);
-      const result = await global.registerBotResponse(sender, response, BUSINESS_ID);
+      
+      // Usar saveToSupabase global para guardar en Supabase
+      if (global.saveToSupabase) {
+        const result = await global.saveToSupabase(sender, response);
+        console.log(`✅ Respuesta guardada correctamente en Supabase`);
+      } else {
+        console.error(`❌ Error al guardar en Supabase: función no disponible`);
+      }
+      
+      // También usar la función local para el panel de control
+      const panelResult = await registerBotResponse(sender, response, BUSINESS_ID);
       
       // Verificar específicamente el resultado
-      if (result && result.success === false) {
-        console.error(`❌ Fallo al registrar respuesta: ${result.error || 'Error desconocido'}`);
-        // No lanzamos excepción para continuar el flujo
+      if (panelResult && panelResult.success === false) {
+        console.error(`❌ Fallo al registrar respuesta en panel: ${panelResult.error || 'Error desconocido'}`);
       } else {
         console.log(`✅ Respuesta registrada correctamente en el panel de control`);
       }
     } catch (controlPanelError) {
-      console.error(`❌ Error al registrar respuesta en panel: ${controlPanelError.message}`);
+      console.error(`❌ Error al registrar respuesta: ${controlPanelError.message}`);
       // No interrumpimos el flujo principal por un error en el registro
     }
     
