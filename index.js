@@ -118,7 +118,10 @@ app.post('/webhook', async (req, res) => {
     await sendWhatsAppResponse(sender, response);
     
     // Registrar respuesta en el panel de control usando la función global
-    await global.registerBotResponse(sender, response, BUSINESS_ID);
+    // y asegurarse de incluir el business_id
+    console.log(`🔄 Intentando registrar respuesta con business_id: ${BUSINESS_ID}`);
+    const result = await global.registerBotResponse(sender, response, BUSINESS_ID);
+    console.log(`🔄 Resultado del registro: ${result.success ? 'Exitoso' : 'Fallido'}`);
     
     return res.status(200).send('OK');
   } catch (error) {
