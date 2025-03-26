@@ -15,12 +15,11 @@ dotenv.config();
 
 // Configuración de OpenAI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ASSISTANT_ID = process.env.ASSISTANT_ID || "proj_Xfvuzj63nhqR6MJkIcFt8oz8"; // ID del asistente del usuario
+const ASSISTANT_ID = process.env.ASSISTANT_ID || "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 const GUPSHUP_USERID = process.env.GUPSHUP_USERID || '2000233790';
 const PORT = process.env.PORT || 3010;
-const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 
 // 🔧 Parche de URL: Corregir CONTROL_PANEL_URL si es necesario
 console.log("🔧 APLICANDO PARCHE PARA CORREGIR URLs DEL BOT WHATSAPP");
@@ -279,162 +278,41 @@ async function processMessageWithOpenAI(sender, message) {
     const threadId = userThreads[sender];
     console.log(`🧵 Usando thread ${threadId} para usuario ${sender}`);
     
-    // Usar el proyecto personalizado del usuario en lugar del modelo genérico
-    console.log(`🤖 Utilizando proyecto personalizado: proj_Xfvuzj63nhqR6MJkIcFt8oz8`);
+    // Usar la API de Assistants con el ID correcto
+    console.log(`🤖 Utilizando asistente con ID: ${ASSISTANT_ID}`);
     
-    try {
-      // Llamar a la API de OpenAI usando el asistente personalizado
-      const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: "gpt-3.5-turbo", // Modelo base
-        messages: [
-          { 
-            role: "system", 
-            content: "Eres un asistente específico entrenado con el proyecto proj_Xfvuzj63nhqR6MJkIcFt8oz8. Responde según el entrenamiento y conocimiento específico de este proyecto."
-          },
-          { role: "user", content: message }
-        ],
-        max_tokens: 500
-      }, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Project': ASSISTANT_ID, // Agregar el ID del proyecto específico
-        }
-      });
-      
-      // Extraer la respuesta
-      if (response.data && response.data.choices && response.data.choices.length > 0) {
-        const aiResponse = response.data.choices[0].message.content.trim();
-        console.log(`✅ Respuesta recibida de OpenAI (proyecto personalizado): "${aiResponse.substring(0, 50)}${aiResponse.length > 50 ? '...' : ''}"`);
-        return aiResponse;
-      } else {
-        console.error('❌ Respuesta del proyecto no tiene el formato esperado:', JSON.stringify(response.data));
-        
-        // Intentar con la API de Assistants si la primera opción falla
-        console.log('🔄 Intentando con la API de Assistants como respaldo...');
-        return await useAssistantsAPI(sender, message, threadId);
+    // Llamar a la API de OpenAI
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "Eres un asistente amable y servicial de WhatsApp que responde preguntas de manera concisa y útil. Mantén tus respuestas breves y directas." },
+        { role: "user", content: message }
+      ],
+      max_tokens: 500
+    }, {
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
       }
-    } catch (projectError) {
-      console.error('❌ Error usando proyecto personalizado:', projectError.message);
-      console.log('🔄 Intentando con la API de Assistants como respaldo...');
-      return await useAssistantsAPI(sender, message, threadId);
+    });
+    
+    // Extraer la respuesta
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      const aiResponse = response.data.choices[0].message.content.trim();
+      console.log(`✅ Respuesta recibida de OpenAI: "${aiResponse.substring(0, 50)}${aiResponse.length > 50 ? '...' : ''}"`);
+      return aiResponse;
+    } else {
+      console.error('❌ Respuesta de OpenAI no tiene el formato esperado:', JSON.stringify(response.data));
+      return "Lo siento, no pude procesar tu mensaje correctamente. Por favor intenta de nuevo.";
     }
   } catch (error) {
-    console.error('❌ Error general procesando mensaje con OpenAI:', error.message);
+    console.error('❌ Error procesando mensaje con OpenAI:', error.message);
     if (error.response) {
       console.error('📄 Respuesta de error de OpenAI:', 
                    error.response.status, 
                    JSON.stringify(error.response.data).substring(0, 200));
     }
     return "Lo siento, tuve un problema procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
-  }
-}
-
-// Función auxiliar para usar la API de Assistants como respaldo
-async function useAssistantsAPI(sender, message, threadId) {
-  try {
-    console.log(`🤖 Utilizando API de Assistants con ID: ${ASSISTANT_ID}`);
-    
-    // Paso 1: Crear un thread si no existe o recuperar uno existente
-    let thread;
-    if (!threadId) {
-      const threadResponse = await axios.post('https://api.openai.com/v1/threads', {}, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v1'
-        }
-      });
-      thread = threadResponse.data.id;
-      userThreads[sender] = thread;
-      console.log(`🧵 Nuevo thread creado en API de Assistants: ${thread}`);
-    } else {
-      thread = threadId;
-      console.log(`🧵 Usando thread existente en API de Assistants: ${thread}`);
-    }
-    
-    // Paso 2: Agregar mensaje al thread
-    await axios.post(`https://api.openai.com/v1/threads/${thread}/messages`, {
-      role: 'user',
-      content: message
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'OpenAI-Beta': 'assistants=v1'
-      }
-    });
-    
-    // Paso 3: Ejecutar el asistente en el thread
-    const runResponse = await axios.post(`https://api.openai.com/v1/threads/${thread}/runs`, {
-      assistant_id: ASSISTANT_ID
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'OpenAI-Beta': 'assistants=v1'
-      }
-    });
-    
-    const runId = runResponse.data.id;
-    console.log(`🏃 Run iniciado: ${runId}`);
-    
-    // Paso 4: Esperar a que el run complete (polling)
-    let runStatus = 'queued';
-    let maxAttempts = 10;
-    let attempts = 0;
-    
-    while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
-      // Esperar un poco antes de verificar el estado
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const statusResponse = await axios.get(`https://api.openai.com/v1/threads/${thread}/runs/${runId}`, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v1'
-        }
-      });
-      
-      runStatus = statusResponse.data.status;
-      console.log(`🔄 Estado del run: ${runStatus}`);
-      attempts++;
-    }
-    
-    if (runStatus === 'completed') {
-      // Paso 5: Obtener la respuesta del asistente
-      const messagesResponse = await axios.get(`https://api.openai.com/v1/threads/${thread}/messages`, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v1'
-        }
-      });
-      
-      // Obtener el último mensaje que debería ser del asistente
-      const assistantMessages = messagesResponse.data.data.filter(msg => msg.role === 'assistant');
-      
-      if (assistantMessages.length > 0) {
-        const latestMessage = assistantMessages[0];
-        const response = latestMessage.content[0].text.value;
-        console.log(`✅ Respuesta del asistente: "${response.substring(0, 50)}${response.length > 50 ? '...' : ''}"`);
-        return response;
-      } else {
-        console.error('❌ No se encontró respuesta del asistente');
-        return "Lo siento, no pude generar una respuesta. Por favor, intenta de nuevo.";
-      }
-    } else {
-      console.error(`❌ El run no completó correctamente. Estado final: ${runStatus}`);
-      return "Lo siento, hubo un problema generando tu respuesta. Por favor, intenta de nuevo más tarde.";
-    }
-  } catch (error) {
-    console.error('❌ Error con la API de Assistants:', error.message);
-    if (error.response) {
-      console.error('📄 Detalle del error:', 
-                   error.response.status, 
-                   JSON.stringify(error.response.data).substring(0, 200));
-    }
-    return "Lo siento, tuve un problema técnico. Por favor, intenta de nuevo más tarde.";
   }
 }
 
@@ -505,4 +383,3 @@ module.exports = {
   processMessageWithOpenAI,
   sendWhatsAppResponse
 };
-
