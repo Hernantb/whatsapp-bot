@@ -271,39 +271,109 @@ async function processMessageWithOpenAI(sender, message) {
     
     // Crear o obtener un thread para este usuario para mantener contexto
     if (!userThreads[sender]) {
-      console.log(`🧵 Creando nuevo thread para usuario ${sender}`);
-      userThreads[sender] = uuidv4();
+      // Crear un nuevo thread para el usuario
+      const threadResponse = await axios.post('https://api.openai.com/v1/threads', {}, {
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'assistants=v1'
+        }
+      });
+      
+      userThreads[sender] = threadResponse.data.id;
+      console.log(`🧵 Nuevo thread creado para usuario ${sender}: ${userThreads[sender]}`);
     }
     
     const threadId = userThreads[sender];
     console.log(`🧵 Usando thread ${threadId} para usuario ${sender}`);
+    console.log(`🤖 Procesando con asistente específico: ${ASSISTANT_ID}`);
     
-    // Usar la API de Assistants con el ID correcto
-    console.log(`🤖 Utilizando asistente con ID: ${ASSISTANT_ID}`);
-    
-    // Llamar a la API de OpenAI
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: "gpt-3.5-turbo",
-      messages: [
-        { role: "system", content: "Eres un asistente amable y servicial de WhatsApp que responde preguntas de manera concisa y útil. Mantén tus respuestas breves y directas." },
-        { role: "user", content: message }
-      ],
-      max_tokens: 500
+    // Paso 1: Añadir el mensaje al thread
+    await axios.post(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+      role: 'user',
+      content: message
     }, {
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'OpenAI-Beta': 'assistants=v1'
       }
     });
     
-    // Extraer la respuesta
-    if (response.data && response.data.choices && response.data.choices.length > 0) {
-      const aiResponse = response.data.choices[0].message.content.trim();
-      console.log(`✅ Respuesta recibida de OpenAI: "${aiResponse.substring(0, 50)}${aiResponse.length > 50 ? '...' : ''}"`);
-      return aiResponse;
+    // Paso 2: Ejecutar el asistente en el thread
+    const runResponse = await axios.post(`https://api.openai.com/v1/threads/${threadId}/runs`, {
+      assistant_id: ASSISTANT_ID
+    }, {
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'OpenAI-Beta': 'assistants=v1'
+      }
+    });
+    
+    const runId = runResponse.data.id;
+    console.log(`🏃 Run iniciado con ID: ${runId}`);
+    
+    // Paso 3: Esperar a que el run termine
+    let runStatus = 'queued';
+    let attempts = 0;
+    const maxAttempts = 30; // Máximo de intentos para evitar bucles infinitos
+    
+    while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo
+      
+      const statusResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'assistants=v1'
+        }
+      });
+      
+      runStatus = statusResponse.data.status;
+      console.log(`🔄 Estado del run: ${runStatus} (intento ${attempts + 1})`);
+      attempts++;
+    }
+    
+    if (runStatus === 'completed') {
+      // Paso 4: Obtener la respuesta
+      const messagesResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'assistants=v1'
+        }
+      });
+      
+      // Obtener el mensaje más reciente del asistente
+      const assistantMessages = messagesResponse.data.data.filter(msg => msg.role === 'assistant');
+      
+      if (assistantMessages.length > 0) {
+        const latestMessage = assistantMessages[0];
+        
+        // Extraer el contenido del mensaje
+        let responseText = '';
+        if (latestMessage.content && latestMessage.content.length > 0) {
+          const textContent = latestMessage.content.filter(item => item.type === 'text');
+          if (textContent.length > 0) {
+            responseText = textContent[0].text.value;
+          }
+        }
+        
+        if (responseText) {
+          console.log(`✅ Respuesta del asistente: "${responseText.substring(0, 50)}${responseText.length > 50 ? '...' : ''}"`);
+          return responseText;
+        } else {
+          console.error('❌ No se pudo extraer texto de la respuesta del asistente');
+          return "Lo siento, hubo un problema al generar una respuesta. Por favor, intenta de nuevo.";
+        }
+      } else {
+        console.error('❌ No se encontraron mensajes del asistente');
+        return "Lo siento, no pude recibir una respuesta del asistente. Por favor, intenta de nuevo.";
+      }
     } else {
-      console.error('❌ Respuesta de OpenAI no tiene el formato esperado:', JSON.stringify(response.data));
-      return "Lo siento, no pude procesar tu mensaje correctamente. Por favor intenta de nuevo.";
+      console.error(`❌ El procesamiento no se completó. Estado final: ${runStatus}`);
+      return "Lo siento, hubo un problema procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
     }
   } catch (error) {
     console.error('❌ Error procesando mensaje con OpenAI:', error.message);
@@ -312,7 +382,7 @@ async function processMessageWithOpenAI(sender, message) {
                    error.response.status, 
                    JSON.stringify(error.response.data).substring(0, 200));
     }
-    return "Lo siento, tuve un problema procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
+    return "Lo siento, tuve un problema técnico procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
   }
 }
 
