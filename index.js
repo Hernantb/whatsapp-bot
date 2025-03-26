@@ -15,11 +15,11 @@ dotenv.config();
 
 // Configuración de OpenAI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ASSISTANT_ID = process.env.ASSISTANT_ID || "asst_abc123"; // ID del asistente de OpenAI
+const ASSISTANT_ID = process.env.ASSISTANT_ID || "proj_Xfvuzj63nhqR6MJkIcFt8oz8"; // ID del asistente del usuario
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 const GUPSHUP_USERID = process.env.GUPSHUP_USERID || '2000233790';
-const PORT = process.env.PORT || 3005;
+const PORT = process.env.PORT || 3010;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 
 // 🔧 Parche de URL: Corregir CONTROL_PANEL_URL si es necesario
@@ -319,7 +319,7 @@ async function sendWhatsAppResponse(recipient, message) {
   try {
     console.log(`📤 Enviando respuesta a ${recipient}: "${message}"`);
     
-    // Usar API v1 de GupShup (la más moderna)
+    // API v1 de GupShup - Método que funciona
     const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
     const apiKey = process.env.GUPSHUP_API_KEY;
     const source = process.env.GUPSHUP_NUMBER;
@@ -332,7 +332,7 @@ async function sendWhatsAppResponse(recipient, message) {
     formData.append('channel', 'whatsapp');
     formData.append('source', source);
     formData.append('destination', recipient);
-    formData.append('src.name', source);  // Nombre de la app o número
+    formData.append('src.name', source);
     formData.append('message', JSON.stringify({
       type: 'text',
       text: message
@@ -344,7 +344,7 @@ async function sendWhatsAppResponse(recipient, message) {
       'apikey': apiKey
     };
     
-    console.log('🔄 Enviando mensaje utilizando API v1...');
+    console.log('🔄 Enviando mensaje a WhatsApp...');
     
     const response = await axios.post(apiUrl, formData, { headers });
     
