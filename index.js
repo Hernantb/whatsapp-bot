@@ -64,7 +64,7 @@ console.log("🔍 También puedes usar la función global registerBotResponse() 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 // URL del servidor de control panel
-const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'https://panel-control-whatsapp.onrender.com';
+const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'https://whatsapp-bot-if6z.onrender.com';
 const BUSINESS_ID = process.env.BUSINESS_ID || '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
 // Configuración express
@@ -320,7 +320,7 @@ async function sendWhatsAppResponse(recipient, message) {
     formData.append('destination', recipient);
     formData.append('message_type', 'text');
     formData.append('message', message);
-    formData.append('method', 'SendMessage');
+    formData.append('method', 'sendMessage');
     
     // Enviar mensaje a través de GupShup
     const response = await axios.post(gupshupUrl, formData, {

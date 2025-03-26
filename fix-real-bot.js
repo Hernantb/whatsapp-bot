@@ -182,7 +182,7 @@ if (CONTROL_PANEL_URL.includes('/api/') || CONTROL_PANEL_URL.includes('/register
 if (CONTROL_PANEL_URL.includes('render-wa.onrender.com') && !CONTROL_PANEL_URL.includes(':10000')) {
   // Los logs muestran que Render está funcionando en puerto 10000
   console.log('⚠️ Ajustando URL para incluir puerto explícito 10000 para Render...');
-  CONTROL_PANEL_URL = CONTROL_PANEL_URL.replace('render-wa.onrender.com', 'render-wa.onrender.com:10000');
+  CONTROL_PANEL_URL = CONTROL_PANEL_URL.replace('render-wa.onrender.com', 'whatsapp-bot-if6z.onrender.com');
   console.log('✅ URL con puerto:', CONTROL_PANEL_URL);
 }
 
@@ -518,4 +518,17 @@ console.log('📡 VERIFICACIÓN DE ACCESO A SUPABASE');
   }
 
   console.log('📡 FIN DE VERIFICACIÓN DE ACCESO A SUPABASE');
-})(); 
+})();
+
+// Verificar dominios antiguos y corregirlos
+if (process.env.NODE_ENV === 'production' && correctUrl.includes('panel-control-whatsapp.onrender.com')) {
+    correctUrl = correctUrl.replace('panel-control-whatsapp.onrender.com', 'whatsapp-bot-if6z.onrender.com');
+}
+
+// Verificar puerto explícito
+if (correctUrl.includes('render-wa.onrender.com') && !correctUrl.includes(':10000')) {
+    // Los logs muestran que Render está funcionando en puerto 10000
+    console.log('⚠️ Ajustando URL para incluir puerto explícito 10000 para Render...');
+    correctUrl = correctUrl.replace('render-wa.onrender.com', 'whatsapp-bot-if6z.onrender.com');
+    console.log('✅ URL con puerto:', correctUrl);
+} 
