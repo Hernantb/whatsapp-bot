@@ -320,8 +320,40 @@ app.post('/test-message', async (req, res) => {
     
     console.log(`👤 Mensaje de prueba recibido de ${sender}: ${message}`);
     
+    // Guardar el mensaje del usuario en Supabase
+    try {
+      console.log(`💾 Guardando mensaje del usuario en Supabase: ${message}`);
+      const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
+      
+      if (userMessageResult && userMessageResult.success) {
+        console.log('✅ Mensaje del usuario guardado correctamente en Supabase');
+      } else {
+        console.error('❌ Error al guardar mensaje del usuario en Supabase');
+      }
+    } catch (supabaseUserError) {
+      console.error('❌ Error al guardar mensaje del usuario:', supabaseUserError.message);
+      // No interrumpimos el flujo principal por un error en el registro
+    }
+    
     // Enviar mensaje a OpenAI
     const response = await processMessageWithOpenAI(sender, message);
+    
+    // Guardar la respuesta del bot en Supabase
+    try {
+      console.log(`🔄 Intentando registrar respuesta del bot con business_id: ${BUSINESS_ID}`);
+      
+      // Usar la función global registerBotResponse para guardar en Supabase
+      const result = await global.registerBotResponse(sender, response, BUSINESS_ID, 'bot');
+      
+      // Verificar resultado
+      if (result && result.success === true) {
+        console.log(`✅ Respuesta del bot guardada correctamente en Supabase`);
+      } else {
+        console.error(`❌ Error al guardar respuesta del bot en Supabase: ${result?.error || 'Error desconocido'}`);
+      }
+    } catch (controlPanelError) {
+      console.error(`❌ Error al registrar respuesta del bot en Supabase:`, controlPanelError.message);
+    }
     
     // Solo devolver la respuesta, no enviar a WhatsApp
     return res.status(200).json({ 
