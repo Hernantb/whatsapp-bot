@@ -285,8 +285,8 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
         user_id: conversationId,
         business_id,
         name: 'Usuario',
-        last_message: message,
-        updated_at: new Date().toISOString()
+        last_message: message
+        // No incluir updated_at ya que no existe en la tabla
       };
       
       // Intentar crear con el cliente o API REST
@@ -344,8 +344,8 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
     
     // 4. Actualizar última actividad de la conversación
     const update = {
-      last_message: message,
-      updated_at: new Date().toISOString()
+      last_message: message
+      // No incluir updated_at ya que no existe en la tabla
     };
     
     if (supabase) {

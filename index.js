@@ -320,6 +320,7 @@ async function sendWhatsAppResponse(recipient, message) {
     formData.append('destination', recipient);
     formData.append('message_type', 'text');
     formData.append('message', message);
+    formData.append('method', 'SendMessage');
     
     // Enviar mensaje a través de GupShup
     const response = await axios.post(gupshupUrl, formData, {
