@@ -19,7 +19,7 @@ const ASSISTANT_ID = process.env.ASSISTANT_ID || "asst_abc123"; // ID del asiste
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 const GUPSHUP_USERID = process.env.GUPSHUP_USERID || '2000233790';
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3005;
 const ASISTENTE_ID = "asst_bdJlX30wF1qQH3Lf8ZoiptVx"; // ID de Hernán CUPRA Master
 
 // 🔧 Parche de URL: Corregir CONTROL_PANEL_URL si es necesario
