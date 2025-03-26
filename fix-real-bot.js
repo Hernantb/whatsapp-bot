@@ -231,8 +231,9 @@ async function directSupabaseAxios(endpoint, method, data = null) {
 }
 
 // Función principal para guardar mensajes en Supabase
-async function saveMessageToSupabase(conversationId, message, business_id) {
+async function saveMessageToSupabase(conversationId, message, business_id, sender_type = 'bot') {
   console.log('🔄 Guardando mensaje en Supabase...');
+  console.log(`📤 Tipo de mensaje: ${sender_type}`);
   
   try {
     // 1. Buscar la conversación existente
@@ -322,7 +323,7 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
     const newMessage = {
       conversation_id: conversationDbId,
       content: message,
-      sender_type: 'bot',
+      sender_type: sender_type, // Usar el tipo de remitente proporcionado
       read: false,
       created_at: new Date().toISOString()
     };
@@ -388,7 +389,7 @@ async function saveMessageToSupabase(conversationId, message, business_id) {
 }
 
 // Función para registrar respuestas del bot
-async function registerBotResponse(conversationId, message) {
+async function registerBotResponse(conversationId, message, business_id = BUSINESS_ID, sender_type = 'bot') {
   if (!conversationId || !message) {
     console.error('❌ Error: Se requiere conversationId y message');
     return false;
@@ -399,9 +400,9 @@ async function registerBotResponse(conversationId, message) {
   
   try {
     // Intentar guardar directamente en Supabase
-    await saveMessageToSupabase(conversationId, message, BUSINESS_ID);
-    console.log('✅ Mensaje guardado correctamente en Supabase');
-    return true;
+    await saveMessageToSupabase(conversationId, message, business_id, sender_type);
+    console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
+    return { success: true, message: "Mensaje guardado en Supabase" };
   } catch (error) {
     // Intentar con el servidor como respaldo
     console.error('❌ Error guardando en Supabase, intentando con el servidor:', error.message);
@@ -414,11 +415,12 @@ async function registerBotResponse(conversationId, message) {
       const response = await axios.post(serverUrl, {
         conversationId,
         message,
-        business_id: BUSINESS_ID
+        business_id: business_id,
+        sender_type: sender_type
       });
       
       console.log('✅ Mensaje enviado correctamente al servidor:', response.status);
-      return true;
+      return { success: true, message: "Mensaje enviado al servidor" };
     } catch (serverError) {
       console.error('❌ Error también al enviar al servidor:', serverError.message);
       
@@ -430,15 +432,16 @@ async function registerBotResponse(conversationId, message) {
         const altResponse = await axios.post(alternativeUrl, {
           conversationId,
           message,
-          business_id: BUSINESS_ID
+          business_id: business_id,
+          sender_type: sender_type
         });
         
         console.log('✅ Mensaje enviado con URL alternativa:', altResponse.status);
-        return true;
+        return { success: true, message: "Mensaje enviado al servidor (alternativa)" };
       } catch (altError) {
         console.error('❌ Error en segundo intento:', altError.message);
         console.error('❌ No se pudo guardar el mensaje por ningún método.');
-        return false;
+        return { success: false, error: altError.message };
       }
     }
   }

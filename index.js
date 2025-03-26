@@ -238,6 +238,22 @@ app.post('/webhook', async (req, res) => {
     // Marcar el mensaje como procesado
     markMessageAsProcessed(messageId, sender, message);
     
+    // Guardar el mensaje del usuario en Supabase
+    try {
+      // Guardar mensaje del usuario
+      console.log(`💾 Guardando mensaje del usuario en Supabase: ${message}`);
+      const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
+      
+      if (userMessageResult && userMessageResult.success) {
+        console.log('✅ Mensaje del usuario guardado correctamente en Supabase');
+      } else {
+        console.error('❌ Error al guardar mensaje del usuario en Supabase');
+      }
+    } catch (supabaseUserError) {
+      console.error('❌ Error al guardar mensaje del usuario:', supabaseUserError.message);
+      // No interrumpimos el flujo principal por un error en el registro
+    }
+    
     // Enviar mensaje a OpenAI
     const response = await processMessageWithOpenAI(sender, message);
     
@@ -250,7 +266,7 @@ app.post('/webhook', async (req, res) => {
       console.log(`🔄 Intentando registrar respuesta con business_id: ${BUSINESS_ID}`);
       
       // Usar la función global registerBotResponse para guardar en Supabase
-      const result = await global.registerBotResponse(sender, response, BUSINESS_ID);
+      const result = await global.registerBotResponse(sender, response, BUSINESS_ID, 'bot');
       
       // Verificar resultado
       if (result && result.success === true) {
