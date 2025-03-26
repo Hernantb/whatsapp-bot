@@ -319,119 +319,57 @@ async function sendWhatsAppResponse(recipient, message) {
   try {
     console.log(`📤 Enviando respuesta a ${recipient}: "${message}"`);
     
-    // Primer intento: Método SMS estándar API v1
-    console.log(`🔄 Primer intento: Método estándar API v1`);
-    const standardGupshupUrl = 'https://api.gupshup.io/sm/api/v1/msg';
-    const apikey = process.env.GUPSHUP_API_KEY;
+    // Usar API v1 de GupShup (la más moderna)
+    const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
+    const apiKey = process.env.GUPSHUP_API_KEY;
+    const source = process.env.GUPSHUP_NUMBER;
     
-    const payload = {
-      channel: "whatsapp",
-      source: GUPSHUP_NUMBER,
-      destination: recipient,
-      'src.name': GUPSHUP_NUMBER,
-      message: {
-        isHSM: false,
-        type: "text",
-        text: message
-      }
+    console.log(`🔑 Usando API Key: ${apiKey}`);
+    console.log(`📱 Desde número: ${source}`);
+    console.log(`📱 Hacia número: ${recipient}`);
+    
+    const formData = new URLSearchParams();
+    formData.append('channel', 'whatsapp');
+    formData.append('source', source);
+    formData.append('destination', recipient);
+    formData.append('src.name', source);  // Nombre de la app o número
+    formData.append('message', JSON.stringify({
+      type: 'text',
+      text: message
+    }));
+    
+    const headers = {
+      'Cache-Control': 'no-cache',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'apikey': apiKey
     };
     
-    try {
-      const headers = {
-        'apikey': apikey,
-        'Content-Type': 'application/json'
-      };
-      
-      console.log(`🔄 Ejecutando petición con API key: ${apikey.substring(0, 5)}...`);
-      console.log(`🔄 Payload:`, JSON.stringify(payload));
-      
-      const response = await axios.post(standardGupshupUrl, payload, { headers });
-      console.log(`📡 Respuesta del primer intento:`, JSON.stringify(response.data));
-      
-      if (response.data && response.data.status === "submitted") {
-        console.log(`✅ Mensaje enviado exitosamente a ${recipient}`);
-        return true;
-      }
-    } catch (error1) {
-      console.error(`❌ Error en primer intento:`, error1.message);
-      if (error1.response) {
-        console.error('📄 Detalles del error:', error1.response.status, JSON.stringify(error1.response.data));
-      }
-    }
+    console.log('🔄 Enviando mensaje utilizando API v1...');
     
-    // Segundo intento: Método tradicional con 'send'
-    console.log(`🔄 Segundo intento: Método tradicional con 'send'`);
-    try {
-      const gupshupUrl = 'https://media.smsgupshup.com/GatewayAPI/rest';
-      const formData = new URLSearchParams();
-      
-      formData.append('v', '1.1');
-      formData.append('format', 'json');
-      formData.append('auth_scheme', 'plain');
-      formData.append('userId', GUPSHUP_USERID);
-      formData.append('password', GUPSHUP_API_KEY);
-      formData.append('channel', 'whatsapp');
-      formData.append('source', GUPSHUP_NUMBER);
-      formData.append('destination', recipient);
-      formData.append('msg_type', 'text');
-      formData.append('msg', message);
-      formData.append('method', 'send');
-      
-      const response2 = await axios.post(gupshupUrl, formData, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
-      
-      console.log(`📡 Respuesta del segundo intento:`, JSON.stringify(response2.data));
-      
-      if (response2.data && response2.data.response && response2.data.response.status === 'success') {
-        console.log(`✅ Mensaje enviado exitosamente (segundo intento) a ${recipient}`);
-        return true;
-      }
-    } catch (error2) {
-      console.error(`❌ Error en segundo intento:`, error2.message);
-      if (error2.response) {
-        console.error('📄 Detalles del error:', error2.response.status, JSON.stringify(error2.response.data));
-      }
-    }
+    const response = await axios.post(apiUrl, formData, { headers });
     
-    // Tercer intento: API Enterprise formato alternativo
-    console.log(`🔄 Tercer intento: API Enterprise formato alternativo`);
-    try {
-      const enterpriseUrl = 'https://media.smsgupshup.com/GatewayAPI/rest';
-      const formData3 = new URLSearchParams();
-      
-      formData3.append('v', '1.1');
-      formData3.append('format', 'json');
-      formData3.append('auth_scheme', 'plain');
-      formData3.append('userid', GUPSHUP_USERID);
-      formData3.append('password', GUPSHUP_API_KEY);
-      formData3.append('send_to', recipient);
-      formData3.append('msg', message);
-      formData3.append('method', 'sendMessage');
-      formData3.append('msg_type', 'TEXT');
-      formData3.append('isTemplate', false);
-      
-      const response3 = await axios.post(enterpriseUrl, formData3, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
-      
-      console.log(`📡 Respuesta del tercer intento:`, JSON.stringify(response3.data));
-      
-      if (response3.data && response3.data.response && response3.data.response.status === 'success') {
-        console.log(`✅ Mensaje enviado exitosamente (tercer intento) a ${recipient}`);
-        return true;
-      }
-    } catch (error3) {
-      console.error(`❌ Error en tercer intento:`, error3.message);
-      if (error3.response) {
-        console.error('📄 Detalles del error:', error3.response.status, JSON.stringify(error3.response.data));
-      }
-    }
+    console.log('📡 Respuesta:', JSON.stringify(response.data));
     
-    console.error('❌ Todos los intentos de envío fallaron.');
-    return false;
+    if (response.status >= 200 && response.status < 300) {
+      console.log('✅ Mensaje enviado correctamente');
+      return true;
+    } else {
+      console.error(`❌ Error: Código de respuesta ${response.status}`);
+      return false;
+    }
   } catch (error) {
-    console.error('❌ Error general enviando mensaje a WhatsApp:', error.message);
+    console.error('❌ Error enviando mensaje:', error.message);
+    
+    if (error.response) {
+      console.error('🔍 Detalles del error:', 
+                  error.response.status, 
+                  JSON.stringify(error.response.data));
+    } else if (error.request) {
+      console.error('🔍 No se recibió respuesta del servidor');
+    } else {
+      console.error('🔍 Error en la configuración de la solicitud:', error.message);
+    }
+    
     return false;
   }
 }
