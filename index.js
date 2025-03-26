@@ -319,41 +319,77 @@ async function sendWhatsAppResponse(recipient, message) {
   try {
     console.log(`📤 Enviando respuesta a ${recipient}: "${message}"`);
     
-    // Formatear los datos según la API de GupShup
-    const gupshupUrl = 'https://media.smsgupshup.com/GatewayAPI/rest';
-    const formData = new URLSearchParams();
+    // Enfoque alternativo: usar la API v2 de GupShup
+    console.log("🔄 Usando API v2 de GupShup para mayor compatibilidad");
     
-    // El método debe estar en minúsculas para que GupShup lo acepte
-    const method = 'sendmessage'; // Forzando minúsculas
+    const payload = {
+      channel: "whatsapp",
+      source: GUPSHUP_NUMBER,
+      destination: recipient,
+      message: {
+        type: "text",
+        text: message
+      },
+      'src.name': GUPSHUP_NUMBER
+    };
     
-    formData.append('v', '1.1');
-    formData.append('format', 'json');
-    formData.append('auth_scheme', 'plain');
-    formData.append('userId', GUPSHUP_USERID);
-    formData.append('password', GUPSHUP_API_KEY);
-    formData.append('channel', 'whatsapp');
-    formData.append('source', GUPSHUP_NUMBER);
-    formData.append('destination', recipient);
-    formData.append('message_type', 'text');
-    formData.append('message', message);
-    formData.append('method', method);
+    const headers = {
+      'Cache-Control': 'no-cache',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'apikey': GUPSHUP_API_KEY
+    };
     
-    console.log(`🔄 Enviando petición a GupShup con método: ${method}`);
+    // Imprimir payload para debug
+    console.log("📦 Payload para GupShup:", JSON.stringify(payload));
     
-    // Enviar mensaje a través de GupShup
-    const response = await axios.post(gupshupUrl, formData, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
-    });
+    // Enviar mensaje a través de GupShup v2
+    const response = await axios.post(
+      'https://api.gupshup.io/sm/api/v1/msg', 
+      new URLSearchParams(Object.entries(payload)).toString(),
+      { headers }
+    );
     
-    if (response.data && response.data.response && response.data.response.status === 'success') {
+    console.log(`📡 Respuesta de GupShup:`, JSON.stringify(response.data));
+    
+    if (response.data && response.data.status === "submitted") {
       console.log(`✅ Mensaje enviado exitosamente a ${recipient}`);
-      console.log(`📡 Detalles: ${JSON.stringify(response.data).substring(0, 100)}...`);
       return true;
     } else {
       console.error(`❌ Error en respuesta de GupShup:`, JSON.stringify(response.data));
-      return false;
+      
+      // Segundo intento con API v1 como fallback
+      console.log("🔄 Intentando con API v1 como alternativa...");
+      
+      const gupshupUrl = 'https://media.smsgupshup.com/GatewayAPI/rest';
+      const formData = new URLSearchParams();
+      
+      formData.append('v', '1.1');
+      formData.append('format', 'json');
+      formData.append('auth_scheme', 'plain');
+      formData.append('userId', GUPSHUP_USERID);
+      formData.append('password', GUPSHUP_API_KEY);
+      formData.append('channel', 'whatsapp');
+      formData.append('source', GUPSHUP_NUMBER);
+      formData.append('destination', recipient);
+      formData.append('message_type', 'text');
+      formData.append('message', message);
+      formData.append('method', 'send');
+      
+      console.log(`🔄 Enviando petición a GupShup v1 con método: send`);
+      
+      const fallbackResponse = await axios.post(gupshupUrl, formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+      
+      if (fallbackResponse.data && fallbackResponse.data.response && fallbackResponse.data.response.status === 'success') {
+        console.log(`✅ Mensaje enviado exitosamente a ${recipient} (fallback)`);
+        return true;
+      } else {
+        console.error(`❌ Error en respuesta de GupShup (fallback):`, JSON.stringify(fallbackResponse.data));
+        return false;
+      }
     }
   } catch (error) {
     console.error('❌ Error enviando mensaje a WhatsApp:', error.message);
@@ -362,7 +398,45 @@ async function sendWhatsAppResponse(recipient, message) {
                   error.response.status, 
                   JSON.stringify(error.response.data).substring(0, 200));
     }
-    return false;
+    
+    // Tercer intento: método original como último recurso
+    try {
+      console.log("🔄 Intento final con método original...");
+      
+      const gupshupUrl = 'https://media.smsgupshup.com/GatewayAPI/rest';
+      const formData = new URLSearchParams();
+      
+      formData.append('v', '1.1');
+      formData.append('format', 'json');
+      formData.append('auth_scheme', 'plain');
+      formData.append('userId', GUPSHUP_USERID);
+      formData.append('password', GUPSHUP_API_KEY);
+      formData.append('channel', 'whatsapp');
+      formData.append('source', GUPSHUP_NUMBER);
+      formData.append('destination', recipient);
+      formData.append('message_type', 'text');
+      formData.append('message', message);
+      formData.append('method', 'SendMessage');
+      
+      console.log(`🔄 Último intento con método original: SendMessage`);
+      
+      const lastResortResponse = await axios.post(gupshupUrl, formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+      
+      if (lastResortResponse.data && lastResortResponse.data.response && lastResortResponse.data.response.status === 'success') {
+        console.log(`✅ Mensaje enviado exitosamente a ${recipient} (último recurso)`);
+        return true;
+      } else {
+        console.error(`❌ Todos los intentos fallaron.`);
+        return false;
+      }
+    } catch (finalError) {
+      console.error('❌ Error final enviando mensaje:', finalError.message);
+      return false;
+    }
   }
 }
 
