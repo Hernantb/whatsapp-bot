@@ -227,6 +227,34 @@ app.get('/', (req, res) => {
     });
 });
 
+// Endpoint de prueba para simular un mensaje
+app.post('/test-message', async (req, res) => {
+  try {
+    console.log('📩 Mensaje de prueba recibido:', JSON.stringify(req.body));
+    
+    const { message, sender } = req.body;
+    
+    if (!message || !sender) {
+      return res.status(400).json({ error: 'Mensaje o remitente faltante' });
+    }
+    
+    console.log(`👤 Mensaje de prueba recibido de ${sender}: ${message}`);
+    
+    // Enviar mensaje a OpenAI
+    const response = await processMessageWithOpenAI(sender, message);
+    
+    // Solo devolver la respuesta, no enviar a WhatsApp
+    return res.status(200).json({ 
+      success: true,
+      message: response,
+      sender: sender
+    });
+  } catch (error) {
+    console.error('❌ Error procesando mensaje de prueba:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // 🟢 Iniciar servidor
 app.listen(PORT, () => {
     console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
@@ -269,19 +297,38 @@ async function processMessageWithOpenAI(sender, message) {
   try {
     console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message}"`);
     
+    // Verificar que tenemos API key válida
+    if (!OPENAI_API_KEY || OPENAI_API_KEY.includes('xxxxxxx') || OPENAI_API_KEY === 'tu-api-key-de-openai') {
+      console.error('❌ ERROR CRÍTICO: API key de OpenAI no configurada correctamente');
+      return "Lo siento, el sistema no está configurado correctamente. Por favor contacta al administrador.";
+    }
+    
+    console.log(`🔑 Usando OpenAI API Key: ${OPENAI_API_KEY.substring(0, 7)}...`);
+    console.log(`🤖 Usando Assistant ID: ${ASSISTANT_ID}`);
+    
     // Crear o obtener un thread para este usuario para mantener contexto
     if (!userThreads[sender]) {
       // Crear un nuevo thread para el usuario
-      const threadResponse = await axios.post('https://api.openai.com/v1/threads', {}, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v1'
+      try {
+        const threadResponse = await axios.post('https://api.openai.com/v1/threads', {}, {
+          headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+            'OpenAI-Beta': 'assistants=v2'
+          }
+        });
+        
+        userThreads[sender] = threadResponse.data.id;
+        console.log(`🧵 Nuevo thread creado para usuario ${sender}: ${userThreads[sender]}`);
+      } catch (threadError) {
+        console.error('❌ Error creando thread:', threadError.message);
+        if (threadError.response) {
+          console.error('📄 Respuesta de error al crear thread:', 
+                     threadError.response.status, 
+                     JSON.stringify(threadError.response.data).substring(0, 500));
         }
-      });
-      
-      userThreads[sender] = threadResponse.data.id;
-      console.log(`🧵 Nuevo thread creado para usuario ${sender}: ${userThreads[sender]}`);
+        return "Lo siento, no puedo procesar tu mensaje en este momento. Por favor intenta más tarde.";
+      }
     }
     
     const threadId = userThreads[sender];
@@ -289,30 +336,63 @@ async function processMessageWithOpenAI(sender, message) {
     console.log(`🤖 Procesando con asistente específico: ${ASSISTANT_ID}`);
     
     // Paso 1: Añadir el mensaje al thread
-    await axios.post(`https://api.openai.com/v1/threads/${threadId}/messages`, {
-      role: 'user',
-      content: message
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'OpenAI-Beta': 'assistants=v1'
+    try {
+      await axios.post(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+        role: 'user',
+        content: message
+      }, {
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'assistants=v2'
+        }
+      });
+    } catch (messageError) {
+      console.error('❌ Error añadiendo mensaje al thread:', messageError.message);
+      if (messageError.response) {
+        console.error('📄 Respuesta de error al añadir mensaje:', 
+                   messageError.response.status, 
+                   JSON.stringify(messageError.response.data).substring(0, 500));
       }
-    });
+      return "Lo siento, hubo un problema al procesar tu mensaje. Por favor intenta de nuevo.";
+    }
     
     // Paso 2: Ejecutar el asistente en el thread
-    const runResponse = await axios.post(`https://api.openai.com/v1/threads/${threadId}/runs`, {
-      assistant_id: ASSISTANT_ID
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'OpenAI-Beta': 'assistants=v1'
+    let runId;
+    try {
+      const runResponse = await axios.post(`https://api.openai.com/v1/threads/${threadId}/runs`, {
+        assistant_id: ASSISTANT_ID
+      }, {
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'assistants=v2'
+        }
+      });
+      
+      runId = runResponse.data.id;
+      console.log(`🏃 Run iniciado con ID: ${runId}`);
+    } catch (runError) {
+      console.error('❌ Error iniciando run:', runError.message);
+      if (runError.response) {
+        console.error('📄 Respuesta de error al iniciar run:', 
+                     runError.response.status, 
+                     JSON.stringify(runError.response.data).substring(0, 500));
+                     
+        // Si es un error de autenticación, proveer un mensaje más específico
+        if (runError.response.status === 401) {
+          console.error('🔑 ERROR DE AUTENTICACIÓN: API key inválida o expirada');
+          return "Lo siento, hay un problema de autenticación con nuestro servicio. Por favor contacta al administrador.";
+        }
+        
+        // Si es un error de asistente no encontrado
+        if (runError.response.status === 404 && runError.response.data.error?.message?.includes('assistant')) {
+          console.error(`🤖 ERROR: Asistente con ID ${ASSISTANT_ID} no encontrado`);
+          return "Lo siento, el asistente configurado no está disponible. Por favor contacta al administrador.";
+        }
       }
-    });
-    
-    const runId = runResponse.data.id;
-    console.log(`🏃 Run iniciado con ID: ${runId}`);
+      return "Lo siento, tuve un problema técnico. Por favor intenta de nuevo más tarde.";
+    }
     
     // Paso 3: Esperar a que el run termine
     let runStatus = 'queued';
@@ -322,54 +402,65 @@ async function processMessageWithOpenAI(sender, message) {
     while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo
       
-      const statusResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v1'
-        }
-      });
-      
-      runStatus = statusResponse.data.status;
-      console.log(`🔄 Estado del run: ${runStatus} (intento ${attempts + 1})`);
-      attempts++;
+      try {
+        const statusResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
+          headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+            'OpenAI-Beta': 'assistants=v2'
+          }
+        });
+        
+        runStatus = statusResponse.data.status;
+        console.log(`🔄 Estado del run: ${runStatus} (intento ${attempts + 1})`);
+        attempts++;
+      } catch (statusError) {
+        console.error('❌ Error verificando estado del run:', statusError.message);
+        attempts++;
+        continue;
+      }
     }
     
     if (runStatus === 'completed') {
       // Paso 4: Obtener la respuesta
-      const messagesResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/messages`, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v1'
-        }
-      });
-      
-      // Obtener el mensaje más reciente del asistente
-      const assistantMessages = messagesResponse.data.data.filter(msg => msg.role === 'assistant');
-      
-      if (assistantMessages.length > 0) {
-        const latestMessage = assistantMessages[0];
-        
-        // Extraer el contenido del mensaje
-        let responseText = '';
-        if (latestMessage.content && latestMessage.content.length > 0) {
-          const textContent = latestMessage.content.filter(item => item.type === 'text');
-          if (textContent.length > 0) {
-            responseText = textContent[0].text.value;
+      try {
+        const messagesResponse = await axios.get(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+          headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+            'OpenAI-Beta': 'assistants=v2'
           }
-        }
+        });
         
-        if (responseText) {
-          console.log(`✅ Respuesta del asistente: "${responseText.substring(0, 50)}${responseText.length > 50 ? '...' : ''}"`);
-          return responseText;
+        // Obtener el mensaje más reciente del asistente
+        const assistantMessages = messagesResponse.data.data.filter(msg => msg.role === 'assistant');
+        
+        if (assistantMessages.length > 0) {
+          const latestMessage = assistantMessages[0];
+          
+          // Extraer el contenido del mensaje
+          let responseText = '';
+          if (latestMessage.content && latestMessage.content.length > 0) {
+            const textContent = latestMessage.content.filter(item => item.type === 'text');
+            if (textContent.length > 0) {
+              responseText = textContent[0].text.value;
+            }
+          }
+          
+          if (responseText) {
+            console.log(`✅ Respuesta del asistente: "${responseText.substring(0, 50)}${responseText.length > 50 ? '...' : ''}"`);
+            return responseText;
+          } else {
+            console.error('❌ No se pudo extraer texto de la respuesta del asistente');
+            return "Lo siento, hubo un problema al generar una respuesta. Por favor, intenta de nuevo.";
+          }
         } else {
-          console.error('❌ No se pudo extraer texto de la respuesta del asistente');
-          return "Lo siento, hubo un problema al generar una respuesta. Por favor, intenta de nuevo.";
+          console.error('❌ No se encontraron mensajes del asistente');
+          return "Lo siento, no pude recibir una respuesta del asistente. Por favor, intenta de nuevo.";
         }
-      } else {
-        console.error('❌ No se encontraron mensajes del asistente');
-        return "Lo siento, no pude recibir una respuesta del asistente. Por favor, intenta de nuevo.";
+      } catch (messagesError) {
+        console.error('❌ Error obteniendo mensajes:', messagesError.message);
+        return "Lo siento, hubo un problema recuperando la respuesta. Por favor, intenta de nuevo.";
       }
     } else {
       console.error(`❌ El procesamiento no se completó. Estado final: ${runStatus}`);
@@ -380,7 +471,7 @@ async function processMessageWithOpenAI(sender, message) {
     if (error.response) {
       console.error('📄 Respuesta de error de OpenAI:', 
                    error.response.status, 
-                   JSON.stringify(error.response.data).substring(0, 200));
+                   JSON.stringify(error.response.data).substring(0, 500));
     }
     return "Lo siento, tuve un problema técnico procesando tu mensaje. Por favor, intenta de nuevo más tarde.";
   }
