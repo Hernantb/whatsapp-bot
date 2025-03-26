@@ -80,6 +80,47 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
 
+// 🔃 Control de mensajes procesados para evitar duplicados
+const processedMessages = new Map();
+const MESSAGE_EXPIRE_TIME = 60000; // 60 segundos para expirar mensajes procesados
+
+// Función para verificar si un mensaje ya fue procesado
+function isMessageProcessed(messageId, sender, text) {
+  // Si tenemos un ID específico del mensaje
+  if (messageId) {
+    return processedMessages.has(messageId);
+  }
+  
+  // Si no tenemos ID, usamos una combinación de remitente + texto + timestamp aproximado
+  const messageKey = `${sender}:${text}`;
+  const now = Date.now();
+  
+  // Verificar si ya existe una entrada reciente con esta combinación
+  for (const [key, timestamp] of processedMessages.entries()) {
+    if (key.startsWith(messageKey) && (now - timestamp) < MESSAGE_EXPIRE_TIME) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Función para marcar un mensaje como procesado
+function markMessageAsProcessed(messageId, sender, text) {
+  const key = messageId || `${sender}:${text}:${Date.now()}`;
+  processedMessages.set(key, Date.now());
+  
+  // Limpieza de mensajes expirados (cada 100 mensajes)
+  if (processedMessages.size > 100) {
+    const now = Date.now();
+    for (const [key, timestamp] of processedMessages.entries()) {
+      if (now - timestamp > MESSAGE_EXPIRE_TIME) {
+        processedMessages.delete(key);
+      }
+    }
+  }
+}
+
 // 🚀 Verificar API Keys
 console.log("🔑 API Keys cargadas:");
 console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "✅ OK" : "❌ FALTA");
@@ -165,14 +206,37 @@ app.post('/webhook', async (req, res) => {
     console.log('📩 Mensaje recibido en webhook:', JSON.stringify(req.body));
     
     // Procesar el mensaje
-    const { message, sender } = extractMessageData(req.body);
+    const { message, sender, messageId, isStatusUpdate, messageType } = extractMessageData(req.body);
+    
+    // Si es una notificación de estado, simplemente confirmamos recepción
+    if (isStatusUpdate) {
+      console.log('📊 Procesada notificación de estado');
+      return res.status(200).send('OK');
+    }
     
     if (!message || !sender) {
       console.log('⚠️ Mensaje no válido o no es un mensaje de texto');
+      
+      // Si tenemos remitente pero no mensaje (tipo no soportado)
+      if (sender && messageType) {
+        console.log(`⚠️ Mensaje de tipo '${messageType}' no soportado`);
+        // Opcionalmente podríamos enviar un mensaje informando que ese tipo no se soporta
+        await sendWhatsAppResponse(sender, "Lo siento, por el momento solo puedo procesar mensajes de texto.");
+      }
+      
+      return res.status(200).send('OK');
+    }
+    
+    // Verificar si este mensaje ya fue procesado para evitar duplicados
+    if (isMessageProcessed(messageId, sender, message)) {
+      console.log(`🔁 Mensaje duplicado detectado: ${messageId || `${sender}:${message}`}`);
       return res.status(200).send('OK');
     }
     
     console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
+    
+    // Marcar el mensaje como procesado
+    markMessageAsProcessed(messageId, sender, message);
     
     // Enviar mensaje a OpenAI
     const response = await processMessageWithOpenAI(sender, message);
@@ -269,26 +333,47 @@ function extractMessageData(body) {
       const changes = body.entry[0].changes;
       
       for (const change of changes) {
+        // Verificar si es una notificación de estado (delivered, read, etc.)
+        if (change.field === 'messages' && change.value && change.value.statuses) {
+          console.log('📊 Notificación de estado recibida, no requiere respuesta');
+          return { message: null, sender: null, messageId: null, isStatusUpdate: true };
+        }
+        
+        // Procesamiento normal para mensajes de texto
         if (change.field === 'messages' && change.value && change.value.messages && change.value.messages.length > 0) {
           const message = change.value.messages[0];
           const sender = message.from;
+          const messageId = message.id; // Capturamos el ID del mensaje
           
+          // Verificar si es un mensaje de texto
           if (message.type === 'text' && message.text && message.text.body) {
             return {
               message: message.text.body,
               sender: sender,
-              timestamp: message.timestamp
+              timestamp: message.timestamp,
+              messageId: messageId,
+              isStatusUpdate: false
             };
           }
+          
+          // Manejo de otros tipos de mensajes (audio, imagen, etc.)
+          console.log(`⚠️ Mensaje de tipo no soportado: ${message.type}`);
+          return { 
+            message: null, 
+            sender: sender, 
+            messageId: messageId, 
+            isStatusUpdate: false,
+            messageType: message.type 
+          };
         }
       }
     }
     
-    console.log('⚠️ Formato de mensaje no reconocido:', JSON.stringify(body));
-    return { message: null, sender: null };
+    console.log('⚠️ Formato de mensaje no reconocido:', JSON.stringify(body).substring(0, 200) + '...');
+    return { message: null, sender: null, messageId: null, isStatusUpdate: false };
   } catch (error) {
     console.error('❌ Error al extraer datos del mensaje:', error.message);
-    return { message: null, sender: null };
+    return { message: null, sender: null, messageId: null, isStatusUpdate: false };
   }
 }
 
