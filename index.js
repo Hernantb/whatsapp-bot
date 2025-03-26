@@ -241,41 +241,39 @@ app.post('/webhook', async (req, res) => {
     // Marcar el mensaje como procesado
     markMessageAsProcessed(messageId, normalizedSender, message);
     
-    // Guardar el mensaje del usuario en Supabase
+    // 1. Guardar el mensaje del usuario en la tabla messages con sender_type=user
     try {
-      // Guardar mensaje del usuario
-      console.log(`💾 Guardando mensaje del usuario en Supabase: ${message}`);
+      console.log(`💾 Guardando mensaje del usuario en la tabla messages: ${message}`);
       const userMessageResult = await global.registerBotResponse(normalizedSender, message, BUSINESS_ID, 'user');
       
       if (userMessageResult && userMessageResult.success) {
-        console.log('✅ Mensaje del usuario guardado correctamente en Supabase');
+        console.log('✅ Mensaje del usuario guardado correctamente en la tabla messages');
       } else {
-        console.error('❌ Error al guardar mensaje del usuario en Supabase');
+        console.error('❌ Error al guardar mensaje del usuario en la tabla messages');
       }
     } catch (supabaseUserError) {
       console.error('❌ Error al guardar mensaje del usuario:', supabaseUserError.message);
       // No interrumpimos el flujo principal por un error en el registro
     }
     
-    // Enviar mensaje a OpenAI
+    // 2. Enviar mensaje a OpenAI y obtener respuesta
     const response = await processMessageWithOpenAI(normalizedSender, message);
     
-    // Enviar respuesta a WhatsApp
+    // 3. Enviar respuesta a WhatsApp
     await sendWhatsAppResponse(sender, response);
     
-    // Usar try/catch específico para el registro en panel de control
+    // 4. Guardar la respuesta del bot en la tabla messages con sender_type=bot
     try {
-      // Registrar respuesta en el panel de control usando la función global
-      console.log(`🔄 Intentando registrar respuesta con business_id: ${BUSINESS_ID}`);
+      console.log(`💾 Guardando respuesta del bot en la tabla messages: ${response.substring(0, 50)}...`);
       
       // Usar la función global registerBotResponse para guardar en Supabase
       const result = await global.registerBotResponse(normalizedSender, response, BUSINESS_ID, 'bot');
       
       // Verificar resultado
       if (result && result.success === true) {
-        console.log(`✅ Respuesta guardada correctamente en Supabase`);
+        console.log(`✅ Respuesta del bot guardada correctamente en la tabla messages`);
       } else {
-        console.error(`❌ Error al guardar en Supabase: ${result?.error || 'Error desconocido'}`);
+        console.error(`❌ Error al guardar respuesta del bot: ${result?.error || 'Error desconocido'}`);
       }
       
       // También usar la función local para el panel de control
