@@ -38,7 +38,13 @@ if (originalUrl.includes('/register-bot-response/register-bot-response')) {
 
 // Verificar dominios antiguos y corregirlos
 if (isProd && originalUrl.includes('panel-control-whatsapp.onrender.com')) {
-    originalUrl = originalUrl.replace('panel-control-whatsapp.onrender.com', 'render-wa.onrender.com');
+    originalUrl = originalUrl.replace('panel-control-whatsapp.onrender.com', 'whatsapp-bot-if6z.onrender.com');
+}
+
+// Si la URL contiene el dominio antiguo, actualizarlo
+if (originalUrl.includes('render-wa.onrender.com')) {
+    originalUrl = originalUrl.replace('render-wa.onrender.com', 'whatsapp-bot-if6z.onrender.com');
+    console.log("URL actualizada a dominio correcto:", originalUrl);
 }
 
 // Corregir estructura
@@ -119,6 +125,13 @@ async function registerBotResponse(conversationId, message, threadId) {
         
         // Evitar duplicación de /register-bot-response en la URL
         let apiUrl = CONTROL_PANEL_URL;
+        
+        // Actualizar URL si contiene el dominio antiguo
+        if (apiUrl.includes('render-wa.onrender.com')) {
+            apiUrl = apiUrl.replace('render-wa.onrender.com', 'whatsapp-bot-if6z.onrender.com');
+            console.log("URL del panel actualizada a:", apiUrl);
+        }
+        
         if (!apiUrl.endsWith('/register-bot-response')) {
             apiUrl = `${apiUrl}/register-bot-response`;
         }
@@ -310,6 +323,9 @@ async function sendWhatsAppResponse(recipient, message) {
     const gupshupUrl = 'https://media.smsgupshup.com/GatewayAPI/rest';
     const formData = new URLSearchParams();
     
+    // El método debe estar en minúsculas para que GupShup lo acepte
+    const method = 'sendmessage'; // Forzando minúsculas
+    
     formData.append('v', '1.1');
     formData.append('format', 'json');
     formData.append('auth_scheme', 'plain');
@@ -320,7 +336,9 @@ async function sendWhatsAppResponse(recipient, message) {
     formData.append('destination', recipient);
     formData.append('message_type', 'text');
     formData.append('message', message);
-    formData.append('method', 'sendMessage');
+    formData.append('method', method);
+    
+    console.log(`🔄 Enviando petición a GupShup con método: ${method}`);
     
     // Enviar mensaje a través de GupShup
     const response = await axios.post(gupshupUrl, formData, {
