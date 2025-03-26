@@ -227,22 +227,25 @@ app.post('/webhook', async (req, res) => {
       return res.status(200).send('OK');
     }
     
+    // Normalizar el ID del remitente
+    const normalizedSender = String(sender).trim().replace(/_TEST.*$/i, '');
+    
     // Verificar si este mensaje ya fue procesado para evitar duplicados
-    if (isMessageProcessed(messageId, sender, message)) {
-      console.log(`🔁 Mensaje duplicado detectado: ${messageId || `${sender}:${message}`}`);
+    if (isMessageProcessed(messageId, normalizedSender, message)) {
+      console.log(`🔁 Mensaje duplicado detectado: ${messageId || `${normalizedSender}:${message}`}`);
       return res.status(200).send('OK');
     }
     
-    console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
+    console.log(`👤 Mensaje recibido de ${normalizedSender}: ${message}`);
     
     // Marcar el mensaje como procesado
-    markMessageAsProcessed(messageId, sender, message);
+    markMessageAsProcessed(messageId, normalizedSender, message);
     
     // Guardar el mensaje del usuario en Supabase
     try {
       // Guardar mensaje del usuario
       console.log(`💾 Guardando mensaje del usuario en Supabase: ${message}`);
-      const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
+      const userMessageResult = await global.registerBotResponse(normalizedSender, message, BUSINESS_ID, 'user');
       
       if (userMessageResult && userMessageResult.success) {
         console.log('✅ Mensaje del usuario guardado correctamente en Supabase');
@@ -255,7 +258,7 @@ app.post('/webhook', async (req, res) => {
     }
     
     // Enviar mensaje a OpenAI
-    const response = await processMessageWithOpenAI(sender, message);
+    const response = await processMessageWithOpenAI(normalizedSender, message);
     
     // Enviar respuesta a WhatsApp
     await sendWhatsAppResponse(sender, response);
@@ -266,7 +269,7 @@ app.post('/webhook', async (req, res) => {
       console.log(`🔄 Intentando registrar respuesta con business_id: ${BUSINESS_ID}`);
       
       // Usar la función global registerBotResponse para guardar en Supabase
-      const result = await global.registerBotResponse(sender, response, BUSINESS_ID, 'bot');
+      const result = await global.registerBotResponse(normalizedSender, response, BUSINESS_ID, 'bot');
       
       // Verificar resultado
       if (result && result.success === true) {
@@ -276,7 +279,7 @@ app.post('/webhook', async (req, res) => {
       }
       
       // También usar la función local para el panel de control
-      const panelResult = await registerBotResponse(sender, response, BUSINESS_ID);
+      const panelResult = await registerBotResponse(normalizedSender, response, BUSINESS_ID);
       
       // Verificar específicamente el resultado
       if (panelResult && panelResult.success === false) {
@@ -318,12 +321,14 @@ app.post('/test-message', async (req, res) => {
       return res.status(400).json({ error: 'Mensaje o remitente faltante' });
     }
     
-    console.log(`👤 Mensaje de prueba recibido de ${sender}: ${message}`);
+    // Normalizar el ID del remitente
+    const normalizedSender = String(sender).trim().replace(/_TEST.*$/i, '');
+    console.log(`👤 Mensaje de prueba recibido de ${normalizedSender}: ${message}`);
     
     // Guardar el mensaje del usuario en Supabase
     try {
       console.log(`💾 Guardando mensaje del usuario en Supabase: ${message}`);
-      const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
+      const userMessageResult = await global.registerBotResponse(normalizedSender, message, BUSINESS_ID, 'user');
       
       if (userMessageResult && userMessageResult.success) {
         console.log('✅ Mensaje del usuario guardado correctamente en Supabase');
@@ -336,14 +341,14 @@ app.post('/test-message', async (req, res) => {
     }
     
     // Enviar mensaje a OpenAI
-    const response = await processMessageWithOpenAI(sender, message);
+    const response = await processMessageWithOpenAI(normalizedSender, message);
     
     // Guardar la respuesta del bot en Supabase
     try {
       console.log(`🔄 Intentando registrar respuesta del bot con business_id: ${BUSINESS_ID}`);
       
       // Usar la función global registerBotResponse para guardar en Supabase
-      const result = await global.registerBotResponse(sender, response, BUSINESS_ID, 'bot');
+      const result = await global.registerBotResponse(normalizedSender, response, BUSINESS_ID, 'bot');
       
       // Verificar resultado
       if (result && result.success === true) {
@@ -428,7 +433,9 @@ function extractMessageData(body) {
 // Función para procesar mensaje con OpenAI
 async function processMessageWithOpenAI(sender, message) {
   try {
-    console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message}"`);
+    // Normalizar el ID del remitente para garantizar consistencia
+    const normalizedSender = String(sender).trim().replace(/_TEST.*$/i, '');
+    console.log(`⚙️ Procesando mensaje de ${normalizedSender} con OpenAI: "${message}"`);
     
     // Verificar que tenemos API key válida
     if (!OPENAI_API_KEY || OPENAI_API_KEY.includes('xxxxxxx') || OPENAI_API_KEY === 'tu-api-key-de-openai') {
@@ -440,7 +447,7 @@ async function processMessageWithOpenAI(sender, message) {
     console.log(`🤖 Usando Assistant ID: ${ASSISTANT_ID}`);
     
     // Crear o obtener un thread para este usuario para mantener contexto
-    if (!userThreads[sender]) {
+    if (!userThreads[normalizedSender]) {
       // Crear un nuevo thread para el usuario
       try {
         const threadResponse = await axios.post('https://api.openai.com/v1/threads', {}, {
@@ -451,8 +458,8 @@ async function processMessageWithOpenAI(sender, message) {
           }
         });
         
-        userThreads[sender] = threadResponse.data.id;
-        console.log(`🧵 Nuevo thread creado para usuario ${sender}: ${userThreads[sender]}`);
+        userThreads[normalizedSender] = threadResponse.data.id;
+        console.log(`🧵 Nuevo thread creado para usuario ${normalizedSender}: ${userThreads[normalizedSender]}`);
       } catch (threadError) {
         console.error('❌ Error creando thread:', threadError.message);
         if (threadError.response) {
@@ -464,8 +471,8 @@ async function processMessageWithOpenAI(sender, message) {
       }
     }
     
-    const threadId = userThreads[sender];
-    console.log(`🧵 Usando thread ${threadId} para usuario ${sender}`);
+    const threadId = userThreads[normalizedSender];
+    console.log(`🧵 Usando thread ${threadId} para usuario ${normalizedSender}`);
     console.log(`🤖 Procesando con asistente específico: ${ASSISTANT_ID}`);
     
     // Paso 1: Añadir el mensaje al thread

@@ -236,8 +236,13 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
   console.log(`📤 Tipo de mensaje: ${sender_type}`);
   
   try {
+    // Normalizar el ID de la conversación para evitar problemas con diferentes formas de escribir el mismo ID
+    const normalizedConversationId = String(conversationId).trim().replace(/_TEST.*$/i, '');
+    console.log(`📤 Guardando mensaje de tipo '${sender_type}' para: ${conversationId}`);
+    console.log(`🚀 Procesando mensaje para: ${normalizedConversationId}`);
+    
     // 1. Buscar la conversación existente
-    console.log('🔍 Buscando conversación para:', conversationId);
+    console.log('🔍 Buscando conversación para:', normalizedConversationId);
     
     let result;
     
@@ -247,7 +252,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
         const { data: conversations, error } = await supabase
           .from('conversations')
           .select('id')
-          .eq('user_id', conversationId)
+          .eq('user_id', normalizedConversationId)
           .eq('business_id', business_id)
           .limit(1);
           
@@ -258,7 +263,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
         
         // Si falla, usar API REST directa
         const { data, error } = await directSupabaseAxios(
-          `conversations?user_id=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
+          `conversations?user_id=eq.${encodeURIComponent(normalizedConversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
           'get'
         );
         
@@ -268,7 +273,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
     } else {
       // Si no hay cliente, usar directamente API REST
       const { data, error } = await directSupabaseAxios(
-        `conversations?user_id=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
+        `conversations?user_id=eq.${encodeURIComponent(normalizedConversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`, 
         'get'
       );
       
@@ -283,9 +288,9 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
       console.log('🆕 No se encontró conversación existente, creando nueva...');
       
       const newConversation = {
-        user_id: conversationId,
+        user_id: normalizedConversationId,
         business_id,
-        name: 'Usuario',
+        sender_name: 'Usuario',
         last_message: message
         // No incluir updated_at ya que no existe en la tabla
       };
@@ -395,12 +400,14 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
     return false;
   }
   
-  console.log('🚀 Procesando mensaje para:', conversationId);
-  console.log('📝 Mensaje:', JSON.stringify(message));
+  // Normalizar el ID de la conversación para garantizar consistencia
+  const normalizedConversationId = String(conversationId).trim().replace(/_TEST.*$/i, '');
+  console.log('🚀 Procesando mensaje para:', normalizedConversationId);
+  console.log('📝 Mensaje:', JSON.stringify(message).substring(0, 100) + (message.length > 100 ? '...' : ''));
   
   try {
     // Intentar guardar directamente en Supabase
-    await saveMessageToSupabase(conversationId, message, business_id, sender_type);
+    await saveMessageToSupabase(normalizedConversationId, message, business_id, sender_type);
     console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
     return { success: true, message: "Mensaje guardado en Supabase" };
   } catch (error) {
@@ -413,7 +420,7 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
       console.log('🔄 Enviando mensaje al servidor:', serverUrl);
       
       const response = await axios.post(serverUrl, {
-        conversationId,
+        conversationId: normalizedConversationId,
         message,
         business_id: business_id,
         sender_type: sender_type
@@ -430,7 +437,7 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
         console.log('🔄 Intentando URL alternativa:', alternativeUrl);
         
         const altResponse = await axios.post(alternativeUrl, {
-          conversationId,
+          conversationId: normalizedConversationId,
           message,
           business_id: business_id,
           sender_type: sender_type
