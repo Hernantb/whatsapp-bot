@@ -1,8 +1,23 @@
 // Primero, cargar las variables de entorno (para que surtan efecto desde el inicio)
 require('dotenv').config();
 
-// Forzar la URL del panel local
-process.env.CONTROL_PANEL_URL = 'http://localhost:3000/api/register-bot-response';
+// SOLUCIÓN DEFINITIVA: Forzar URL en Render
+// Detectar ambiente Render
+const RENDER_ENV = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL !== undefined;
+const PROD_ENV = process.env.NODE_ENV === 'production';
+
+// En Render, siempre usar la URL correcta (antes de cualquier otro código)
+if (RENDER_ENV || PROD_ENV) {
+  const correctUrl = 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response';
+  process.env.CONTROL_PANEL_URL = correctUrl;
+  console.log(`🛠️ CONFIGURACIÓN TEMPRANA: URL forzada a ${correctUrl}`);
+  
+  // Guardar también variables para Supabase para asegurar que estén disponibles
+  if (!process.env.SUPABASE_KEY && process.env.SUPABASE_ANON_KEY) {
+    process.env.SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
+    console.log('🔑 CONFIGURACIÓN TEMPRANA: Copiando SUPABASE_ANON_KEY a SUPABASE_KEY');
+  }
+}
 
 // Cargar el parche global que define registerBotResponse
 require('./global-patch');
@@ -22,11 +37,11 @@ const { createClient } = require('@supabase/supabase-js');
 
 // Variables globales para el servidor
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://wscijkxwevgxbgwhbqtm.supabase.co';
-const SUPABASE_API_KEY = process.env.SUPABASE_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTgwOTkxNzYsImV4cCI6MjAxMzY3NTE3Nn0.B_LQ2_2jUIZ1PvR1_ObQ-8fmVOaOY0jXkYa9KGbU9N0';
+// const SUPABASE_API_KEY = process.env.SUPABASE_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTgwOTkxNzYsImV4cCI6MjAxMzY3NTE3Nn0.B_LQ2_2jUIZ1PvR1_ObQ-8fmVOaOY0jXkYa9KGbU9N0';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ASSISTANT_ID = process.env.ASSISTANT_ID || 'asst_l8fFxu1rBjkZGNWZ0PSLZ73Q';
 const PORT = process.env.PORT || 3010;
-const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:3000/api/register-bot-response';
+let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:3000/api/register-bot-response';
 const BUSINESS_ID = process.env.BUSINESS_ID || '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
@@ -108,47 +123,69 @@ async function updateConversationMappings() {
 
 // 🔧 Parche de URL: Corregir CONTROL_PANEL_URL si es necesario
 console.log("🔧 APLICANDO PARCHE PARA CORREGIR URLs DEL BOT WHATSAPP");
-let originalUrl = process.env.CONTROL_PANEL_URL || 'http://localhost:3001';
-console.log("CONTROL_PANEL_URL actual:", originalUrl);
 
-// Detectar entorno
-const isProd = process.env.NODE_ENV === 'production';
-console.log("Ambiente:", isProd ? "Producción" : "Desarrollo");
+// Usar constantes definidas al inicio
+console.log("Ambiente:", PROD_ENV ? "Producción" : "Desarrollo");
+console.log("Render detectado:", RENDER_ENV ? "SÍ" : "NO");
 
-// Corregir URL duplicada
-if (originalUrl.includes('/register-bot-response/register-bot-response')) {
+// En Render, siempre usar la URL correcta
+if (RENDER_ENV && PROD_ENV) {
+  const renderUrl = 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response';
+  console.log(`🏗️ Ambiente Render detectado, forzando URL correcta: ${renderUrl}`);
+  process.env.CONTROL_PANEL_URL = renderUrl;
+  CONTROL_PANEL_URL = renderUrl;
+  console.log(`✅ URL configurada para Render: ${CONTROL_PANEL_URL}`);
+} else {
+  // Procesar la URL para otros entornos
+  let originalUrl = process.env.CONTROL_PANEL_URL || (PROD_ENV ? 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response' : 'http://localhost:3000');
+  console.log("CONTROL_PANEL_URL actual:", originalUrl);
+  
+  // Si estamos en producción y la URL contiene localhost, corregirla
+  if (PROD_ENV && originalUrl.includes('localhost')) {
+    console.log("⚠️ Detectada URL de localhost en ambiente de producción. Corrigiendo...");
+    originalUrl = 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response';
+    console.log("✅ URL corregida para producción:", originalUrl);
+  }
+  
+  // Corregir URL duplicada
+  if (originalUrl.includes('/register-bot-response/register-bot-response')) {
     originalUrl = originalUrl.replace('/register-bot-response/register-bot-response', '/register-bot-response');
-}
+  }
 
-// Verificar dominios antiguos y corregirlos
-if (isProd && originalUrl.includes('panel-control-whatsapp.onrender.com')) {
+  // Verificar dominios antiguos y corregirlos
+  if (PROD_ENV && originalUrl.includes('panel-control-whatsapp.onrender.com')) {
     originalUrl = originalUrl.replace('panel-control-whatsapp.onrender.com', 'whatsapp-bot-if6z.onrender.com');
-}
+  }
 
-// Si la URL contiene el dominio antiguo, actualizarlo
-if (originalUrl.includes('render-wa.onrender.com')) {
+  // Si la URL contiene el dominio antiguo, actualizarlo
+  if (originalUrl.includes('render-wa.onrender.com')) {
     originalUrl = originalUrl.replace('render-wa.onrender.com', 'whatsapp-bot-if6z.onrender.com');
     console.log("URL actualizada a dominio correcto:", originalUrl);
-}
+  }
 
-// Corregir estructura
-if (originalUrl.endsWith('/register-bot-response')) {
+  // Corregir estructura
+  if (originalUrl.endsWith('/register-bot-response')) {
     // URL ya tiene el endpoint, no necesita cambios
     process.env.CONTROL_PANEL_URL = originalUrl.trim();
-} else if (originalUrl.includes('/register-bot-response/')) {
+    CONTROL_PANEL_URL = originalUrl.trim();
+  } else if (originalUrl.includes('/register-bot-response/')) {
     // URL tiene endpoint duplicado
     process.env.CONTROL_PANEL_URL = originalUrl.split('/register-bot-response/')[0] + '/register-bot-response';
-} else {
+    CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL;
+  } else {
     // URL no tiene endpoint, agregar si no termina en /
-    process.env.CONTROL_PANEL_URL = originalUrl.endsWith('/') 
+    const formattedUrl = originalUrl.endsWith('/') 
         ? originalUrl.slice(0, -1) + '/register-bot-response'
         : originalUrl + '/register-bot-response';
+    process.env.CONTROL_PANEL_URL = formattedUrl;
+    CONTROL_PANEL_URL = formattedUrl;
+  }
 }
 
-console.log("URL que se usará:", process.env.CONTROL_PANEL_URL);
+console.log("URL final que se usará:", CONTROL_PANEL_URL);
 console.log("✅ Parche aplicado correctamente");
 console.log("📝 De ahora en adelante, las URLs duplicadas serán corregidas automáticamente");
-console.log("🌐 En ambiente de producción, se usará:", isProd ? process.env.CONTROL_PANEL_URL : "URL de desarrollo");
+console.log("🌐 En ambiente de producción, se usará:", PROD_ENV ? CONTROL_PANEL_URL : "URL de desarrollo");
 console.log("🔍 También puedes usar la función global registerBotResponse() para enviar mensajes");
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
@@ -231,9 +268,16 @@ console.log("CONTROL_PANEL_URL:", CONTROL_PANEL_URL);
 // Verificar si CONTROL_PANEL_URL es válido
 if (CONTROL_PANEL_URL.includes('api.openai.com')) {
     console.error("🚨 ERROR GRAVE: CONTROL_PANEL_URL está configurado incorrectamente a api.openai.com");
-    console.error("🚨 Por favor, actualiza .env con la URL correcta de tu aplicación");
-} else if (CONTROL_PANEL_URL.includes('localhost') && process.env.NODE_ENV === 'production') {
+    console.error("🛑 Esta configuración causará problemas con la API. Por favor corrige el valor.");
+} else if (CONTROL_PANEL_URL.includes('localhost') && PROD_ENV) {
     console.warn("⚠️ Advertencia: CONTROL_PANEL_URL está configurado a localhost en entorno de producción");
+    // Actualizar una última vez para asegurar que está correcto
+    if (PROD_ENV) {
+        const correctProdUrl = 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response';
+        console.log(`⚙️ Actualizando automáticamente CONTROL_PANEL_URL a: ${correctProdUrl}`);
+        process.env.CONTROL_PANEL_URL = correctProdUrl;
+        CONTROL_PANEL_URL = correctProdUrl;
+    }
     console.warn("⚠️ Esto podría causar problemas al registrar respuestas");
 }
 
@@ -244,13 +288,32 @@ if (!OPENAI_API_KEY || !GUPSHUP_API_KEY || !GUPSHUP_NUMBER) {
 }
 
 // Configuración de Supabase
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.SUPABASE_URL || 'https://wscijkxwevgxbgwhbqtm.supabase.co';
+// Intentar obtener la clave de Supabase de diferentes variables de entorno posibles
+// Verificamos todas las posibles variables donde podría estar la clave de Supabase
+const supabaseKey = process.env.SUPABASE_ANON_KEY || 
+                   process.env.SUPABASE_KEY || 
+                   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+                   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI3NjgsImV4cCI6MjA1NzM5ODc2OH0._HSnvof7NUk6J__qqq3gJvbJRZnItCAmlI5HYAL8WVI';
 
-if (!supabaseUrl || !supabaseKey) {
-    console.error('❌ ERROR: Faltan credenciales de Supabase');
+console.log('🔑 DEBUG - Variables de entorno para Supabase:');
+console.log('- SUPABASE_URL:', process.env.SUPABASE_URL || 'no definido');
+console.log('- SUPABASE_ANON_KEY:', process.env.SUPABASE_ANON_KEY ? process.env.SUPABASE_ANON_KEY.substring(0, 10) + '...' : 'no definido');
+console.log('- SUPABASE_KEY:', process.env.SUPABASE_KEY ? process.env.SUPABASE_KEY.substring(0, 10) + '...' : 'no definido');
+console.log('- NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.substring(0, 10) + '...' : 'no definido');
+
+if (!supabaseUrl) {
+    console.error('❌ ERROR: Falta la URL de Supabase');
     process.exit(1);
 }
+
+if (!supabaseKey) {
+    console.error('❌ ERROR: Faltan credenciales de Supabase (ninguna variable de clave está definida)');
+    process.exit(1);
+}
+
+console.log('✅ Credenciales de Supabase encontradas correctamente');
+console.log(`🔑 Usando clave de Supabase (primeros 10 caracteres): ${supabaseKey.substring(0, 10)}...`);
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -325,7 +388,7 @@ function safeISODate(timestamp) {
     
     // Caso por defecto
     return new Date().toISOString();
-  } catch (error) {
+    } catch (error) {
     console.warn(`⚠️ Error al formatear fecha ${timestamp}:`, error);
     return new Date().toISOString();
   }
@@ -1843,9 +1906,9 @@ async function sendWhatsAppResponse(recipient, message) {
           JSON.stringify(apiError.response.data || {})
         );
       } else if (apiError.request) {
-        console.error('🔍 No se recibió respuesta del servidor:', apiError.request);
+        console.error('🔍 No se recibió respuesta:', apiError.request);
       } else {
-        console.error('🔍 Error en la configuración de la solicitud:', apiError.message);
+        console.error('🔍 Error en la configuración:', apiError.message);
       }
       throw apiError;
     }
@@ -1855,7 +1918,7 @@ async function sendWhatsAppResponse(recipient, message) {
       console.error('🔍 Detalles del error:', error.response.status, JSON.stringify(error.response.data || {}));
     }
     console.error('📋 Stack del error:', error.stack);
-    return false;
+      return false;
   } finally {
     console.log(`📋 FIN DE FUNCIÓN sendWhatsAppResponse`);
   }
@@ -1900,8 +1963,8 @@ app.post('/simulate-webhook', async (req, res) => {
                 console.log(`🧪 Actualizada caché de estado: senderBotStatusMap[${sender}] = ${isBotActive}`);
     } else {
                 console.log(`🧪 No se encontró conversación para ${sender}, se asumirá bot activo ✅`);
-            }
-        } catch (error) {
+    }
+  } catch (error) {
             console.error(`🧪 Error al verificar estado del bot: ${error.message}`);
         }
         
@@ -2015,7 +2078,7 @@ app.post('/simulate-webhook', async (req, res) => {
             console.log(`🧪 ✅ Correcto: No se llamó a OpenAI porque el bot está desactivado`);
         } else if (isBotActive) {
             console.log(`🧪 ✅ Correcto: Se llamó a OpenAI porque el bot está activado`);
-        } else {
+    } else {
             console.log(`🧪 ❌ ERROR: Se llamó a OpenAI aunque el bot está desactivado`);
         }
         
@@ -2419,8 +2482,8 @@ async function forceDeactivateBot(phoneOrConversationId) {
       
       if (error) {
         console.error(`❌ Error al desactivar bot para conversación ${phoneOrConversationId}:`, error);
-        return false;
-      }
+    return false;
+  }
       
       console.log(`✅ Bot desactivado exitosamente para conversación ${phoneOrConversationId}`);
       return true;

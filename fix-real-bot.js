@@ -140,9 +140,42 @@ const selectUrl = () => {
 };
 
 // Forzar la URL correcta según el ambiente
-let CONTROL_PANEL_URL = process.env.NODE_ENV === 'production' 
-  ? DEFAULT_PROD_URL  // Siempre usar la URL de producción en producción
-  : selectUrl();      // En desarrollo, usar la lógica de selección
+console.log('🔍 FIX-REAL-BOT: Estado de URL antes de procesar:');
+console.log('- CONTROL_PANEL_URL:', process.env.CONTROL_PANEL_URL || 'no definida');
+console.log('- NODE_ENV:', process.env.NODE_ENV || 'no definido');
+console.log('- RENDER:', process.env.RENDER || 'no definido');
+
+// Verificar si ya está configurada correctamente
+const isProdEnv = process.env.NODE_ENV === 'production';
+const isRenderEnv = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL !== undefined;
+
+// Respetar la URL ya configurada en producción si existe y no es localhost
+let CONTROL_PANEL_URL;
+if (isProdEnv) {
+  const correctProdUrl = 'https://whatsapp-bot-if6z.onrender.com';
+  
+  if (process.env.CONTROL_PANEL_URL) {
+    if (process.env.CONTROL_PANEL_URL.includes('localhost')) {
+      console.log('⚠️ FIX-REAL-BOT: URL de localhost detectada en producción, corrigiendo...');
+      CONTROL_PANEL_URL = correctProdUrl;
+    } else if (isRenderEnv) {
+      console.log('✅ FIX-REAL-BOT: Usando URL configurada para Render:', process.env.CONTROL_PANEL_URL);
+      CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL;
+    } else {
+      // Si es producción pero no es Render, usar la URL configurada
+      console.log('✅ FIX-REAL-BOT: Usando URL de producción configurada:', process.env.CONTROL_PANEL_URL);
+      CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL;
+    }
+  } else {
+    // Si no hay URL configurada en producción, usar la predeterminada
+    console.log('⚠️ FIX-REAL-BOT: Sin URL configurada en producción, usando predeterminada:', correctProdUrl);
+    CONTROL_PANEL_URL = correctProdUrl;
+  }
+} else {
+  // En desarrollo, usar la selección normal
+  console.log('🔍 FIX-REAL-BOT: Usando selección de URL para entorno de desarrollo');
+  CONTROL_PANEL_URL = selectUrl();
+}
 
 // Limpiar la URL: eliminar /register-bot-response o /api/register-bot-response si está presente
 if (CONTROL_PANEL_URL && (CONTROL_PANEL_URL.includes('/register-bot-response') || CONTROL_PANEL_URL.includes('/api/register-bot-response'))) {

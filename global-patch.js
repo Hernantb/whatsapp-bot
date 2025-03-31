@@ -5,8 +5,33 @@
  * para garantizar que esté disponible en cualquier parte del código.
  */
 
+// Mostrar información de variables antes de importar fix-real-bot
+console.log('📢 GLOBAL-PATCH: Verificando variables al inicio:');
+console.log('- CONTROL_PANEL_URL:', process.env.CONTROL_PANEL_URL || 'no definida');
+console.log('- NODE_ENV:', process.env.NODE_ENV || 'no definido');
+console.log('- RENDER:', process.env.RENDER || 'no definido');
+
 // Importar las funciones de fix-real-bot.js
 const { registerBotResponse: supabaseRegister, SUPABASE_URL } = require('./fix-real-bot');
+
+// Conservar la URL original si existe (no sobrescribir)
+const isProd = process.env.NODE_ENV === 'production';
+if (isProd && process.env.CONTROL_PANEL_URL && !process.env.CONTROL_PANEL_URL.includes('localhost')) {
+  console.log(`🔒 GLOBAL-PATCH: Manteniendo URL de producción configurada: ${process.env.CONTROL_PANEL_URL}`);
+} else {
+  // Configurar solo si no está ya establecida
+  const defaultUrl = isProd 
+    ? 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response'
+    : 'http://localhost:3000/api/register-bot-response';
+  
+  if (!process.env.CONTROL_PANEL_URL) {
+    process.env.CONTROL_PANEL_URL = defaultUrl;
+    console.log(`🔧 GLOBAL-PATCH: Estableciendo URL predeterminada: ${defaultUrl}`);
+  }
+}
+
+const PANEL_URL = process.env.CONTROL_PANEL_URL;
+console.log(`📌 GLOBAL-PATCH: URL final: ${PANEL_URL}`);
 
 // Definir la función global registerBotResponse que guardará en Supabase
 global.registerBotResponse = async function(conversationId, message, business_id, sender_type = 'bot') {
