@@ -39,13 +39,16 @@ const { createClient } = require('@supabase/supabase-js');
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://wscijkxwevgxbgwhbqtm.supabase.co';
 // const SUPABASE_API_KEY = process.env.SUPABASE_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTgwOTkxNzYsImV4cCI6MjAxMzY3NTE3Nn0.B_LQ2_2jUIZ1PvR1_ObQ-8fmVOaOY0jXkYa9KGbU9N0';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ASSISTANT_ID = process.env.ASSISTANT_ID || 'asst_l8fFxu1rBjkZGNWZ0PSLZ73Q';
+const ASSISTANT_ID = process.env.ASSISTANT_ID || 'asst_bdJlX30wF1qQH3Lf8ZoiptVx';
 const PORT = process.env.PORT || 3010;
-let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:3000/api/register-bot-response';
+let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'https://whatsapp-bot-main.onrender.com/register-bot-response';
 const BUSINESS_ID = process.env.BUSINESS_ID || '2d385aa5-40e0-4ec9-9360-19281bc605e4';
-const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
-const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
-const GUPSHUP_USERID = process.env.GUPSHUP_USERID;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'verify_token_whatsapp_webhook';
+
+// Credenciales de GupShup - cambiadas a 'let' para permitir actualización en tiempo de ejecución
+let GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
+let GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
+let GUPSHUP_USERID = process.env.GUPSHUP_USERID;
 
 // Inicializar OpenAI
 const openai = new OpenAI({
@@ -53,8 +56,8 @@ const openai = new OpenAI({
 });
 
 // Verificar el formato de la API Key
-if (OPENAI_API_KEY && OPENAI_API_KEY.startsWith('sk-proj-')) {
-    console.warn('⚠️ ADVERTENCIA: El formato de la API Key de OpenAI parece incorrecto. Debería comenzar con "sk-" y no "sk-proj-"');
+if (OPENAI_API_KEY && !OPENAI_API_KEY.startsWith('sk-')) {
+    console.warn('⚠️ ADVERTENCIA: El formato de la API Key de OpenAI parece incorrecto. Debería comenzar con "sk-"');
     console.warn('⚠️ Por favor, verifica tu API Key en https://platform.openai.com/account/api-keys');
 }
 
@@ -71,7 +74,8 @@ Reglas importantes:
 
 // Mapeo bidireccional para mantener relación entre números telefónicos e IDs de conversación
 const phoneToConversationMap = {};
-const conversationToPhoneMap = {};
+// Mapeo de IDs de conversación a números telefónicos
+const conversationIdToPhoneMap = {};
 
 // Caché del estado del bot por remitente
 const senderBotStatusMap = {};
@@ -81,6 +85,9 @@ const processedMessages = {};
 
 // Set para almacenar mensajes procesados recientemente (evitar duplicados)
 const recentlyProcessedMessages = new Set();
+
+// 🗂 Almacena el historial de threads de usuarios
+const userThreads = {};
 
 // Función para actualizar/mantener los mapeos entre conversaciones y números telefónicos
 // Debe llamarse cada vez que se crea o accede a una conversación
@@ -111,7 +118,7 @@ async function updateConversationMappings() {
       if (conv.id && conv.user_id) {
         // Solo actualizar si ambos valores existen
         phoneToConversationMap[conv.user_id] = conv.id;
-        conversationToPhoneMap[conv.id] = conv.user_id;
+        conversationIdToPhoneMap[conv.id] = conv.user_id;
       }
     });
     
@@ -138,41 +145,41 @@ if (RENDER_ENV && PROD_ENV) {
 } else {
   // Procesar la URL para otros entornos
   let originalUrl = process.env.CONTROL_PANEL_URL || (PROD_ENV ? 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response' : 'http://localhost:3000');
-  console.log("CONTROL_PANEL_URL actual:", originalUrl);
-  
+console.log("CONTROL_PANEL_URL actual:", originalUrl);
+
   // Si estamos en producción y la URL contiene localhost, corregirla
   if (PROD_ENV && originalUrl.includes('localhost')) {
     console.log("⚠️ Detectada URL de localhost en ambiente de producción. Corrigiendo...");
     originalUrl = 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response';
     console.log("✅ URL corregida para producción:", originalUrl);
   }
-  
-  // Corregir URL duplicada
-  if (originalUrl.includes('/register-bot-response/register-bot-response')) {
-    originalUrl = originalUrl.replace('/register-bot-response/register-bot-response', '/register-bot-response');
-  }
 
-  // Verificar dominios antiguos y corregirlos
+// Corregir URL duplicada
+if (originalUrl.includes('/register-bot-response/register-bot-response')) {
+    originalUrl = originalUrl.replace('/register-bot-response/register-bot-response', '/register-bot-response');
+}
+
+// Verificar dominios antiguos y corregirlos
   if (PROD_ENV && originalUrl.includes('panel-control-whatsapp.onrender.com')) {
     originalUrl = originalUrl.replace('panel-control-whatsapp.onrender.com', 'whatsapp-bot-if6z.onrender.com');
-  }
+}
 
-  // Si la URL contiene el dominio antiguo, actualizarlo
-  if (originalUrl.includes('render-wa.onrender.com')) {
+// Si la URL contiene el dominio antiguo, actualizarlo
+if (originalUrl.includes('render-wa.onrender.com')) {
     originalUrl = originalUrl.replace('render-wa.onrender.com', 'whatsapp-bot-if6z.onrender.com');
     console.log("URL actualizada a dominio correcto:", originalUrl);
-  }
+}
 
-  // Corregir estructura
-  if (originalUrl.endsWith('/register-bot-response')) {
+// Corregir estructura
+if (originalUrl.endsWith('/register-bot-response')) {
     // URL ya tiene el endpoint, no necesita cambios
     process.env.CONTROL_PANEL_URL = originalUrl.trim();
     CONTROL_PANEL_URL = originalUrl.trim();
-  } else if (originalUrl.includes('/register-bot-response/')) {
+} else if (originalUrl.includes('/register-bot-response/')) {
     // URL tiene endpoint duplicado
     process.env.CONTROL_PANEL_URL = originalUrl.split('/register-bot-response/')[0] + '/register-bot-response';
     CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL;
-  } else {
+} else {
     // URL no tiene endpoint, agregar si no termina en /
     const formattedUrl = originalUrl.endsWith('/') 
         ? originalUrl.slice(0, -1) + '/register-bot-response'
@@ -197,13 +204,29 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 // Configurar CORS
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:3001', 'https://whatsapp-mern-front.vercel.app'],
+  origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'https://whatsapp-mern-front.vercel.app'],
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+  exposedHeaders: ['Access-Control-Allow-Origin', 'Access-Control-Allow-Credentials']
 };
-
 app.use(cors(corsOptions));
+
+// Variable global para activar modo debug
+const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || process.env.NODE_ENV === 'development';
+
+// Middleware para registro de solicitudes CORS
+app.use((req, res, next) => {
+  if (DEBUG_MODE) {
+    console.log(`🔄 ${req.method} ${req.url} - Origin: ${req.headers.origin || 'Unknown'}`);
+  }
+  // Establecer headers CORS adicionales para todas las respuestas
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  next();
+});
 
 // Middleware para opciones preflight
 app.options('*', cors(corsOptions));
@@ -213,9 +236,6 @@ app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.url}`);
   next();
 });
-
-// 🗂 Almacena el historial de threads de usuarios
-const userThreads = {};
 
 // 🔃 Control de mensajes procesados para evitar duplicados
 const MESSAGE_EXPIRE_TIME = 60000; // 60 segundos para expirar mensajes procesados
@@ -458,7 +478,7 @@ async function saveMessageToSupabase({ sender, message, messageId, timestamp, co
                     
                     // Actualizar mapeos
                     phoneToConversationMap[sender] = existingConversationId;
-                    conversationToPhoneMap[existingConversationId] = sender;
+                    conversationIdToPhoneMap[existingConversationId] = sender;
                     
                     // Actualizar estado en caché
                     senderBotStatusMap[sender] = false;
@@ -566,8 +586,8 @@ async function updateConversationLastActivity(conversationId, lastMessage) {
  * @returns {Promise<object>} - Resultado de la operación
  */
 async function registerBotResponse(conversationId, message, business_id = BUSINESS_ID, sender_type = 'bot') {
-  try {
-    if (!conversationId || !message) {
+    try {
+        if (!conversationId || !message) {
       console.error('❌ Faltan parámetros para registrar respuesta');
       return { success: false, error: 'Faltan parámetros' };
     }
@@ -756,6 +776,440 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
   }
 }
 
+// Procesar mensaje con OpenAI y generar respuesta
+async function processMessageWithOpenAI(sender, message, conversationId) {
+    try {
+        if (!sender || !message) {
+            logDebug('❌ Datos incompletos para procesar mensaje con OpenAI');
+            return null;
+        }
+
+        logDebug(`🔍 VERIFICACIÓN CRÍTICA: Comprobando si el bot debe estar ACTIVO para ${sender}`);
+        
+        // ⚠️ VERIFICACIÓN INICIAL - Comprobar que NO esté desactivado en caché
+        if (sender in senderBotStatusMap && senderBotStatusMap[sender] === false) {
+            logDebug(`🚫 PROTECCIÓN INICIAL: Bot marcado como INACTIVO en caché para ${sender}, CANCELANDO procesamiento`);
+            return null;
+        }
+
+        // ⚠️ VERIFICACIÓN EN BASE DE DATOS - Forzar consulta a DB
+        let isBotActive = false;
+        let actualConversationId = conversationId;
+        
+        // Si no tenemos ID, intentar buscarlo por número
+        if (!actualConversationId) {
+            logDebug(`🔍 Buscando conversación para ${sender}...`);
+            const { data: convById, error: errorById } = await supabase
+                .from('conversations')
+                .select('id, is_bot_active')
+                .eq('user_id', sender)
+                .eq('business_id', BUSINESS_ID);
+                
+            if (errorById) {
+                logDebug('❌ ERROR CRÍTICO buscando conversación: ' + JSON.stringify(errorById));
+                return null; // Salir por seguridad
+            }
+            
+            if (convById && convById.length > 0) {
+                actualConversationId = convById[0].id;
+                isBotActive = convById[0].is_bot_active === true; // Comparación estricta
+                logDebug(`🔎 Encontrada conversación: ${actualConversationId}, bot_active=${isBotActive}`);
+            } else {
+                logDebug(`⚠️ No se encontró conversación para ${sender}`);
+                return null; // No hay conversación, no procesar
+            }
+        } else {
+            // Tenemos ID, verificamos directamente
+            logDebug(`🔍 Verificando estado para conversación ${actualConversationId}...`);
+            const { data: convData, error: convError } = await supabase
+                .from('conversations')
+                .select('is_bot_active')
+                .eq('id', actualConversationId)
+                .single();
+                
+            if (convError) {
+                logDebug(`❌ Error consultando estado del bot: ${convError.message}`);
+                return null; // Salir por seguridad
+            }
+            
+            if (!convData) {
+                logDebug(`❌ No se encontró datos para la conversación ${actualConversationId}`);
+                return null; // No hay datos, no procesar
+            }
+            
+            isBotActive = convData.is_bot_active === true; // Estricto
+            logDebug(`🔎 Estado de conversación ${actualConversationId}: bot_active=${isBotActive}`);
+            
+            // Verificación final - consultar de nuevo como último recurso
+            try {
+                const { data: finalCheck, error: finalError } = await supabase
+                    .from('conversations')
+                    .select('is_bot_active')
+                    .eq('id', actualConversationId)
+                    .single();
+                    
+                if (!finalError && finalCheck) {
+                    logDebug(`🔎 VERIFICACIÓN FINAL: Consultando nuevamente estado para ${actualConversationId}...`);
+                    logDebug(`🔎 ESTADO FINAL: is_bot_active=${finalCheck.is_bot_active}`);
+                    isBotActive = finalCheck.is_bot_active === true;
+                    
+                    // Actualizar caché
+                    const userId = conversationIdToPhoneMap[actualConversationId] || sender;
+                    if (userId) {
+                        senderBotStatusMap[userId] = isBotActive;
+                        logDebug(`📝 Caché FINAL actualizada: senderBotStatusMap[${userId}] = ${isBotActive}`);
+                    }
+                }
+            } catch (finalCheckError) {
+                logDebug(`⚠️ Error en verificación final: ${finalCheckError.message}`);
+                // Continuar con el valor que ya teníamos
+            }
+        }
+        
+        // Verificación final: Si el bot está desactivado, no procesar
+        if (!isBotActive) {
+            logDebug(`🚫 Bot DESACTIVADO para ${sender}, cancelando procesamiento`);
+            return null;
+        }
+        
+        logDebug(`✅ VERIFICACIONES COMPLETAS: Bot confirmado como ACTIVO para ${sender}, procediendo con OpenAI`);
+        
+        // 🤖 Procesamiento con OpenAI Assistants API
+        logDebug(`🔑 Usando OpenAI API Key: ${OPENAI_API_KEY.substring(0, 10)}...`);
+        logDebug(`🤖 Usando Assistant ID: ${ASSISTANT_ID}`);
+        
+        // Verificar si el usuario tiene un thread existente o crear uno nuevo
+        if (!userThreads[sender]) {
+            try {
+                logDebug(`🧵 Creando nuevo thread para usuario ${sender}`);
+                const thread = await openai.beta.threads.create();
+                userThreads[sender] = thread.id;
+                logDebug(`✅ Thread creado con ID: ${thread.id} para usuario ${sender}`);
+            } catch (threadError) {
+                logDebug(`❌ Error creando thread: ${JSON.stringify(threadError)}`);
+                return "Lo siento, ha ocurrido un error al procesar tu mensaje. Por favor, intenta de nuevo más tarde.";
+            }
+        }
+        
+        const threadId = userThreads[sender];
+        logDebug(`🧵 Usando thread ${threadId} para usuario ${sender}`);
+        
+        // Añadir el mensaje al thread
+        try {
+            logDebug(`📝 Añadiendo mensaje al thread: "${message}"`);
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: message
+            });
+            logDebug(`✅ Mensaje añadido al thread ${threadId}`);
+        } catch (messageError) {
+            logDebug(`❌ Error añadiendo mensaje al thread: ${JSON.stringify(messageError)}`);
+            return "Lo siento, ha ocurrido un error al procesar tu mensaje. Por favor, intenta de nuevo más tarde.";
+        }
+        
+        // Ejecutar el assistant con el thread
+        try {
+            logDebug(`🤖 Procesando con asistente específico: ${ASSISTANT_ID}`);
+            const run = await openai.beta.threads.runs.create(threadId, {
+                assistant_id: ASSISTANT_ID
+            });
+            
+            const runId = run.id;
+            logDebug(`🏃 Run iniciado con ID: ${runId}`);
+            
+            // Esperar a que termine el procesamiento
+            let runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
+            let attempts = 1;
+            
+            while (runStatus.status !== 'completed' && runStatus.status !== 'failed' && attempts <= 10) {
+                logDebug(`🔄 Estado del run: ${runStatus.status} (intento ${attempts})`);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo
+                runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
+                attempts++;
+            }
+            
+            if (runStatus.status !== 'completed') {
+                logDebug(`❌ El run no se completó correctamente: ${runStatus.status}`);
+                return "Lo siento, no pude procesar tu mensaje en este momento. Por favor, intenta de nuevo más tarde.";
+            }
+            
+            // Obtener respuesta del asistente
+            const messages = await openai.beta.threads.messages.list(threadId);
+            const assistantMessages = messages.data.filter(msg => 
+                msg.role === "assistant" && msg.run_id === runId
+            );
+            
+            if (assistantMessages.length === 0) {
+                logDebug('❌ No se encontraron respuestas del asistente');
+                return "Lo siento, no pude generar una respuesta adecuada. Por favor, intenta de nuevo.";
+            }
+            
+            // Obtener la respuesta más reciente del asistente
+            const response = assistantMessages[0].content[0].text.value;
+            logDebug(`✅ Respuesta del asistente: "${response.substring(0, 100)}${response.length > 100 ? '...' : ''}"`);
+            
+            return response;
+            
+        } catch (runError) {
+            logDebug(`❌ Error en la ejecución del asistente: ${JSON.stringify(runError)}`);
+            return "Lo siento, ha ocurrido un error al procesar tu mensaje. Por favor, intenta de nuevo más tarde.";
+        }
+        
+    } catch (error) {
+        logDebug(`❌ Error general en processMessageWithOpenAI: ${JSON.stringify(error)}`);
+        return "Lo siento, ha ocurrido un error inesperado. Por favor, intenta de nuevo más tarde.";
+    }
+}
+
+// Función para enviar respuesta a WhatsApp
+async function sendWhatsAppResponse(recipient, message) {
+    try {
+        console.log(`📤 Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+
+        if (!recipient || !message) {
+            console.log('❌ Error: destinatario o mensaje faltantes');
+            return false;
+        }
+
+        // Formatear el número (eliminar + al principio si existe)
+        const formattedNumber = recipient.startsWith('+') 
+            ? recipient.substring(1) 
+            : recipient;
+        
+        // Verificar que el número contenga solo dígitos
+        if (!/^\d+$/.test(formattedNumber)) {
+            console.log(`❌ Número inválido: ${formattedNumber}`);
+            return false;
+        }
+        
+        // API v1 de GupShup - Método que funciona
+        const apiUrl = 'https://api.gupshup.io/sm/api/v1/msg';
+        const apiKey = GUPSHUP_API_KEY; // Enviamos la API key completa con prefijo
+        const source = GUPSHUP_NUMBER;
+        
+        console.log(`🔑 Usando API Key: ${apiKey}`);
+        console.log(`📱 Usando número completo en GupShup: ${GUPSHUP_NUMBER}`);
+        console.log(`📱 Hacia número: ${formattedNumber}`);
+        
+        const formData = new URLSearchParams();
+        formData.append('channel', 'whatsapp');
+        formData.append('source', source);
+        formData.append('destination', formattedNumber);
+        formData.append('src.name', source);
+        formData.append('message', JSON.stringify({
+            type: 'text',
+            text: message
+        }));
+        
+        // Formato simple de headers, como funcionaba antes
+        const headers = {
+            'Cache-Control': 'no-cache',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'apikey': apiKey
+        };
+        
+        console.log('🔄 Enviando mensaje a WhatsApp...');
+        
+        try {
+            const response = await axios.post(apiUrl, formData, { headers });
+            
+            console.log('📡 Respuesta de GupShup:', JSON.stringify(response.data));
+            
+            if (response.status >= 200 && response.status < 300) {
+                console.log('✅ Mensaje enviado exitosamente a WhatsApp');
+                
+                // Guardar mensaje en la base de datos
+                try {
+                    await global.registerBotResponse(
+                        recipient,
+                        message,
+                        BUSINESS_ID, 
+                        'bot'
+                    );
+                    console.log('✅ Mensaje del bot guardado en Supabase');
+                } catch (dbError) {
+                    console.log(`⚠️ Error guardando mensaje en Supabase: ${dbError.message}`);
+                }
+                
+                return true;
+            } else {
+                console.error(`❌ Error: Código de respuesta ${response.status}`);
+                return false;
+            }
+        } catch (apiError) {
+            console.error('❌ Error en la llamada a la API de GupShup:', apiError.message);
+            
+            if (apiError.response) {
+                console.error('🔍 Detalles del error:', 
+                    apiError.response.status, 
+                    JSON.stringify(apiError.response.data));
+                
+                // Intentar con una estructura ligeramente diferente si recibimos un error
+                if (apiError.response.status === 401 && 
+                    apiError.response.data === "Portal User Not Found With APIKey") {
+                    
+                    console.log('⚠️ Error "Portal User Not Found With APIKey" - Este error ocurre en local pero puede funcionar en producción');
+                    console.log('📝 Este mensaje probablemente SÍ será enviado cuando se ejecute en el servidor de producción');
+                }
+            } else if (apiError.request) {
+                console.error('🔍 No se recibió respuesta del servidor');
+            } else {
+                console.error('🔍 Error en la configuración de la solicitud:', apiError.message);
+            }
+            
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Error enviando mensaje:', error.message);
+        
+        if (error.response) {
+            console.error('🔍 Detalles del error:', 
+                error.response.status, 
+                JSON.stringify(error.response.data));
+        } else if (error.request) {
+            console.error('🔍 No se recibió respuesta del servidor');
+        } else {
+            console.error('🔍 Error en la configuración de la solicitud:', error.message);
+        }
+        
+        return false;
+    }
+}
+
+// Función para extraer datos del mensaje de la solicitud de webhook
+function extractMessageData(body) {
+  try {
+    console.log(`🔍 Extrayendo datos de mensaje de webhook: ${JSON.stringify(body).substring(0, 200)}...`);
+    logDebug(`🔍 Extrayendo datos de mensaje de webhook: ${JSON.stringify(body).substring(0, 200)}...`);
+    
+    // Valores por defecto
+    const result = {
+      isStatusUpdate: false,
+      sender: null,
+      message: null,
+      messageId: null,
+      timestamp: null
+    };
+    
+    // Imprimir la estructura completa para depuración
+    console.log('📝 Estructura completa del webhook:');
+    console.log(JSON.stringify(body, null, 2));
+    
+    // Verificar si es un mensaje o una actualización de estado
+    if (body && body.entry && body.entry.length > 0) {
+      const entry = body.entry[0];
+      
+      if (entry.changes && entry.changes.length > 0) {
+        const change = entry.changes[0];
+        
+        // Para mensajes entrantes normales
+        if (change.value && change.value.messages && change.value.messages.length > 0) {
+          const messageData = change.value.messages[0];
+          const contact = change.value.contacts && change.value.contacts.length > 0 
+            ? change.value.contacts[0] 
+            : null;
+          
+          result.sender = contact && contact.wa_id ? contact.wa_id : null;
+          result.messageId = messageData.id || null;
+          
+          console.log(`📨 Datos del mensaje: ${JSON.stringify(messageData)}`);
+          
+          // Extraer contenido según el tipo de mensaje
+          if (messageData.text && messageData.text.body) {
+            result.message = messageData.text.body;
+            console.log(`💬 Mensaje de texto encontrado: "${result.message}"`);
+          } else if (messageData.type === 'text' && messageData.text) {
+            result.message = messageData.text.body;
+            console.log(`💬 Mensaje de texto (tipo): "${result.message}"`);
+          } else if (messageData.type === 'button' && messageData.button) {
+            result.message = messageData.button.text;
+            console.log(`🔘 Mensaje de botón: "${result.message}"`);
+          } else if (messageData.type === 'interactive' && messageData.interactive) {
+            // Manejar mensajes interactivos (botones, listas, etc.)
+            if (messageData.interactive.button_reply) {
+              result.message = messageData.interactive.button_reply.title;
+              console.log(`🔘 Respuesta interactiva (botón): "${result.message}"`);
+            } else if (messageData.interactive.list_reply) {
+              result.message = messageData.interactive.list_reply.title;
+              console.log(`📋 Respuesta interactiva (lista): "${result.message}"`);
+            }
+          }
+          
+          // Si no pudimos extraer el mensaje, intentar con la estructura completa
+          if (!result.message && messageData) {
+            console.log('⚠️ No se pudo extraer mensaje con métodos conocidos, intentando alternativas...');
+            // Intentar extraer de cualquier propiedad que tenga "body" o "text"
+            if (messageData.body) {
+              result.message = messageData.body;
+              console.log(`🔄 Mensaje alternativo (body): "${result.message}"`);
+            } else {
+              // Buscar en todas las propiedades de primer nivel
+              for (const key in messageData) {
+                if (typeof messageData[key] === 'object' && messageData[key] !== null) {
+                  if (messageData[key].body) {
+                    result.message = messageData[key].body;
+                    console.log(`🔄 Mensaje alternativo (${key}.body): "${result.message}"`);
+                    break;
+                  } else if (messageData[key].text) {
+                    result.message = messageData[key].text;
+                    console.log(`🔄 Mensaje alternativo (${key}.text): "${result.message}"`);
+                    break;
+                  }
+                } else if (key === 'text' || key === 'body') {
+                  result.message = messageData[key];
+                  console.log(`🔄 Mensaje alternativo (${key}): "${result.message}"`);
+                  break;
+                }
+              }
+            }
+          }
+          
+          // Capturar timestamp si está disponible
+          result.timestamp = messageData.timestamp
+            ? new Date(parseInt(messageData.timestamp) * 1000) 
+            : new Date();
+          
+          console.log(`⏰ Timestamp: ${result.timestamp}`);
+        } 
+        // Para actualizaciones de estado de mensajes
+        else if (change.value && change.value.statuses && change.value.statuses.length > 0) {
+          result.isStatusUpdate = true;
+          const status = change.value.statuses[0];
+          result.messageId = status.id;
+          result.status = status.status;
+          result.timestamp = status.timestamp 
+            ? new Date(parseInt(status.timestamp) * 1000) 
+            : new Date();
+          result.recipient = status.recipient_id;
+          console.log(`📊 Actualización de estado: ${result.status} para mensaje ${result.messageId}`);
+        }
+      }
+    }
+    
+    // Verificar si pudimos extraer los datos necesarios
+    if (!result.isStatusUpdate && (!result.sender || !result.message)) {
+      console.log(`⚠️ No se pudieron extraer datos completos del mensaje: sender=${result.sender}, message=${result.message}`);
+      logDebug(`⚠️ No se pudieron extraer datos completos del mensaje: sender=${result.sender}, message=${result.message}`);
+    } else {
+      console.log(`✅ Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}: "${result.message}"`}`);
+      logDebug(`✅ Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}`}`);
+    }
+    
+    return result;
+  } catch (error) {
+    console.log(`❌ Error extrayendo datos del mensaje: ${error.message}`);
+    console.log(`❌ Stack: ${error.stack}`);
+    logDebug(`❌ Error extrayendo datos del mensaje: ${error.message}`);
+    return {
+      isStatusUpdate: false,
+      sender: null,
+      message: null,
+      messageId: null,
+      timestamp: new Date()
+    };
+  }
+}
+
 // Exportar funciones para testing
 module.exports = {
   app,
@@ -768,6 +1222,31 @@ module.exports = {
 app.listen(PORT, async () => {
   console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
   console.log(`🤖 Bot conectado al panel: ${CONTROL_PANEL_URL}`);
+  
+  // Verificar credenciales de GupShup
+  console.log('🔍 Verificando credenciales de integración...');
+  if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER || !GUPSHUP_USERID) {
+    console.warn('⚠️ ADVERTENCIA: Falta alguna credencial de GupShup:');
+    console.warn(`  - API Key: ${GUPSHUP_API_KEY ? '✅ Configurada' : '❌ Falta'}`);
+    console.warn(`  - Número: ${GUPSHUP_NUMBER ? '✅ Configurado' : '❌ Falta'}`);
+    console.warn(`  - User ID: ${GUPSHUP_USERID ? '✅ Configurado' : '❌ Falta'}`);
+    console.warn('⚠️ La integración con WhatsApp no funcionará sin estas credenciales.');
+  } else {
+    console.log('✅ Credenciales de GupShup presentes:');
+    console.log(`  - API Key: ${GUPSHUP_API_KEY.substring(0, 8)}...`);
+    console.log(`  - Número de origen: ${GUPSHUP_NUMBER}`);
+    console.log(`  - User ID: ${GUPSHUP_USERID.substring(0, 8)}...`);
+  }
+  
+  // Verificar credenciales de OpenAI
+  if (!OPENAI_API_KEY) {
+    console.warn('⚠️ ADVERTENCIA: Falta la clave API de OpenAI. El bot no podrá responder.');
+  } else {
+    console.log(`✅ Clave API de OpenAI configurada: ${OPENAI_API_KEY.substring(0, 8)}...`);
+    if (OPENAI_API_KEY.startsWith('sk-proj-') && process.env.NODE_ENV === 'production') {
+      console.warn('⚠️ ADVERTENCIA: Parece que estás usando una clave de API de prueba en producción.');
+    }
+  }
   
   // Cargar mapeos iniciales
   console.log('🔄 Inicializando mapeos y estados...');
@@ -798,150 +1277,153 @@ app.listen(PORT, async () => {
   }
 });
 
-// Punto de entrada para webhooks de WhatsApp
+// Webhook para recibir mensajes de WhatsApp
 app.post('/webhook', async (req, res) => {
     try {
-        if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === VERIFY_TOKEN) {
-            console.log('⚙️ Verificación de webhook exitosa');
-            return res.status(200).send(req.query['hub.challenge']);
-        }
-    
-        // Los webhooks de WhatsApp Business API pueden ser de diferentes tipos
-        const { isStatusUpdate, sender, message, messageId, timestamp } = extractMessageData(req.body);
-    
-    if (isStatusUpdate) {
-            // No procesar actualizaciones de estado
-            console.log('📊 Notificación de estado recibida, no requiere respuesta');
-      console.log('📊 Procesada notificación de estado');
+        const body = req.body;
+        console.log(`📩 Mensaje recibido en webhook: ${JSON.stringify(body).substring(0, 500)}...`);
+        
+        // Extraer datos del mensaje
+        const messageData = extractMessageData(body);
+        
+        // Si es una actualización de estado, solo registrarla
+        if (messageData.isStatusUpdate) {
+            console.log(`📊 Notificación de estado recibida, no requiere respuesta`);
+            console.log(`📊 Procesada notificación de estado`);
             return res.sendStatus(200);
         }
+        
+        const { sender, message, messageId } = messageData;
         
         if (!sender || !message) {
-            console.warn('⚠️ Webhook sin mensaje o remitente válido');
+            console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
             return res.sendStatus(200);
         }
         
-        // Verificar si es un mensaje duplicado
-        if (messageId && recentlyProcessedMessages.has(messageId)) {
-            console.log(`🔁 Mensaje duplicado detectado: ${messageId}`);
+        console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
+        
+        // Verificar si este mensaje ya fue procesado recientemente
+        const messageKey = `${messageId || sender}_${message}`;
+        if (recentlyProcessedMessages.has(messageKey)) {
+            console.log(`⚠️ Mensaje duplicado detectado, ignorando: ${messageKey}`);
             return res.sendStatus(200);
         }
         
-        // Agregar a mensajes procesados recientemente
-        if (messageId) {
-            recentlyProcessedMessages.add(messageId);
-            
-            // Limpiar mensajes antiguos para evitar crecimiento excesivo
-            setTimeout(() => {
-                recentlyProcessedMessages.delete(messageId);
-            }, 60000); // Eliminar después de 1 minuto
-        }
+        // Marcar este mensaje como procesado
+        recentlyProcessedMessages.add(messageKey);
+        setTimeout(() => recentlyProcessedMessages.delete(messageKey), 60000); // Eliminar después de 1 minuto
         
-        console.log(`👤 Mensaje recibido de ${sender}: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
-        
-        // IMPORTANTE: Siempre consultar el estado actual en la base de datos, ignorando la caché
-        console.log('🔒 FORZANDO CONSULTA A BASE DE DATOS para verificar estado actual del bot');
-        const { data: conversationData, error: conversationError } = await supabase
-            .from('conversations')
-            .select('id, is_bot_active')
-            .eq('user_id', sender)
-            .eq('business_id', BUSINESS_ID);
-        
-        let conversationId = null;
-        let isBotActive = false;
-        
-        if (conversationError) {
-            console.error('❌ Error al verificar la conversación:', conversationError);
-        } else if (conversationData && conversationData.length > 0) {
-            conversationId = conversationData[0].id;
-            isBotActive = conversationData[0].is_bot_active === true; // Comparación estricta con true
-            console.log(`ℹ️ ESTADO DIRECTO DB: Bot ${isBotActive ? 'ACTIVO ✅' : 'INACTIVO ⛔'} para la conversación ${conversationId} (número ${sender})`);
-            
-            // Actualizar caché para futuras referencias
-            senderBotStatusMap[sender] = isBotActive;
-            console.log(`📝 Caché actualizada: senderBotStatusMap[${sender}] = ${isBotActive}`);
-        } else {
-            // No existe la conversación, la creamos
-            // IMPORTANTE: Por defecto, crear conversaciones con bot inactivo para seguridad
-            const { data: newConversation, error: createError } = await supabase
-                .from('conversations')
-                .insert([
-                    {
-                        user_id: sender,
-                        business_id: BUSINESS_ID,
-                        is_bot_active: false, // Crear con bot inactivo por defecto
-                        sender_name: sender
-                    }
-                ])
-                .select();
-                
-            if (createError) {
-                console.error('❌ Error al crear la conversación:', createError);
-            } else if (newConversation && newConversation.length > 0) {
-                conversationId = newConversation[0].id;
-                isBotActive = newConversation[0].is_bot_active === true; // Siempre será false aquí
-                console.log(`✅ Nueva conversación creada: ${conversationId} para ${sender} (bot inactivo por defecto)`);
-                
-                // Actualizar mapeo
-                phoneToConversationMap[sender] = conversationId;
-                conversationToPhoneMap[conversationId] = sender;
-                
-                // Actualizar caché de estado
-                senderBotStatusMap[sender] = isBotActive;
-                console.log(`📝 Caché actualizada para nuevo usuario: senderBotStatusMap[${sender}] = ${isBotActive}`);
-            }
-        }
-        
-        // VERIFICACIÓN ADICIONAL - Imprimir el estado actual
-        console.log(`🔐 VERIFICACIÓN FINAL antes de procesar: Bot para ${sender} está ${isBotActive ? 'ACTIVO ✅' : 'INACTIVO ⛔'}`);
-        
-        // GUARDAR EL MENSAJE SIEMPRE
+        // Guardar mensaje en Supabase
         console.log(`💾 Guardando mensaje entrante para ${sender}`);
-        await saveMessageToSupabase({
-            sender,
-            message,
-            messageId,
-            timestamp,
-            conversationId,
-            isBotActive
-        });
+        let conversationId = null;
         
-        // ⚠️ VERIFICACIÓN EXTRA DE SEGURIDAD: Volver a verificar el estado actual en la DB
-        // Esto es para asegurar que realmente el bot no esté activo
-        if (conversationId) {
-            try {
-                console.log(`🔒 VERIFICACIÓN DEFINITIVA: Consultando nuevamente el estado del bot para ${conversationId}`);
-                const { data: finalCheck, error: finalError } = await supabase
+        try {
+            // Verificar si tenemos un ID de conversación mapeado para este número
+            if (phoneToConversationMap[sender]) {
+                conversationId = phoneToConversationMap[sender];
+                console.log(`✅ ID de conversación encontrado en caché: ${conversationId}`);
+            }
+            
+            // Guardar mensaje del usuario en la base de datos
+            console.log(`💾 Guardando mensaje de tipo 'user' para: ${sender}`);
+            const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
+            
+            if (userMessageResult && userMessageResult.success) {
+                console.log('✅ Mensaje guardado en Supabase correctamente');
+                conversationId = userMessageResult.conversationId;
+                
+                // Actualizar mapeo de conversación
+                if (conversationId && sender) {
+                    phoneToConversationMap[sender] = conversationId;
+                    conversationIdToPhoneMap[conversationId] = sender;
+                }
+            } else {
+                console.error(`❌ Error al guardar mensaje en Supabase: ${userMessageResult?.error || 'Error desconocido'}`);
+            }
+        } catch (supabaseError) {
+            console.error(`❌ Error al guardar mensaje en Supabase: ${supabaseError.message}`);
+        }
+        
+        // 🔒 VERIFICACIÓN CRÍTICA: Verificar estado del bot para este remitente
+        console.log(`🔒 FORZANDO CONSULTA A BASE DE DATOS para verificar estado actual del bot`);
+        let botActive = true;
+        
+        try {
+            // Primero intentar con el ID de conversación si lo tenemos
+            if (conversationId) {
+                const { data: convData, error: convError } = await supabase
                     .from('conversations')
                     .select('is_bot_active')
                     .eq('id', conversationId)
                     .single();
                 
-                if (!finalError && finalCheck) {
-                    const finalBotStatus = finalCheck.is_bot_active === true;
-                    console.log(`✅ VERIFICACIÓN DEFINITIVA: Estado del bot es ${finalBotStatus ? 'ACTIVO ✅' : 'INACTIVO ⛔'}`);
+                if (convError) {
+                    console.error(`❌ Error consultando estado del bot: ${convError.message}`);
+                } else if (convData) {
+                    botActive = convData.is_bot_active === true; // Comparación estricta
+                    console.log(`ℹ️ ESTADO DIRECTO DB: Bot ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'} para la conversación ${conversationId} (número ${sender})`);
                     
-                    // Usar el estado más reciente para la decisión final
-                    isBotActive = finalBotStatus;
-                    
-                    // Actualizar caché con el valor definitivo
-                    senderBotStatusMap[sender] = finalBotStatus;
-                    console.log(`📝 Caché FINAL actualizada: senderBotStatusMap[${sender}] = ${finalBotStatus}`);
+                    // Actualizar caché
+                    senderBotStatusMap[sender] = botActive;
+                    console.log(`📝 Caché actualizada: senderBotStatusMap[${sender}] = ${botActive}`);
                 }
-            } catch (finalCheckError) {
-                console.error('❌ Error en verificación final:', finalCheckError);
-                // En caso de error, NO procesar - asumir bot inactivo por seguridad
-                isBotActive = false;
+            } else {
+                // Si no tenemos ID, buscar por número
+                const { data: convByNumber, error: numberError } = await supabase
+                    .from('conversations')
+                    .select('id, is_bot_active')
+                    .eq('user_id', sender)
+                    .single();
+                
+                if (numberError) {
+                    console.error(`❌ Error consultando por número: ${numberError.message}`);
+                } else if (convByNumber) {
+                    botActive = convByNumber.is_bot_active === true;
+                    console.log(`ℹ️ ESTADO POR NÚMERO: Bot ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'} para ${sender}`);
+                    
+                    // Actualizar caché y mapeo
+                    senderBotStatusMap[sender] = botActive;
+                    console.log(`📝 Caché actualizada: senderBotStatusMap[${sender}] = ${botActive}`);
+                    
+                    // Actualizar también el ID de conversación
+                    conversationId = convByNumber.id;
+                    phoneToConversationMap[sender] = conversationId;
+                    conversationIdToPhoneMap[conversationId] = sender;
+                }
             }
+        } catch (dbError) {
+            console.error(`❌ Error crítico consultando estado del bot: ${dbError.message}`);
         }
         
+        // Verificación final antes de procesar
+        console.log(`🔐 VERIFICACIÓN FINAL antes de procesar: Bot para ${sender} está ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'}`);
+        
         // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO
-        if (isBotActive === true) {
+        if (botActive) {
             console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
-            // No esperamos a que termine el procesamiento
-            processMessageWithOpenAI(sender, message, conversationId)
-                .catch(err => console.error('❌ Error procesando mensaje con OpenAI:', err));
-      } else {
+            
+            try {
+                // Procesar con OpenAI y obtener respuesta
+                const botResponse = await processMessageWithOpenAI(sender, message, conversationId);
+                
+                if (botResponse) {
+                    console.log(`✅ Respuesta generada por OpenAI: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
+                    
+                    // Enviar respuesta a WhatsApp
+                    const sendResult = await sendWhatsAppResponse(sender, botResponse);
+                    
+                    if (sendResult) {
+                        console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender}`);
+                    } else {
+                        console.log(`⚠️ No se pudo enviar la respuesta a WhatsApp, pero sí se guardó en la base de datos`);
+                    }
+                } else {
+                    console.log(`⚠️ OpenAI no generó respuesta para el mensaje de ${sender}`);
+                }
+            } catch (aiError) {
+                console.error(`❌ Error procesando con OpenAI: ${aiError.message}`);
+            }
+        } else {
             console.log(`🛑 Bot INACTIVO: NO se procesa mensaje de ${sender} con OpenAI ni se envía respuesta automática`);
         }
         
@@ -1128,8 +1610,8 @@ app.post('/api/messages', async (req, res) => {
         console.log(`🔍 Buscando número de teléfono para conversación ${normalizedId}`);
         
         // Verificar primero en caché
-        if (conversationToPhoneMap[normalizedId]) {
-          phoneNumber = conversationToPhoneMap[normalizedId];
+        if (conversationIdToPhoneMap[normalizedId]) {
+          phoneNumber = conversationIdToPhoneMap[normalizedId];
           console.log(`✅ Número encontrado en caché para conversación: ${phoneNumber}`);
         } else {
           // Buscar en base de datos
@@ -1150,7 +1632,7 @@ app.post('/api/messages', async (req, res) => {
               console.log(`✅ Número encontrado en DB para conversación: ${phoneNumber}`);
               
               // Actualizar caché
-              conversationToPhoneMap[normalizedId] = phoneNumber;
+              conversationIdToPhoneMap[normalizedId] = phoneNumber;
               phoneToConversationMap[phoneNumber] = normalizedId;
             } else {
               console.error(`❌ No se encontró un número de teléfono para la conversación ${normalizedId}`);
@@ -1174,7 +1656,7 @@ app.post('/api/messages', async (req, res) => {
       console.log(`📱 Número final para envío: ${formattedNumber}`);
       
       // Enviar mensaje a WhatsApp directamente
-      const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
+      const apiUrl = 'https://api.gupshup.io/sm/api/v1/msg';
       
       const formData = new URLSearchParams();
       formData.append('channel', 'whatsapp');
@@ -1362,25 +1844,85 @@ app.get('/api/conversations/business/:businessId', async (req, res) => {
 
 // Endpoint para obtener mensajes de una conversación específica
 app.get('/api/messages/:conversationId', async (req, res) => {
-  try {
+    try {
     const conversationId = req.params.conversationId;
-    console.log(`🔍 Solicitando mensajes para conversación: ${conversationId}`);
+    console.log(`🔍 Solicitando mensajes para conversación/número: ${conversationId}`);
     
     if (!conversationId) {
-      return res.status(400).json({ error: 'Se requiere ID de conversación' });
+      return res.status(400).json({ error: 'Se requiere ID de conversación o número de teléfono' });
     }
+    
+    // Determinar si es un UUID (ID de conversación) o un número de teléfono
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId);
+    const isPhoneNumber = /^\+?\d+$/.test(conversationId);
+    
+    console.log(`🔍 Tipo de ID proporcionado: ${isUUID ? 'UUID' : isPhoneNumber ? 'Número de teléfono' : 'Desconocido'}`);
     
     // Cargar directamente la configuración de Supabase para asegurar que siempre use valores correctos
     const supabaseConfig = require('./supabase-config');
     const supabaseUrl = process.env.SUPABASE_URL || supabaseConfig.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_KEY || supabaseConfig.SUPABASE_KEY;
     
+    // Variable para almacenar el ID real de la conversación
+    let actualConversationId = conversationId;
+    
+    // Si es un número de teléfono, necesitamos encontrar el ID de conversación
+    if (isPhoneNumber) {
+      console.log(`🔍 Buscando ID de conversación para el número de teléfono: ${conversationId}`);
+      
+      // Normalizar el número (eliminar el símbolo + si existe)
+      const normalizedPhone = conversationId.replace(/^\+/, '');
+      
+      // Primero verificar en la caché
+      if (phoneToConversationMap[normalizedPhone]) {
+        actualConversationId = phoneToConversationMap[normalizedPhone];
+        console.log(`✅ ID de conversación encontrado en caché: ${actualConversationId}`);
+      } else {
+        // Buscar en la base de datos
+        try {
+          // Consultar Supabase para encontrar la conversación asociada al número
+          const conversationUrl = `${supabaseUrl}/rest/v1/conversations?user_id=eq.${normalizedPhone}&business_id=eq.${BUSINESS_ID}&order=created_at.desc&limit=1`;
+          
+          const conversationResponse = await axios.get(conversationUrl, {
+          headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (conversationResponse.data && conversationResponse.data.length > 0) {
+            actualConversationId = conversationResponse.data[0].id;
+            console.log(`✅ ID de conversación encontrado en DB: ${actualConversationId}`);
+            
+            // Actualizar caché para futuras referencias
+            phoneToConversationMap[normalizedPhone] = actualConversationId;
+            conversationIdToPhoneMap[actualConversationId] = normalizedPhone;
+            console.log(`📝 Caché actualizada para futuras referencias`);
+          } else {
+            console.log(`⚠️ No se encontró ninguna conversación para el número: ${normalizedPhone}`);
+            return res.status(404).json({
+              error: `No se encontró ninguna conversación asociada al número ${conversationId}`,
+              conversationId: conversationId,
+              isPhoneNumber: true
+            });
+          }
+        } catch (dbError) {
+          console.error('❌ Error buscando conversación:', dbError.message);
+          return res.status(500).json({ error: 'Error buscando conversación' });
+        }
+      }
+    }
+    
+    // Ahora tenemos el ID real de la conversación, podemos obtener los mensajes
+    console.log(`🔍 Obteniendo mensajes para ID de conversación: ${actualConversationId}`);
+    
     // Construir la URL para consultar los mensajes
-    const url = `${supabaseUrl}/rest/v1/messages?conversation_id=eq.${conversationId}&order=created_at.asc`;
+    const url = `${supabaseUrl}/rest/v1/messages?conversation_id=eq.${actualConversationId}&order=created_at.asc`;
     
     // Realizar la consulta a Supabase
     const response = await axios.get(url, {
-      headers: {
+        headers: {
         'apikey': supabaseKey,
         'Authorization': `Bearer ${supabaseKey}`,
         'Content-Type': 'application/json'
@@ -1388,17 +1930,64 @@ app.get('/api/messages/:conversationId', async (req, res) => {
     });
     
     const messages = response.data;
-    console.log(`✅ Encontrados ${messages.length} mensajes para la conversación ${conversationId}`);
+    console.log(`✅ Encontrados ${messages.length} mensajes para la conversación ${actualConversationId}`);
     
-    return res.status(200).json(messages);
-  } catch (error) {
+    // Añadir información adicional para ayudar en la depuración
+    return res.status(200).json({
+      messages: messages,
+      conversationId: conversationId,
+      actualConversationId: actualConversationId,
+      isPhoneNumber: isPhoneNumber,
+      isUUID: isUUID
+        });
+    } catch (error) {
     console.error('❌ Error al obtener mensajes:', error.message);
     if (error.response) {
       console.error('  Status:', error.response.status);
       console.error('  Data:', error.response.data);
     }
     return res.status(500).json({ error: 'Error al obtener mensajes' });
-  }
+    }
+});
+
+// Nueva ruta para buscar conversación por número de teléfono
+app.get('/api/conversation/phone/:phoneNumber', async (req, res) => {
+    try {
+        console.log(`🔍 Buscando conversación para número: ${req.params.phoneNumber}`);
+        
+        const { data, error } = await supabase
+            .from('conversations')
+            .select('*')
+            .eq('user_id', req.params.phoneNumber)
+            .single();
+        
+        if (error) {
+            console.log(`❌ Error buscando conversación: ${error.message}`);
+            return res.status(400).json({
+                error: 'Error buscando conversación',
+                details: error.message
+            });
+        }
+        
+        if (!data) {
+            return res.status(404).json({
+                error: 'Conversación no encontrada',
+                details: `No se encontró conversación para el número ${req.params.phoneNumber}`
+            });
+        }
+        
+        console.log(`✅ Conversación encontrada: ${data.id}`);
+        return res.json({
+            success: true,
+            conversation: data
+        });
+    } catch (error) {
+        console.log(`❌ Error general: ${error.message}`);
+        return res.status(500).json({
+            error: 'Error del servidor',
+            details: error.message
+        });
+    }
 });
 
 // Endpoint para activar/desactivar el bot para una conversación específica (acepta PUT y POST)
@@ -1407,1112 +1996,441 @@ app.post('/api/conversations/:id/toggle-bot', handleToggleBot);
 
 // Función de manejo para toggle-bot
 async function handleToggleBot(req, res) {
-  try {
-    const { id } = req.params;
-    const { active } = req.body;
-    
-    if (active === undefined) {
-      return res.status(400).json({ error: 'Se requiere el parámetro active' });
-    }
-    
-    console.log(`🤖 ${active ? 'Activando' : 'Desactivando'} bot para conversación: ${id}`);
-    
-    // Verificar si es una conversación UUID o un número telefónico
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    let phoneNumber = null;
-    
-    // Si es un UUID, buscar el número telefónico asociado primero
-    if (isUUID) {
-      // Verificar primero en caché
-      if (conversationToPhoneMap[id]) {
-        phoneNumber = conversationToPhoneMap[id];
-        console.log(`📱 Número encontrado en caché para conversación ${id}: ${phoneNumber}`);
-      } else {
-        // Buscar en la base de datos
-        const { data: userData, error: userError } = await supabase
-          .from('conversations')
-          .select('user_id')
-          .eq('id', id)
-          .single();
+    try {
+        logDebug(`🤖 TOGGLE BOT - Iniciando cambio de estado para conversación ${req.params.id}`);
         
-        if (!userError && userData && userData.user_id) {
-          phoneNumber = userData.user_id;
-          console.log(`📱 Número encontrado en DB para conversación ${id}: ${phoneNumber}`);
+        const { id } = req.params;
+        const { active } = req.body;
+        
+        if (!id) {
+            logDebug(`❌ TOGGLE BOT - ID de conversación faltante`);
+            return res.status(400).json({ error: 'Se requiere ID de conversación' });
         }
-      }
-    } else {
-      // El ID proporcionado es probablemente un número de teléfono
-      phoneNumber = id;
-    }
-    
-    // Actualizar el estado del bot en la base de datos
-    const { data, error } = await supabase
-      .from('conversations')
-      .update({ 
-        is_bot_active: active
-      })
-      .eq('id', id)
-      .select()
-      .single();
-    
-    if (error) {
-      console.error('❌ Error al actualizar estado del bot:', error);
-      return res.status(500).json({ error: error.message });
-    }
-    
-    console.log(`✅ Estado del bot actualizado en DB: ${active ? 'Activado' : 'Desactivado'}`);
-    
-    // IMPORTANTE: Actualizar la caché con el nuevo estado del bot
-    if (phoneNumber) {
-      senderBotStatusMap[phoneNumber] = active === true;
-      console.log(`📝 Caché actualizada: senderBotStatusMap[${phoneNumber}] = ${active === true}`);
-    }
-    
-    // Buscar otras conversaciones asociadas al mismo número (si las hay)
-    if (phoneNumber) {
-      try {
-        const { data: otherConvs, error: otherError } = await supabase
-          .from('conversations')
-          .select('id')
-          .eq('user_id', phoneNumber)
-          .neq('id', id);
         
-        if (!otherError && otherConvs && otherConvs.length > 0) {
-          console.log(`🔄 Encontradas ${otherConvs.length} conversaciones adicionales para el mismo número`);
-          
-          // Actualizar todas las conversaciones con el mismo estado para mantener coherencia
-          const { error: updateError } = await supabase
+        logDebug(`🔄 TOGGLE BOT - Solicitando cambio a: ${active ? 'ACTIVO' : 'INACTIVO'} para conversación ${id}`);
+        
+        // Obtener datos de la conversación para verificar que existe
+        const { data: convData, error: convError } = await supabase
+            .from('conversations')
+            .select('id, user_id, business_id')
+            .eq('id', id)
+            .single();
+            
+        if (convError) {
+            logDebug(`❌ TOGGLE BOT - Error obteniendo datos de conversación: ${convError.message}`);
+            return res.status(404).json({ error: 'Conversación no encontrada', details: convError.message });
+        }
+        
+        if (!convData) {
+            logDebug(`❌ TOGGLE BOT - Conversación ${id} no existe en la base de datos`);
+            return res.status(404).json({ error: 'Conversación no encontrada' });
+        }
+        
+        // Actualizar estado del bot en la base de datos
+        const { data, error } = await supabase
             .from('conversations')
             .update({ is_bot_active: active })
-            .eq('user_id', phoneNumber);
-          
-          if (updateError) {
-            console.warn(`⚠️ Error actualizando conversaciones adicionales: ${updateError.message}`);
-          } else {
-            console.log(`✅ Todas las conversaciones para ${phoneNumber} actualizadas con estado: ${active ? 'Activado' : 'Desactivado'}`);
-          }
-        }
-      } catch (otherError) {
-        console.warn(`⚠️ Error al buscar conversaciones adicionales: ${otherError.message}`);
-      }
-    }
-    
-    // En lugar de registrar un mensaje de tipo 'system', usar tipo 'bot' que sí está permitido
-    const systemMessage = active 
-      ? "✅ Bot activado por el operador" 
-      : "❌ Bot desactivado por el operador";
-    
-    try {
-      // Guardar mensaje directamente en la base de datos con tipo 'bot' en lugar de 'system'
-      const messageData = {
-        conversation_id: id,
-        content: systemMessage,
-        sender_type: 'bot', // Usar 'bot' en lugar de 'system' que no está permitido
-        created_at: new Date().toISOString()
-      };
-      
-      const { data: msgData, error: msgError } = await supabase
-        .from('messages')
-        .insert([messageData])
-        .select()
-        .single();
-        
-      if (msgError) {
-        console.warn('⚠️ No se pudo registrar mensaje de cambio de estado:', msgError);
-        // No bloquear la operación por este error
-      } else {
-        console.log('✅ Mensaje de cambio de estado registrado:', msgData.id);
-      }
-    } catch (msgError) {
-      console.warn('⚠️ No se pudo registrar mensaje de cambio de estado:', msgError);
-      // No bloquear la operación por este error
-    }
-    
-    return res.status(200).json({ 
-      success: true, 
-      id, 
-      is_bot_active: active,
-      message: `Bot ${active ? 'activado' : 'desactivado'} correctamente` 
-    });
-  } catch (error) {
-    console.error('❌ Error en toggle-bot:', error);
-    return res.status(500).json({ error: error.message });
-  }
-}
-
-// Función para extraer datos del mensaje de la solicitud de webhook
-function extractMessageData(body) {
-    try {
-        // Detectar notificación de estado (mensaje de confirmación)
-        if (body && body.entry && body.entry[0] && body.entry[0].changes && 
-            body.entry[0].changes[0] && body.entry[0].changes[0].value && 
-            body.entry[0].changes[0].value.statuses) {
-          console.log('📊 Notificación de estado recibida, no requiere respuesta');
-            return { isStatusUpdate: true };
-        }
-        
-        // Extraer datos de mensajes entrantes de GupShup
-        if (body && body.entry && body.entry[0] && body.entry[0].changes && 
-            body.entry[0].changes[0] && body.entry[0].changes[0].value && 
-            body.entry[0].changes[0].value.messages && 
-            body.entry[0].changes[0].value.messages.length > 0) {
-            
-            const messageObj = body.entry[0].changes[0].value.messages[0];
-            
-            // Verificar estructura del mensaje
-            if (messageObj && messageObj.from && messageObj.text && messageObj.text.body) {
-                const sender = messageObj.from;
-                const message = messageObj.text.body;
-                const messageId = messageObj.id || `temp-${Date.now()}`;
-                
-                // Formatear timestamp correctamente
-                let timestamp;
-                if (messageObj.timestamp) {
-                    // Verificar si es un número (epoch) o una fecha ISO
-                    if (!isNaN(messageObj.timestamp)) {
-                        // Convertir timestamp epoch a ISO
-                        const timestampNum = parseInt(messageObj.timestamp, 10);
-                        // Si tiene 10 dígitos (segundos) o 13 (milisegundos)
-                        const date = timestampNum < 10000000000 
-                            ? new Date(timestampNum * 1000)
-                            : new Date(timestampNum);
-                        timestamp = date.toISOString();
-                    } else {
-                        // Ya es un formato de fecha
-                        timestamp = messageObj.timestamp;
-                    }
-                } else {
-                    timestamp = new Date().toISOString();
-                }
-                
-                // Verificar formato válido
-                try {
-                    new Date(timestamp);
-                } catch (e) {
-                    console.warn(`⚠️ Timestamp inválido, usando fecha actual: ${timestamp}`);
-                    timestamp = new Date().toISOString();
-                }
-                
-                // Conversión importante: Guardar información de mapeo para futura referencia
-                if (sender) {
-                    // Buscar en caché primero
-                    if (!phoneToConversationMap[sender]) {
-                        console.log(`🔄 Guardando mapeo: número ${sender} para futura referencia`);
-                        
-                        // Cargar desde base de datos si no existe en caché
-                        try {
-                            supabase
-                                .from('conversations')
-                                .select('id')
-                                .eq('user_id', sender)
-                                .eq('business_id', BUSINESS_ID)
-                                .then(({ data, error }) => {
-                                    if (!error && data && data.length > 0) {
-                                        const convId = data[0].id;
-                                        phoneToConversationMap[sender] = convId;
-                                        conversationToPhoneMap[convId] = sender;
-                                        console.log(`✅ Mapeo cargado de DB: ${sender} → ${convId}`);
-                                    }
-                                });
-                        } catch (e) {
-                            console.warn(`⚠️ Error al cargar mapeo para ${sender}:`, e.message);
-                        }
-                    }
-                }
-                
-            return {
-                    isStatusUpdate: false,
-                    sender,
-                    message,
-                    messageId,
-                    timestamp
-                };
-            } else {
-                console.warn('⚠️ Estructura de mensaje inválida en webhook', JSON.stringify(messageObj).substring(0, 100));
-            }
-        } else if (body && body.payload) {
-            // Formato alternativo (legacy o simulación)
-            const payload = body.payload;
-            const type = payload.type;
-            
-            if (type === 'text' && payload.payload && payload.payload.text) {
-                const sender = payload.sender ? payload.sender.phone : (payload.source || null);
-                const message = payload.payload.text;
-                const messageId = payload.id || `temp-${Date.now()}`;
-                const timestamp = new Date().toISOString();
-                
-          return { 
-            isStatusUpdate: false,
-                    sender,
-                    message,
-                    messageId,
-                    timestamp
-          };
-            } else {
-                console.warn(`⚠️ Tipo de mensaje no soportado: ${type}`);
-        }
-        } else {
-            console.warn('⚠️ Webhook con estructura desconocida', JSON.stringify(body).substring(0, 200));
-    }
-    
-        return { isStatusUpdate: false };
-  } catch (error) {
-        console.error('❌ Error extrayendo datos del mensaje:', error);
-        return { isStatusUpdate: false };
-    }
-}
-
-// Procesar mensaje con OpenAI y generar respuesta
-async function processMessageWithOpenAI(sender, message, conversationId) {
-    try {
-        if (!sender || !message) {
-            console.warn('❌ Datos incompletos para procesar mensaje con OpenAI');
-            return null;
-        }
-
-        console.log(`🔍 VERIFICACIÓN CRÍTICA: Comprobando si el bot debe estar ACTIVO para ${sender}`);
-        
-        // ⚠️ VERIFICACIÓN INICIAL - Comprobar que NO esté desactivado en caché
-        if (sender in senderBotStatusMap && senderBotStatusMap[sender] === false) {
-            console.log(`🚫 PROTECCIÓN INICIAL: Bot marcado como INACTIVO en caché para ${sender}, CANCELANDO procesamiento`);
-            return null;
-        }
-
-        // ⚠️ VERIFICACIÓN EN BASE DE DATOS - Forzar consulta a DB
-        let isBotActive = false;
-        let actualConversationId = conversationId;
-        
-        // Si no tenemos ID, intentar buscarlo por número
-        if (!actualConversationId) {
-            console.log(`🔍 Buscando conversación para ${sender}...`);
-            const { data: convById, error: errorById } = await supabase
-                .from('conversations')
-                .select('id, is_bot_active')
-                .eq('user_id', sender)
-                .eq('business_id', BUSINESS_ID);
-                
-            if (errorById) {
-                console.error('❌ ERROR CRÍTICO buscando conversación:', errorById);
-                return null; // Salir por seguridad
-            }
-            
-            if (convById && convById.length > 0) {
-                actualConversationId = convById[0].id;
-                isBotActive = convById[0].is_bot_active === true; // Comparación estricta
-                console.log(`🔎 Encontrada conversación: ${actualConversationId}, bot_active=${isBotActive}`);
-          } else {
-                console.warn(`⚠️ No se encontró conversación para ${sender}`);
-                return null; // No hay conversación, no procesar
-          }
-        } else {
-            // Tenemos ID, verificamos directamente
-            console.log(`🔍 Verificando estado para conversación ${actualConversationId}...`);
-            const { data: convData, error: convError } = await supabase
-                .from('conversations')
-                .select('is_bot_active')
-                .eq('id', actualConversationId)
-                .single();
-                
-            if (convError) {
-                console.error(`❌ ERROR CRÍTICO verificando estado: ${convError.message}`);
-                return null; // Salir por seguridad
-            }
-            
-            if (convData) {
-                isBotActive = convData.is_bot_active === true; // Comparación estricta
-                console.log(`🔎 Estado de conversación ${actualConversationId}: bot_active=${isBotActive}`);
-    } else {
-                console.warn(`⚠️ No se encontró la conversación con ID ${actualConversationId}`);
-                return null; // No existe, no procesar
-            }
-        }
-        
-        // ⚠️ PUNTO DE SALIDA CRÍTICO - Si no está activo, cancelar
-        if (!isBotActive) {
-            console.log(`🛑 PROTECCIÓN CRÍTICA ACTIVADA: Bot está INACTIVO para ${sender}, CANCELANDO procesamiento`);
-            return null;
-        }
-        
-        // 🔄 VERIFICACIÓN FINAL - Una verificación extra adicional de seguridad
-        console.log(`🔎 VERIFICACIÓN FINAL: Consultando nuevamente estado para ${actualConversationId}...`);
-        const { data: finalCheck, error: finalError } = await supabase
-            .from('conversations')
-            .select('is_bot_active')
-            .eq('id', actualConversationId)
+            .eq('id', id)
+            .select('id, user_id, is_bot_active')
             .single();
             
-        if (!finalError && finalCheck) {
-            const finalStatus = finalCheck.is_bot_active === true;
-            console.log(`🔎 ESTADO FINAL: is_bot_active=${finalStatus}`);
-            
-            if (!finalStatus) {
-                console.log(`🛑 PROTECCIÓN FINAL ACTIVADA: Bot estaba INACTIVO en verificación final, CANCELANDO procesamiento`);
-                return null;
-            }
-        } else if (finalError) {
-            console.error(`❌ Error en verificación final: ${finalError.message}`);
-            return null; // Salir por seguridad
+        if (error) {
+            logDebug(`❌ TOGGLE BOT - Error actualizando estado: ${error.message}`);
+            return res.status(500).json({ 
+                error: 'Error al actualizar estado del bot', 
+                details: error.message 
+            });
         }
         
-        // ✅ AUTORIZACIÓN CONCEDIDA - El bot está definitivamente activo
-        console.log(`✅ VERIFICACIONES COMPLETAS: Bot confirmado como ACTIVO para ${sender}, procediendo con OpenAI`);
+        logDebug(`✅ TOGGLE BOT - Estado actualizado en DB: is_bot_active=${active} para conversación ${id}`);
         
-        // El resto del código existente para procesar con OpenAI
-        const { data: historyData, error: historyError } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('conversation_id', actualConversationId)
-            .order('created_at', { ascending: true })
-            .limit(10);
-        
-        if (historyError) {
-            console.error('❌ Error obteniendo historial:', historyError);
+        // Actualizar caché
+        if (data && data.user_id) {
+            senderBotStatusMap[data.user_id] = active;
+            logDebug(`📝 TOGGLE BOT - Caché actualizada: senderBotStatusMap[${data.user_id}] = ${active}`);
         }
         
-        // ... continuar con el código existente
+        // En desarrollo, mostrar todos los mapeos actualizados
+        if (process.env.NODE_ENV !== 'production') {
+            logDebug('📊 TOGGLE BOT - Estado actual de cache:');
+            Object.keys(senderBotStatusMap).forEach(key => {
+                logDebug(`   - ${key}: ${senderBotStatusMap[key] ? 'ACTIVO' : 'INACTIVO'}`);
+            });
+        }
+        
+        return res.status(200).json({ 
+            success: true, 
+            is_bot_active: active, 
+            message: `Bot ${active ? 'activado' : 'desactivado'} exitosamente`,
+            conversation_id: id,
+            user_id: data.user_id
+        });
     } catch (error) {
-        console.error('❌ Error procesando mensaje con OpenAI:', error);
-        return null;
+        logDebug(`❌ TOGGLE BOT - Error general: ${error.message}`);
+        return res.status(500).json({ 
+            error: 'Error al procesar la solicitud', 
+            message: error.message 
+        });
     }
 }
 
-// Función para enviar respuestas a WhatsApp
-async function sendWhatsAppResponse(recipient, message) {
-  try {
-    console.log(`📋 INICIO DE FUNCIÓN sendWhatsAppResponse - Recipient: ${recipient}`);
-    
-    if (!recipient || !message) {
-      console.warn('❌ Datos incompletos para enviar respuesta a WhatsApp');
-      return false;
-    }
-    
-    if (!GUPSHUP_API_KEY) {
-      console.error('❌ API key de GupShup no configurada');
-      console.log('GUPSHUP_API_KEY:', GUPSHUP_API_KEY ? 'Presente (oculta)' : 'No configurada');
-      return false;
-    }
-    
-    console.log(`📤 Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
-    
-    // Verificar si recipient es un UUID en lugar de un número telefónico
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipient);
-    console.log(`🔍 Verificando formato: El destinatario es ${isUUID ? 'un UUID' : 'un número telefónico'}`);
-    
-    let phoneNumber = recipient;
-    if (isUUID) {
-      console.log(`🔍 El destinatario parece ser un UUID de conversación: ${recipient}`);
-      console.log(`🔍 Buscando número telefónico asociado a conversación ${recipient}...`);
-      
-      // Primero verificar en caché
-      console.log(`🔍 Verificando en caché: ${conversationToPhoneMap[recipient] ? 'Encontrado' : 'No encontrado'}`);
-      if (conversationToPhoneMap[recipient]) {
-        phoneNumber = conversationToPhoneMap[recipient];
-        console.log(`✅ Número encontrado en caché: ${phoneNumber}`);
-          } else {
-        // Buscar en la base de datos
-        console.log(`🔍 Buscando en base de datos...`);
-        try {
-          const { data, error } = await supabase
-            .from('conversations')
-            .select('user_id')
-            .eq('id', recipient)
-            .single();
-          
-          if (error) {
-            console.error(`❌ Error buscando número: ${error.message}`);
-            console.log(`🔍 Consulta fallida: .from('conversations').select('user_id').eq('id', '${recipient}').single()`);
-            return false;
-          }
-          
-          if (data && data.user_id) {
-            phoneNumber = data.user_id;
-            console.log(`✅ Número encontrado en DB: ${phoneNumber}`);
-            
-            // Actualizar caché
-            conversationToPhoneMap[recipient] = phoneNumber;
-            phoneToConversationMap[phoneNumber] = recipient;
-            console.log(`📝 Caché actualizada: conversationToPhoneMap['${recipient}'] = '${phoneNumber}'`);
-        } else {
-            console.error(`❌ No se encontró número telefónico para la conversación ${recipient}`);
-            console.log(`🔍 La consulta devolvió: ${JSON.stringify(data)}`);
-            return false;
-          }
-        } catch (dbError) {
-          console.error(`❌ Error en consulta a DB: ${dbError.message}`);
-          console.log(`🔍 Error stack: ${dbError.stack}`);
-          return false;
+// Endpoint para verificar el estado actual del bot
+app.get('/api/bot-status/:id', handleBotStatus);
+
+// Función para manejar la verificación del estado del bot
+async function handleBotStatus(req, res) {
+    try {
+        const { id } = req.params;
+        
+        if (!id) {
+            return res.status(400).json({ error: 'Se requiere ID de conversación o número de teléfono' });
         }
-      }
+        
+        logDebug(`🔍 Verificando estado del bot para: ${id}`);
+        
+        // Verificar si es un UUID o un número de teléfono
+        const isUUID = id.includes('-');
+        
+        let query;
+        if (isUUID) {
+            // Es un ID de conversación
+            query = supabase
+                .from('conversations')
+                .select('id, user_id, is_bot_active, last_message_time')
+                .eq('id', id);
+        } else {
+            // Es un número de teléfono
+            query = supabase
+                .from('conversations')
+                .select('id, user_id, is_bot_active, last_message_time')
+                .eq('user_id', id);
+        }
+        
+        const { data, error } = await query;
+        
+        if (error) {
+            logDebug(`❌ Error consultando estado del bot: ${error.message}`);
+            return res.status(500).json({ 
+                error: 'Error al consultar estado', 
+                details: error.message 
+            });
+        }
+        
+        if (!data || data.length === 0) {
+            logDebug(`⚠️ No se encontró conversación para: ${id}`);
+            return res.status(404).json({ 
+                error: 'Conversación no encontrada', 
+                id 
+            });
+        }
+        
+        // Obtener el estado del cache también
+        const cacheStatus = isUUID 
+            ? (data[0].user_id ? senderBotStatusMap[data[0].user_id] : undefined)
+            : senderBotStatusMap[id];
+        
+        logDebug(`✅ Estado encontrado para ${id}:`);
+        logDebug(`   - DB: ${data.map(c => `${c.id}=${c.is_bot_active}`).join(', ')}`);
+        logDebug(`   - Cache: ${cacheStatus !== undefined ? cacheStatus : 'no en caché'}`);
+        
+        return res.status(200).json({
+            success: true,
+            conversations: data.map(conv => ({
+                id: conv.id,
+                user_id: conv.user_id,
+                is_bot_active: conv.is_bot_active,
+                last_message_time: conv.last_message_time,
+                cache_status: conv.user_id ? senderBotStatusMap[conv.user_id] : undefined
+            })),
+            cache_status: cacheStatus
+        });
+  } catch (error) {
+        logDebug(`❌ Error general en bot-status: ${error.message}`);
+        return res.status(500).json({ 
+            error: 'Error al procesar la solicitud', 
+            message: error.message 
+        });
     }
-    
-    // Asegurar que el número de teléfono tiene formato correcto
-    // El número debe estar en formato internacional sin +
-    // Ejemplo: 5212221234567 (52 es código de país México, seguido del número)
-    let formattedNumber = phoneNumber.toString().trim();
-    
-    // Eliminar cualquier + al inicio
-    formattedNumber = formattedNumber.replace(/^\+/, '');
-    
-    // Verificar que sea solo números
-    if (!/^\d+$/.test(formattedNumber)) {
-      console.error(`❌ Formato de número inválido: ${formattedNumber}`);
-      return false;
+}
+
+// Endpoint para simular el procesamiento con OpenAI sin enviar a WhatsApp
+app.post('/api/simulate-openai/:id', handleSimulateOpenAI);
+
+// Función para manejar la simulación
+async function handleSimulateOpenAI(req, res) {
+    try {
+        const { id } = req.params;
+        const { message } = req.body;
+        
+        if (!id) {
+            return res.status(400).json({ error: 'Se requiere ID de conversación o número de teléfono' });
+        }
+        
+        if (!message) {
+            return res.status(400).json({ error: 'Se requiere un mensaje para procesar' });
+        }
+        
+        logDebug(`🔬 SIMULACIÓN - Procesando mensaje para ${id}: "${message}"`);
+        
+        // Sobreescribir temporalmente sendWhatsAppResponse para capturar respuesta
+        const originalSendWhatsApp = sendWhatsAppResponse;
+        let capturedResponse = null;
+        
+        sendWhatsAppResponse = async (recipient, response) => {
+            logDebug(`📝 SIMULACIÓN - Capturando respuesta: "${response.substring(0, 100)}${response.length > 100 ? '...' : ''}"`);
+            capturedResponse = response;
+            return true; // Simular éxito
+        };
+        
+        try {
+            // Si es un UUID (ID de conversación)
+            const isUUID = id.includes('-');
+            let userId = id;
+            let conversationId = isUUID ? id : null;
+            
+            // Si es un ID de conversación, obtener el user_id
+            if (isUUID) {
+                const { data, error } = await supabase
+                    .from('conversations')
+                    .select('user_id')
+                    .eq('id', id)
+                    .single();
+                    
+                if (error || !data) {
+                    return res.status(404).json({ error: 'Conversación no encontrada' });
+                }
+                
+                userId = data.user_id;
+            } 
+            // Si es un número de teléfono, buscar la conversación correspondiente
+            else {
+                const { data, error } = await supabase
+                    .from('conversations')
+                    .select('id')
+                    .eq('user_id', id)
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+                    
+                if (!error && data && data.length > 0) {
+                    conversationId = data[0].id;
+                }
+            }
+            
+            // Guardar estado original del bot para este usuario
+            const originalBotStatus = senderBotStatusMap[userId];
+            
+            // Forzar estado activo para la simulación
+            senderBotStatusMap[userId] = true;
+            logDebug(`🤖 SIMULACIÓN - Forzando bot ACTIVO temporalmente para ${userId}`);
+            
+            // Procesar con OpenAI
+            const response = await processMessageWithOpenAI(userId, message, conversationId);
+            
+            // Restaurar estado original
+            senderBotStatusMap[userId] = originalBotStatus;
+            logDebug(`🔄 SIMULACIÓN - Restaurando estado original del bot: ${originalBotStatus ? 'ACTIVO' : 'INACTIVO'}`);
+            
+            // Restaurar función original
+            sendWhatsAppResponse = originalSendWhatsApp;
+            
+            if (capturedResponse) {
+                return res.status(200).json({
+                    success: true,
+                    message: 'Simulación exitosa',
+                    response: capturedResponse,
+                    user_id: userId,
+                    conversation_id: conversationId
+                });
+    } else {
+                return res.status(500).json({
+                    success: false,
+                    message: 'No se pudo generar una respuesta'
+                });
+            }
+        } finally {
+            // Asegurar que la función original se restaure incluso si hay error
+            sendWhatsAppResponse = originalSendWhatsApp;
     }
+  } catch (error) {
+        logDebug(`❌ SIMULACIÓN - Error: ${error.message}`);
+        return res.status(500).json({
+            error: 'Error al procesar la simulación',
+            message: error.message
+        });
+    }
+}
+
+// Configurar el registro en archivo de depuración
+const debugLogFile = path.join(__dirname, 'debug.log');
+const logDebug = (message) => {
+  const timestamp = new Date().toISOString();
+  const logMessage = `${timestamp} - ${message}\n`;
+  fs.appendFileSync(debugLogFile, logMessage);
+  console.log(message); // También mantener los logs en la consola
+};
+
+// También reemplazar algunas instancias clave de console.log con logDebug
+// ... existing code ...
+
+// Endpoint para pruebas de GupShup API
+app.get('/api/test-gupshup', async (req, res) => {
+  try {
+    console.log('🔍 Probando credenciales de GupShup...');
     
-    console.log('🔑 Usando API Key:', GUPSHUP_API_KEY ? GUPSHUP_API_KEY.substring(0, 5) + '...' : 'No configurada');
-    console.log('📱 Desde número:', GUPSHUP_NUMBER);
-    console.log('📱 Hacia número:', formattedNumber);
+    // Mostrar información de configuración
+    console.log(`🔑 API Key: ${GUPSHUP_API_KEY ? 'Configurada (primeros 10 caracteres: ' + GUPSHUP_API_KEY.substring(0, 10) + '...)' : 'No configurada'}`);
+    console.log(`📱 Número: ${GUPSHUP_NUMBER || 'No configurado'}`);
+    console.log(`👤 User ID: ${GUPSHUP_USERID ? 'Configurado (primeros 10 caracteres: ' + GUPSHUP_USERID.substring(0, 10) + '...)' : 'No configurado'}`);
     
-    // API v1 de GupShup - Método que funciona comprobado
-    const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
-    
-    const formData = new URLSearchParams();
-    formData.append('channel', 'whatsapp');
-    formData.append('source', GUPSHUP_NUMBER);
-    formData.append('destination', formattedNumber);
-    formData.append('src.name', GUPSHUP_NUMBER);
-    formData.append('message', JSON.stringify({
-      type: 'text',
-      text: message
-    }));
+    // Probar conexión a GupShup - Verificar estado de la cuenta
+    const apiUrl = 'https://api.gupshup.io/sm/api/v1/users/info';
     
     const headers = {
-      'Cache-Control': 'no-cache',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'apikey': GUPSHUP_API_KEY
+      'apikey': GUPSHUP_API_KEY,
+      'Content-Type': 'application/json'
     };
     
-    console.log('🔄 Enviando mensaje a WhatsApp...');
-    console.log(`📨 Datos de envío: URL=${apiUrl}, destination=${formattedNumber}, message=${JSON.stringify({type: 'text', text: message.substring(0, 30) + (message.length > 30 ? '...' : '')})}`);
+    console.log('🔄 Realizando solicitud a GupShup...');
     
     try {
-    const response = await axios.post(apiUrl, formData, { headers });
-    
-      console.log(`📦 Respuesta recibida: status=${response.status}`);
-    
-    if (response.status >= 200 && response.status < 300) {
-        console.log(`✅ Respuesta enviada exitosamente a ${formattedNumber}`);
-        console.log('📊 Respuesta de GupShup:', JSON.stringify(response.data));
-      return true;
-    } else {
-        console.error(`❌ Error en respuesta HTTP: ${response.status}`);
-        throw new Error(`Error con la API WhatsApp: ${response.status}`);
-      }
+      const response = await axios.get(apiUrl, { headers });
+      
+      console.log(`✅ Conexión exitosa a GupShup: ${response.status}`);
+      console.log(`📊 Datos recibidos: ${JSON.stringify(response.data)}`);
+      
+      return res.json({
+        success: true,
+        status: 'Conexión exitosa',
+        message: 'Las credenciales de GupShup son válidas',
+        apiResponse: response.data
+      });
     } catch (apiError) {
-      console.error('❌ Error en la llamada a la API de GupShup:', apiError.message);
+      console.log(`❌ Error al conectar con GupShup: ${apiError.message}`);
+      
+      let errorDetails = {
+        message: apiError.message
+      };
+      
       if (apiError.response) {
-        console.error('🔍 Detalles del error HTTP:', 
-          apiError.response.status, 
-          JSON.stringify(apiError.response.data || {})
-        );
-      } else if (apiError.request) {
-        console.error('🔍 No se recibió respuesta:', apiError.request);
-      } else {
-        console.error('🔍 Error en la configuración:', apiError.message);
+        errorDetails.status = apiError.response.status;
+        errorDetails.data = apiError.response.data;
+        console.log(`❌ Respuesta de error: ${apiError.response.status} - ${JSON.stringify(apiError.response.data)}`);
       }
-      throw apiError;
-    }
-  } catch (error) {
-    console.error('❌ Error general en sendWhatsAppResponse:', error.message);
-    if (error.response) {
-      console.error('🔍 Detalles del error:', error.response.status, JSON.stringify(error.response.data || {}));
-    }
-    console.error('📋 Stack del error:', error.stack);
-      return false;
-  } finally {
-    console.log(`📋 FIN DE FUNCIÓN sendWhatsAppResponse`);
-  }
-}
-
-// Endpoint para probar la función de bots activos/inactivos
-app.post('/simulate-webhook', async (req, res) => {
-    try {
-        const { sender, message } = req.body;
-        
-        if (!sender || !message) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Se requiere sender y message' 
-            });
-        }
-        
-        console.log(`\n🧪 === INICIANDO SIMULACIÓN DE MENSAJE ===`);
-        console.log(`🧪 Remitente: ${sender}`);
-        console.log(`🧪 Mensaje: "${message}"`);
-        
-        // Verificar explícitamente el estado del bot para este remitente
-        let isBotActive = true;
-        let conversationId = null;
-        let botStatusChecks = [];
-        
-        try {
-            const { data, error } = await supabase
-                .from('conversations')
-                .select('id, is_bot_active')
-                .eq('user_id', sender)
-                .eq('business_id', BUSINESS_ID);
-            
-            if (!error && data && data.length > 0) {
-                conversationId = data[0].id;
-                isBotActive = data[0].is_bot_active;
-                console.log(`🧪 Conversación ${conversationId}`);
-                console.log(`🧪 Estado del bot: ${isBotActive ? 'ACTIVO ✅' : 'DESACTIVADO ❌'}`);
-                
-                // También actualizar caché para pruebas
-                senderBotStatusMap[sender] = isBotActive;
-                console.log(`🧪 Actualizada caché de estado: senderBotStatusMap[${sender}] = ${isBotActive}`);
-    } else {
-                console.log(`🧪 No se encontró conversación para ${sender}, se asumirá bot activo ✅`);
-    }
-  } catch (error) {
-            console.error(`🧪 Error al verificar estado del bot: ${error.message}`);
-        }
-        
-        // Crear el formato exacto de un mensaje entrante de webhook
-        const simulatedWebhookData = {
-            entry: [{
-                changes: [{
-                    field: "messages",
-                    value: {
-                        contacts: [{
-                            profile: {
-                                name: `Simulador ${sender}`
-                            },
-                            wa_id: sender
-                        }],
-                        messages: [{
-                            from: sender,
-                            id: `sim-${Date.now()}`,
-                            text: {
-                                body: message
-                            },
-                            timestamp: new Date().toISOString(),
-                            type: "text"
-                        }],
-                        messaging_product: "whatsapp"
-                    }
-                }]
-            }]
-        };
-        
-        // Usar el mismo procesamiento que para webhooks reales
-        console.log('🧪 Procesando mensaje a través del webhook...');
-        
-        // Interceptar temporalmente la función de envío para capturar la respuesta
-        let responseBot = null;
-        const originalSendFunc = sendWhatsAppResponse;
-        sendWhatsAppResponse = async (destPhone, msgText) => {
-            responseBot = msgText;
-            console.log(`🧪 Respuesta capturada: "${msgText.substring(0, 100)}${msgText.length > 100 ? '...' : ''}"`);
-            // No enviar mensajes reales en la simulación
-            return true;
-        };
-        
-        // También interceptar la función de procesamiento con OpenAI para saber si se invocó
-        let openAICalled = false;
-        let verificationResults = [];
-        const originalProcessFunc = processMessageWithOpenAI;
-        processMessageWithOpenAI = async (sender, message, conversationId) => {
-            openAICalled = true;
-            console.log(`🧪 Llamada a OpenAI interceptada para ${sender}`);
-            
-            // Añadir interceptores para verificaciones
-            const originalConsoleLog = console.log;
-            console.log = function(msg, ...args) {
-                originalConsoleLog(msg, ...args);
-                
-                // Capturar mensajes de verificación
-                if (typeof msg === 'string') {
-                    if (msg.includes('VERIFICACIÓN')) {
-                        verificationResults.push(msg);
-                    }
-                }
-            };
-            
-            try {
-                return await originalProcessFunc(sender, message, conversationId);
-            } finally {
-                console.log = originalConsoleLog;
-            }
-        };
-        
-        // Procesar el mensaje simulado con la ruta del webhook
-        await new Promise((resolve) => {
-            // Enviar la solicitud directamente al endpoint del webhook
-            app.handle({
-                method: 'POST',
-                url: '/webhook',
-                body: simulatedWebhookData,
-                headers: { 'content-type': 'application/json' }
-            }, {
-                sendStatus: (status) => {
-                    console.log(`🧪 Webhook respondió con estado: ${status}`);
-                    resolve();
-                    return { send: () => {} };
-                },
-                status: () => ({ send: () => {} })
-            }, () => {});
-        });
-        
-        // Esperar brevemente para que procese las verificaciones
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Restaurar las funciones originales
-        sendWhatsAppResponse = originalSendFunc;
-        processMessageWithOpenAI = originalProcessFunc;
-        
-        // Mostrar resultados de la simulación
-        console.log(`\n🧪 === RESULTADO DE LA SIMULACIÓN ===`);
-        console.log(`🧪 Remitente: ${sender}`);
-        console.log(`🧪 Mensaje: "${message}"`);
-        console.log(`🧪 Estado del bot: ${isBotActive ? 'ACTIVO ✅' : 'DESACTIVADO ❌'}`);
-        console.log(`🧪 OpenAI llamado: ${openAICalled ? 'SÍ ✅' : 'NO ❌'}`);
-        
-        // Mostrar verificaciones capturadas
-        if (verificationResults.length > 0) {
-            console.log(`🧪 Verificaciones detectadas (${verificationResults.length}):`);
-            verificationResults.forEach((msg, i) => {
-                console.log(`   ${i+1}. ${msg}`);
-            });
-        } else if (!openAICalled) {
-            console.log(`🧪 ✅ Correcto: No se llamó a OpenAI porque el bot está desactivado`);
-        } else if (isBotActive) {
-            console.log(`🧪 ✅ Correcto: Se llamó a OpenAI porque el bot está activado`);
-    } else {
-            console.log(`🧪 ❌ ERROR: Se llamó a OpenAI aunque el bot está desactivado`);
-        }
-        
-        console.log(`🧪 Respuesta: ${responseBot ? `"${responseBot.substring(0, 100)}${responseBot.length > 100 ? '...' : ''}"` : 'No se envió respuesta ❌'}`);
-        
-        if (!isBotActive && !responseBot) {
-            console.log(`🧪 ✅ ÉXITO: Bot desactivado y no se envió respuesta (comportamiento correcto)`);
-        } else if (isBotActive && responseBot) {
-            console.log(`🧪 ✅ ÉXITO: Bot activado y se envió respuesta (comportamiento correcto)`);
-        } else if (!isBotActive && responseBot) {
-            console.log(`🧪 ❌ ERROR: Bot desactivado pero se envió respuesta (comportamiento incorrecto)`);
-        } else if (isBotActive && !responseBot) {
-            console.log(`🧪 ⚠️ ADVERTENCIA: Bot activado pero no se envió respuesta (posible problema con OpenAI)`);
-        }
-
-        return res.status(200).json({ 
-            success: true,
-            message: responseBot,
-            sender: sender,
-            bot_active: isBotActive,
-            openai_called: openAICalled,
-            verification_steps: verificationResults.length
-        });
-    } catch (error) {
-        console.error('❌ Error en simular mensaje:', error.message);
-        return res.status(500).json({ error: error.message });
-    }
-});
-
-// Endpoint para limpiar la caché de estados del bot
-app.post('/clear-cache', (req, res) => {
-  try {
-    console.log('🧹 Limpiando caché de estados de bot...');
-    
-    // Resetear el mapa de estados
-    for (const key in senderBotStatusMap) {
-      delete senderBotStatusMap[key];
-    }
-    
-    console.log('✅ Caché de estados limpiada correctamente');
-    console.log('📊 Estado actual de la caché:', Object.keys(senderBotStatusMap).length, 'entradas');
-    
-    return res.json({
-      success: true,
-      message: 'Caché limpiada correctamente',
-      cache_size: Object.keys(senderBotStatusMap).length
-    });
-  } catch (error) {
-    console.error('❌ Error al limpiar caché:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error al limpiar caché',
-      error: error.message
-    });
-  }
-});
-
-// Endpoint para forzar la recarga de estados de bot desde la base de datos
-app.post('/reload-bot-states', async (req, res) => {
-  try {
-    console.log('🔄 Recargando estados de bot desde la base de datos...');
-    
-    // Limpiar caché actual
-    for (const key in senderBotStatusMap) {
-      delete senderBotStatusMap[key];
-    }
-    
-    // Cargar estados desde Supabase
-    const { data: conversations, error } = await supabase
-      .from('conversations')
-      .select('id, user_id, is_bot_active')
-      .eq('business_id', BUSINESS_ID);
-    
-    if (error) {
-      throw new Error(`Error al cargar conversaciones: ${error.message}`);
-    }
-    
-    let loadedCount = 0;
-    
-    // Actualizar caché con datos frescos
-    for (const conv of conversations) {
-      if (conv.user_id) {
-        senderBotStatusMap[conv.user_id] = conv.is_bot_active === true;
-        loadedCount++;
-        console.log(`ℹ️ Bot para ${conv.user_id}: ${conv.is_bot_active ? 'ACTIVO ✅' : 'INACTIVO ⛔'}`);
-      }
-    }
-    
-    console.log(`✅ Estados de bot recargados: ${loadedCount} conversaciones actualizadas`);
-    
-    return res.json({
-      success: true,
-      message: `Estados de bot recargados correctamente`,
-      loaded_count: loadedCount,
-      cache_size: Object.keys(senderBotStatusMap).length
-    });
-  } catch (error) {
-    console.error('❌ Error al recargar estados:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error al recargar estados',
-      error: error.message
-    });
-  }
-});
-
-// Endpoint para mostrar columnas de una tabla
-app.post('/show-table-columns', async (req, res) => {
-  try {
-    const { table } = req.body;
-    
-    if (!table) {
-      return res.status(400).json({ success: false, message: 'Se requiere table' });
-    }
-    
-    console.log(`🔍 Obteniendo columnas de la tabla: ${table}`);
-    
-    // En lugar de usar RPC, simplemente consultar la tabla directamente
-    const { data, error } = await supabase
-      .from(table)
-      .select()
-      .limit(1);
-    
-    if (error) {
-      console.error(`❌ Error al obtener datos de ${table}:`, error);
-      return res.status(500).json({ 
-        success: false, 
-        message: `Error al obtener datos de ${table}`, 
-        error: error.message 
-      });
-    }
-    
-    // Si tenemos datos, podemos ver la estructura del primer objeto
-    let columns = [];
-    if (data && data.length > 0) {
-      columns = Object.keys(data[0]).map(column => ({
-        column_name: column,
-        data_type: typeof data[0][column],
-        sample_value: data[0][column]
-      }));
-    }
-    
-    console.log(`✅ Se encontraron ${columns.length} columnas en la tabla ${table}`);
-    
-    return res.status(200).json({
-      success: true,
-      table: table,
-      column_count: columns.length,
-      columns: columns,
-      sample_row: data && data.length > 0 ? data[0] : null
-    });
-  } catch (error) {
-    console.error('❌ Error general al obtener columnas:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Error general al obtener columnas', 
-      error: error.message 
-    });
-  }
-});
-
-// Endpoint para verificar conversaciones duplicadas
-app.post('/check-duplicate-conversations', async (req, res) => {
-  try {
-    const { phoneNumber } = req.body;
-    
-    if (!phoneNumber) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere phoneNumber' 
-      });
-    }
-    
-    console.log(`🔍 Buscando conversaciones duplicadas para el número: ${phoneNumber}`);
-    
-    // Primero normalizar el número telefónico para búsqueda consistente
-    const normalizedNumber = phoneNumber.toString().trim().replace(/^\+/, '');
-    
-    // Buscar todas las conversaciones con este número de teléfono
-    const { data: conversations, error } = await supabase
-      .from('conversations')
-      .select('*')
-      .eq('user_id', normalizedNumber);
-    
-    if (error) {
-      console.error('❌ Error al buscar conversaciones:', error);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Error al buscar conversaciones', 
-        error: error.message 
-      });
-    }
-    
-    console.log(`✅ Búsqueda completada: ${conversations?.length || 0} conversaciones encontradas`);
-    
-    // Estado actual en caché
-    const cachedStatus = senderBotStatusMap[normalizedNumber];
-    console.log(`📋 Estado en caché para ${normalizedNumber}: ${cachedStatus === true ? 'ACTIVO ✅' : cachedStatus === false ? 'INACTIVO ⛔' : 'No está en caché ❓'}`);
-    
-    // Añadir texto de estado a cada conversación
-    const detailedConversations = conversations?.map(conv => ({
-      ...conv,
-      status_text: conv.is_bot_active ? 'ACTIVO ✅' : 'INACTIVO ⛔'
-    })) || [];
-    
-    return res.status(200).json({
-      success: true,
-      phone_number: normalizedNumber,
-      conversation_count: detailedConversations.length,
-      cached_status: cachedStatus,
-      cached_status_text: cachedStatus === true ? 'ACTIVO ✅' : cachedStatus === false ? 'INACTIVO ⛔' : 'No está en caché ❓',
-      conversations: detailedConversations
-    });
-  } catch (error) {
-    console.error('❌ Error general al verificar conversaciones duplicadas:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Error general al verificar conversaciones duplicadas', 
-      error: error.message 
-    });
-  }
-});
-
-// Endpoint para verificar el estado de una conversación específica
-app.get('/check-bot-status/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    if (!id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere ID de conversación' 
-      });
-    }
-    
-    console.log(`🔍 Verificando estado del bot para conversación: ${id}`);
-    
-    // Determinar si es UUID o número telefónico
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    let query;
-    
-    if (isUUID) {
-      // Es un UUID, buscar por ID
-      query = supabase
-        .from('conversations')
-        .select('*')
-        .eq('id', id);
-    } else {
-      // Es un número telefónico, buscar por user_id
-      const normalizedNumber = id.toString().trim().replace(/^\+/, '');
-      query = supabase
-        .from('conversations')
-        .select('*')
-        .eq('user_id', normalizedNumber);
-    }
-    
-    const { data: conversations, error } = await query;
-    
-    if (error) {
-      console.error('❌ Error al buscar conversación:', error);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Error al buscar conversación', 
-        error: error.message 
-      });
-    }
-    
-    if (!conversations || conversations.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontró conversación con ese ID o número'
-      });
-    }
-    
-    // Si es un número y hay múltiples conversaciones, mostrar todas
-    const phoneNumber = isUUID ? 
-      (conversations[0]?.user_id || null) : 
-      id.toString().trim().replace(/^\+/, '');
-    
-    // Estado actual en caché
-    const cachedStatus = phoneNumber ? senderBotStatusMap[phoneNumber] : null;
-    console.log(`📋 Estado en caché para ${phoneNumber || 'desconocido'}: ${cachedStatus === true ? 'ACTIVO ✅' : cachedStatus === false ? 'INACTIVO ⛔' : 'No está en caché ❓'}`);
-    
-    // Añadir texto de estado a cada conversación
-    const detailedConversations = conversations?.map(conv => ({
-      ...conv,
-      status_text: conv.is_bot_active ? 'ACTIVO ✅' : 'INACTIVO ⛔'
-    })) || [];
-    
-    return res.status(200).json({
-      success: true,
-      id: id,
-      is_uuid: isUUID,
-      phone_number: phoneNumber,
-      conversation_count: detailedConversations.length,
-      cached_status: cachedStatus,
-      cached_status_text: cachedStatus === true ? 'ACTIVO ✅' : cachedStatus === false ? 'INACTIVO ⛔' : 'No está en caché ❓',
-      conversations: detailedConversations
-    });
-  } catch (error) {
-    console.error('❌ Error general al verificar estado del bot:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Error general al verificar estado del bot', 
-      error: error.message 
-    });
-  }
-});
-
-// Endpoint para forzar desactivación del bot para un número específico
-app.post('/force-deactivate-bot', async (req, res) => {
-  try {
-    const { phoneNumber } = req.body;
-    
-    if (!phoneNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere phoneNumber'
-      });
-    }
-    
-    console.log(`🔒 Forzando desactivación del bot para número: ${phoneNumber}`);
-    
-    // Normalizar el número para búsqueda consistente
-    const normalizedNumber = phoneNumber.toString().trim().replace(/^\+/, '');
-    
-    // 1. Actualizar en caché inmediatamente
-    senderBotStatusMap[normalizedNumber] = false;
-    console.log(`🔒 Desactivado en caché: senderBotStatusMap[${normalizedNumber}] = false`);
-    
-    // 2. Desactivar en base de datos
-    const { data, error } = await supabase
-      .from('conversations')
-      .update({ is_bot_active: false })
-      .eq('user_id', normalizedNumber)
-      .eq('business_id', BUSINESS_ID)
-      .select();
-    
-    if (error) {
-      console.error('❌ Error al desactivar bot en DB:', error);
+      
       return res.status(500).json({
         success: false,
-        error: error.message,
-        message: 'Error al desactivar bot en base de datos, pero se marcó como inactivo en caché'
+        status: 'Error de conexión',
+        message: 'Falló la conexión con GupShup',
+        error: errorDetails
+      });
+    }
+  } catch (error) {
+    console.error(`❌ Error general: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      status: 'Error',
+      message: error.message
+    });
+  }
+});
+
+// ... existing code ...
+
+// Endpoint para actualizar credenciales de GupShup
+app.post('/api/update-gupshup-credentials', async (req, res) => {
+  try {
+    const { apiKey, number, userId } = req.body;
+    
+    console.log('🔄 Actualizando credenciales de GupShup...');
+    
+    // Comprobar que se proporcionaron los datos necesarios
+    if (!apiKey && !number && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debe proporcionar al menos una credencial para actualizar (apiKey, number o userId)'
       });
     }
     
-    console.log(`✅ Bot desactivado exitosamente para ${normalizedNumber} en DB y caché`);
+    // Guardar valores anteriores para poder restaurarlos en caso de error
+    const previousApiKey = GUPSHUP_API_KEY;
+    const previousNumber = GUPSHUP_NUMBER;
+    const previousUserId = GUPSHUP_USERID;
     
-    // 3. Intentar obtener el ID de conversación para referencia
-    let conversationId = null;
-    if (data && data.length > 0) {
-      conversationId = data[0].id;
-      console.log(`ℹ️ ID de conversación: ${conversationId}`);
+    // Actualizar las variables globales con los nuevos valores
+    if (apiKey) {
+      console.log(`🔑 Actualizando API Key: ${apiKey.substring(0, 8)}...`);
+      GUPSHUP_API_KEY = apiKey;
     }
     
-    return res.status(200).json({
-      success: true,
-      message: `Bot desactivado exitosamente para ${phoneNumber}`,
-      conversation_id: conversationId,
-      conversation_count: data?.length || 0
-    });
+    if (number) {
+      console.log(`📱 Actualizando número: ${number}`);
+      GUPSHUP_NUMBER = number;
+    }
+    
+    if (userId) {
+      console.log(`👤 Actualizando User ID: ${userId.substring(0, 8)}...`);
+      GUPSHUP_USERID = userId;
+    }
+    
+    // Probar conexión a GupShup con las nuevas credenciales
+    const apiUrl = 'https://api.gupshup.io/sm/api/v1/users/info';
+    
+    const headers = {
+      'apikey': GUPSHUP_API_KEY,
+      'Content-Type': 'application/json'
+    };
+    
+    console.log('🔄 Probando conexión con nuevas credenciales...');
+    
+    try {
+      const response = await axios.get(apiUrl, { headers });
+      
+      console.log(`✅ Conexión exitosa con nuevas credenciales: ${response.status}`);
+      console.log(`📊 Datos recibidos: ${JSON.stringify(response.data)}`);
+      
+      return res.json({
+        success: true,
+        message: 'Credenciales actualizadas correctamente',
+        updatedCredentials: {
+          apiKey: apiKey ? `${apiKey.substring(0, 8)}...` : 'No actualizada',
+          number: number || 'No actualizado',
+          userId: userId ? `${userId.substring(0, 8)}...` : 'No actualizado'
+        },
+        apiResponse: response.data
+      });
+    } catch (apiError) {
+      // Restaurar valores anteriores en caso de error
+      console.log(`❌ Error al conectar con nuevas credenciales: ${apiError.message}`);
+      console.log('🔄 Restaurando credenciales anteriores...');
+      
+      GUPSHUP_API_KEY = previousApiKey;
+      GUPSHUP_NUMBER = previousNumber;
+      GUPSHUP_USERID = previousUserId;
+      
+      let errorDetails = {
+        message: apiError.message
+      };
+      
+      if (apiError.response) {
+        errorDetails.status = apiError.response.status;
+        errorDetails.data = apiError.response.data;
+        console.log(`❌ Respuesta de error: ${apiError.response.status} - ${JSON.stringify(apiError.response.data)}`);
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Error al conectar con GupShup usando las nuevas credenciales',
+        error: errorDetails
+      });
+    }
   } catch (error) {
-    console.error('❌ Error general al forzar desactivación:', error);
+    console.error(`❌ Error general: ${error.message}`);
     return res.status(500).json({
       success: false,
-      message: 'Error general al forzar desactivación',
+      message: 'Error interno del servidor',
       error: error.message
     });
   }
 });
 
-// Función para desactivar y verificar bot
-async function forceDeactivateBot(phoneOrConversationId) {
-  try {
-    // Determinar si es un ID de conversación o un número de teléfono
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(phoneOrConversationId);
-    
-    console.log(`🔒 Forzando desactivación para ${isUUID ? 'conversación' : 'número'}: ${phoneOrConversationId}`);
-    
-    if (isUUID) {
-      // Es un ID de conversación
-      // 1. Buscar el número asociado para actualizar caché
-      const { data: userData, error: userError } = await supabase
-        .from('conversations')
-        .select('user_id')
-        .eq('id', phoneOrConversationId)
-        .single();
-      
-      if (!userError && userData && userData.user_id) {
-        // Actualizar caché
-        senderBotStatusMap[userData.user_id] = false;
-        console.log(`🔒 Desactivado en caché: senderBotStatusMap[${userData.user_id}] = false`);
-      }
-      
-      // 2. Desactivar por ID
-      const { error } = await supabase
-        .from('conversations')
-        .update({ is_bot_active: false })
-        .eq('id', phoneOrConversationId);
-      
-      if (error) {
-        console.error(`❌ Error al desactivar bot para conversación ${phoneOrConversationId}:`, error);
-    return false;
-  }
-      
-      console.log(`✅ Bot desactivado exitosamente para conversación ${phoneOrConversationId}`);
-      return true;
-    } else {
-      // Es un número de teléfono
-      // Normalizar el número
-      const normalizedNumber = phoneOrConversationId.toString().trim().replace(/^\+/, '');
-      
-      // 1. Actualizar caché
-      senderBotStatusMap[normalizedNumber] = false;
-      console.log(`🔒 Desactivado en caché: senderBotStatusMap[${normalizedNumber}] = false`);
-      
-      // 2. Desactivar en base de datos
-      const { error } = await supabase
-        .from('conversations')
-        .update({ is_bot_active: false })
-        .eq('user_id', normalizedNumber)
-        .eq('business_id', BUSINESS_ID);
-      
-      if (error) {
-        console.error(`❌ Error al desactivar bot para número ${normalizedNumber}:`, error);
-        return false;
-      }
-      
-      console.log(`✅ Bot desactivado exitosamente para número ${normalizedNumber}`);
-      return true;
-    }
-  } catch (error) {
-    console.error('❌ Error general en forceDeactivateBot:', error);
-    return false;
-  }
-}
+// ... existing code ...
