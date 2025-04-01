@@ -5,6 +5,7 @@ const axios = require('axios');
 // Configuración de GupShup
 const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
+const GUPSHUP_USERID = process.env.GUPSHUP_USERID;
 
 // Función para enviar respuesta a WhatsApp
 async function sendWhatsAppMessage(recipient, message) {
@@ -33,7 +34,8 @@ async function sendWhatsAppMessage(recipient, message) {
     const headers = {
       'Cache-Control': 'no-cache',
       'Content-Type': 'application/x-www-form-urlencoded',
-      'apikey': apiKey
+      'apikey': apiKey,
+      'userid': GUPSHUP_USERID
     };
     
     console.log('🔄 Enviando mensaje a WhatsApp...');

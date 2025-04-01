@@ -983,7 +983,7 @@ async function sendWhatsAppResponse(recipient, message) {
         }
         
         // API v1 de GupShup - Método que funciona
-        const apiUrl = 'https://api.gupshup.io/sm/api/v1/msg';
+        const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
         const apiKey = GUPSHUP_API_KEY; // Enviamos la API key completa con prefijo
         const source = GUPSHUP_NUMBER;
         
@@ -1005,7 +1005,8 @@ async function sendWhatsAppResponse(recipient, message) {
         const headers = {
             'Cache-Control': 'no-cache',
             'Content-Type': 'application/x-www-form-urlencoded',
-            'apikey': apiKey
+            'apikey': apiKey,
+            'userid': GUPSHUP_USERID  // Añadimos el userid para mejorar la autenticación
         };
         
         console.log('🔄 Enviando mensaje a WhatsApp...');
@@ -1327,8 +1328,8 @@ app.post('/webhook', async (req, res) => {
             // Guardar mensaje del usuario en la base de datos
             console.log(`💾 Guardando mensaje de tipo 'user' para: ${sender}`);
             const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
-            
-            if (userMessageResult && userMessageResult.success) {
+      
+      if (userMessageResult && userMessageResult.success) {
                 console.log('✅ Mensaje guardado en Supabase correctamente');
                 conversationId = userMessageResult.conversationId;
                 
@@ -1337,7 +1338,7 @@ app.post('/webhook', async (req, res) => {
                     phoneToConversationMap[sender] = conversationId;
                     conversationIdToPhoneMap[conversationId] = sender;
                 }
-            } else {
+      } else {
                 console.error(`❌ Error al guardar mensaje en Supabase: ${userMessageResult?.error || 'Error desconocido'}`);
             }
         } catch (supabaseError) {
@@ -1367,7 +1368,7 @@ app.post('/webhook', async (req, res) => {
                     senderBotStatusMap[sender] = botActive;
                     console.log(`📝 Caché actualizada: senderBotStatusMap[${sender}] = ${botActive}`);
                 }
-            } else {
+      } else {
                 // Si no tenemos ID, buscar por número
                 const { data: convByNumber, error: numberError } = await supabase
                     .from('conversations')
@@ -1414,7 +1415,7 @@ app.post('/webhook', async (req, res) => {
                     
                     if (sendResult) {
                         console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender}`);
-                    } else {
+      } else {
                         console.log(`⚠️ No se pudo enviar la respuesta a WhatsApp, pero sí se guardó en la base de datos`);
                     }
                 } else {
@@ -1656,7 +1657,7 @@ app.post('/api/messages', async (req, res) => {
       console.log(`📱 Número final para envío: ${formattedNumber}`);
       
       // Enviar mensaje a WhatsApp directamente
-      const apiUrl = 'https://api.gupshup.io/sm/api/v1/msg';
+      const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
       
       const formData = new URLSearchParams();
       formData.append('channel', 'whatsapp');
@@ -1664,14 +1665,15 @@ app.post('/api/messages', async (req, res) => {
       formData.append('destination', formattedNumber);
       formData.append('src.name', GUPSHUP_NUMBER);
       formData.append('message', JSON.stringify({
-        type: 'text',
-        text: message
+          type: 'text',
+          text: message
       }));
       
       const headers = {
         'Cache-Control': 'no-cache',
         'Content-Type': 'application/x-www-form-urlencoded',
-        'apikey': GUPSHUP_API_KEY
+        'apikey': GUPSHUP_API_KEY,
+        'userid': GUPSHUP_USERID  // Añadimos el userid para mejorar la autenticación
       };
       
       console.log('🔄 Enviando mensaje directamente a la API de GupShup...');
@@ -2283,7 +2285,7 @@ app.get('/api/test-gupshup', async (req, res) => {
     console.log(`👤 User ID: ${GUPSHUP_USERID ? 'Configurado (primeros 10 caracteres: ' + GUPSHUP_USERID.substring(0, 10) + '...)' : 'No configurado'}`);
     
     // Probar conexión a GupShup - Verificar estado de la cuenta
-    const apiUrl = 'https://api.gupshup.io/sm/api/v1/users/info';
+    const apiUrl = 'https://api.gupshup.io/wa/api/v1/users/info';
     
     const headers = {
       'apikey': GUPSHUP_API_KEY,
@@ -2373,7 +2375,7 @@ app.post('/api/update-gupshup-credentials', async (req, res) => {
     }
     
     // Probar conexión a GupShup con las nuevas credenciales
-    const apiUrl = 'https://api.gupshup.io/sm/api/v1/users/info';
+    const apiUrl = 'https://api.gupshup.io/wa/api/v1/users/info';
     
     const headers = {
       'apikey': GUPSHUP_API_KEY,
