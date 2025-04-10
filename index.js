@@ -955,180 +955,20 @@ async function processMessageWithOpenAI(sender, message, conversationId) {
 // Función para enviar respuesta a WhatsApp
 async function sendWhatsAppResponse(recipient, message) {
     try {
-        console.log("Enviando respuesta a " + recipient + ": \"" + message.substring(0, 150) + (message.length > 150 ? '...' : '') + "\"");
-
-        // VERIFICACIÓN DE NOTIFICACIÓN PARA MENSAJES BOT
-        try {
-            console.log("=== VERIFICACIÓN DE NOTIFICACIÓN EN SENDWHATSAPPRESPONSE ===");
-            console.log("Mensaje completo a verificar: \"" + message + "\"");
-
-            // Verificación principal utilizando la función mejorada
-            console.log("Ejecutando verificación con función actualizada checkForNotificationPhrases");
-            const requiresNotification = checkForNotificationPhrases(message);
-            console.log("Resultado: " + (requiresNotification ? 'REQUIERE NOTIFICACIÓN' : 'NO REQUIERE NOTIFICACIÓN'));
-            
-            if (requiresNotification) {
-                console.log("NOTIFICACIÓN REQUERIDA - Procesando envío de correo");
-                
-                // Buscar la conversación para este número
-                let conversationId = phoneToConversationMap[recipient];
-
-                if (!conversationId) {
-                    try {
-                        console.log("Buscando conversación para número: " + recipient);
-                        const { data: convData, error: convError } = await supabase
-                            .from('conversations')
-                            .select('id')
-                            .eq('user_id', recipient)
-                            .single();
-
-                        if (convError) {
-                            console.error("Error al buscar conversación: " + convError.message);
-                        } else if (convData) {
-                            conversationId = convData.id;
-                            console.log("Conversación encontrada: " + conversationId);
-
-                            // Actualizar mapeo en memoria
-                            phoneToConversationMap[recipient] = conversationId;
-                        }
-                    } catch (dbError) {
-                        console.error("Error en consulta: " + dbError.message);
-                    }
-                }
-
-                // Enviar notificación si corresponde
-                if (conversationId) {
-                    console.log("ENVIANDO NOTIFICACIÓN DESDE SENDWHATSAPPRESPONSE");
-                    console.log("Conversación: " + conversationId);
-                    console.log("Teléfono: " + recipient);
-                    console.log("Mensaje que activó la notificación: \"" + message + "\"");
-
-                    try {
-                        console.log("PRIMER INTENTO de envío de notificación");
-                        const result = await sendBusinessNotification(conversationId, message, recipient);
-                        console.log("RESULTADO de notificación: " + (result ? 'ÉXITO' : 'FALLIDO'));
-                        
-                        if (!result) {
-                            console.log("Primer intento fallido, reintentando...");
-                            const result2 = await sendBusinessNotification(conversationId, message, recipient);
-                            console.log("RESULTADO de segundo intento: " + (result2 ? 'ÉXITO' : 'FALLIDO'));
-                        }
-                    } catch (emailError) {
-                        console.error("Error al enviar notificación: " + emailError.message);
-                        console.error(emailError.stack);
-                    }
-                } else {
-                    console.error("No se pudo obtener ID de conversación para " + recipient + ", notificación no enviada");
-                }
-            } else {
-                console.log("Mensaje no requiere notificación según las reglas configuradas");
-            }
-        } catch (notifError) {
-            console.error("Error en verificación de notificación: " + notifError.message);
-            console.error(notifError.stack);
-        }
+        console.log(`Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
         
-        // Continuar con el envío del mensaje independientemente
-        // Formato del número telefónico - quitar el + si existe
-        let formattedNumber = recipient.replace(/^\+/, '');
+        // Usar la función de GupShup para enviar el mensaje
+        const result = await sendTextMessageGupShup(recipient, message);
         
-        // Verificar credenciales
-        const apiKey = GUPSHUP_API_KEY;
-        if (!apiKey) {
-            console.error('Error: API Key de GupShup no configurada');
-            return false;
-        }
-        
-        // Verificar que el número contenga solo dígitos
-        if (!/^\d+$/.test(formattedNumber)) {
-            console.log("Número inválido: " + formattedNumber);
-            return false;
-        }
-        
-        // Enviar mensaje a través de Gupshup
-        const source = GUPSHUP_NUMBER;
-        
-        console.log('Variables de entorno para GupShup:');
-        console.log("- GUPSHUP_API_KEY: " + (GUPSHUP_API_KEY ? 'DEFINIDA' : 'NO DEFINIDA'));
-        console.log("- GUPSHUP_NUMBER: " + (GUPSHUP_NUMBER ? GUPSHUP_NUMBER : 'NO DEFINIDA'));
-        console.log("- GUPSHUP_USERID: " + (GUPSHUP_USERID ? 'DEFINIDA' : 'NO DEFINIDA'));
-        
-        if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER) {
-            console.error('Error: credenciales de GupShup faltantes');
-            return false;
-        }
-        
-        const apiUrl = 'https://api.gupshup.io/sm/api/v1/msg';
-        
-        console.log("URL de API: " + apiUrl);
-        console.log("Número de origen: " + GUPSHUP_NUMBER);
-        console.log("Número de destino: " + formattedNumber);
-        
-        const formData = new URLSearchParams();
-        formData.append('channel', 'whatsapp');
-        formData.append('source', source);
-        formData.append('destination', formattedNumber);
-        formData.append('message', message);
-        formData.append('src.name', source);
-        
-        const headers = {
-            'Cache-Control': 'no-cache',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'apikey': apiKey
-        };
-        
-        if (GUPSHUP_USERID) {
-            headers['userid'] = GUPSHUP_USERID;
-            console.log("Añadiendo userid: " + GUPSHUP_USERID);
-        }
-        
-        console.log('Enviando mensaje a WhatsApp...');
-        console.log('Formulario:', Object.fromEntries(formData));
-        console.log('Headers:', headers);
-        
-        try {
-            const response = await axios.post(apiUrl, formData, { headers });
-            
-            console.log('Respuesta de GupShup:', JSON.stringify(response.data));
-            
-            if (response.status >= 200 && response.status < 300) {
-                console.log('Mensaje enviado exitosamente a WhatsApp');
-                
-                // Guardar mensaje en la base de datos
-                try {
-                    await global.registerBotResponse(
-                        recipient,
-                        message,
-                        BUSINESS_ID, 
-                        'bot'
-                    );
-                    console.log('Mensaje del bot guardado en Supabase');
-                } catch (dbError) {
-                    console.log("Error guardando mensaje en Supabase: " + dbError.message);
-                }
-                
-                return true;
-            } else {
-                console.error("Error: Código de respuesta " + response.status);
-                return false;
-            }
-        } catch (apiError) {
-            console.error("Error en solicitud a GupShup:", apiError.message);
-            
-            if (apiError.response) {
-                console.error("- Status: " + apiError.response.status);
-                console.error("- Datos: ", JSON.stringify(apiError.response.data, null, 2));
-                console.error("- Headers: ", JSON.stringify(apiError.response.headers, null, 2));
-            } else if (apiError.request) {
-                console.error("- No hubo respuesta del servidor");
-            } else {
-                console.error("- Error al configurar la solicitud:", apiError.message);
-            }
-            
-            return false;
+        if (result && result.success) {
+          console.log(`Mensaje enviado exitosamente a ${recipient}`);
+          return true;
+        } else {
+          console.error(`Error al enviar mensaje: ${JSON.stringify(result)}`);
+          return false;
         }
     } catch (error) {
-        console.error("Error general en sendWhatsAppResponse:", error.message);
+        console.error(`Error general en sendWhatsAppResponse: ${error.message}`);
         console.error(error.stack);
         return false;
     }
@@ -2998,15 +2838,77 @@ app.post('/send-media', async (req, res) => {
         });
     }
 });
-// Funciones eliminadas debido a errores de sintaxis
-// Función sendBusinessNotification
-async function sendBusinessNotification(conversationId, botMessage, clientPhoneNumber) {
+
+// Función para verificar si un mensaje contiene frases que requieren notificación
+function checkForNotificationPhrases(message) {
   try {
-    console.log('Iniciando notificación por correo...');
-    return true;
-  } catch (error) {
-    console.error('Error en notificación:', error);
+    // Verificar que el mensaje es válido
+    if (!message || typeof message !== 'string') {
+      console.error(`El mensaje no es válido: ${message}`);
+      return false;
+    }
+    
+    // Normalizar mensaje
+    const normalizedMessage = message.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    
+    // Frases clave que indican necesidad de notificación
+    const phrases = [
+      "perfecto", "cita", "asesor", "llamara", "llamará", 
+      "contactara", "contactará", "confirmada", "registrada"
+    ];
+    
+    // Verificar si el mensaje contiene alguna frase clave
+    for (const phrase of phrases) {
+      if (normalizedMessage.includes(phrase)) {
+        console.log(`Frase de notificación encontrada: "${phrase}"`);
+        return true;
+      }
+    }
+    
+    console.log(`No se detectaron frases que requieran notificación`);
     return false;
+  } catch (error) {
+    console.error(`Error al verificar frases de notificación: ${error.message}`);
+    return false;
+  }
+}
+
+// Función para enviar respuestas de WhatsApp
+async function sendWhatsAppResponse(recipient, message) {
+  try {
+    console.log(`Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+    
+    // Usar la función de GupShup para enviar el mensaje
+    const result = await sendTextMessageGupShup(recipient, message);
+    
+    if (result && result.success) {
+      console.log(`Mensaje enviado exitosamente a ${recipient}`);
+      return true;
+    } else {
+      console.error(`Error al enviar mensaje: ${JSON.stringify(result)}`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`Error general en sendWhatsAppResponse: ${error.message}`);
+    console.error(error.stack);
+    return false;
+  }
+}
+
+// Función para procesar mensaje con OpenAI
+async function processMessageWithOpenAI(sender, message, conversationId) {
+  try {
+    console.log(`Procesando mensaje con OpenAI: ${message}`);
+    
+    // Crear una respuesta simulada para pruebas
+    const response = `Gracias por tu mensaje. Estamos atendiendo tu solicitud relacionada con: "${message}". Un asesor se pondrá en contacto contigo pronto.`;
+    
+    console.log(`Respuesta generada: ${response}`);
+    return response;
+  } catch (error) {
+    console.error(`Error al procesar con OpenAI: ${error.message}`);
+    return "Lo siento, no pude procesar tu mensaje en este momento. Por favor, intenta nuevamente más tarde.";
   }
 }
 
