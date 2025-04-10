@@ -38,6 +38,11 @@ const WHATSAPP_BOT_URL = RENDER_EXTERNAL_URL || VERCEL_URL || `http://localhost:
 const SUPABASE_URL = process.env.SUPABASE_URL;
 // Usar SUPABASE_KEY o SUPABASE_ANON_KEY, lo que esté disponible
 const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+// Variables GupShup - necesarias para WhatsApp
+const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
+const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
+const GUPSHUP_USERID = process.env.GUPSHUP_USERID;
+const BUSINESS_ID = process.env.BUSINESS_ID || "1";
 
 // Configurar Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
