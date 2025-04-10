@@ -24,18 +24,23 @@ envCheck.verifyVars(true); // Salir si faltan variables críticas
 console.log('✅ Todas las variables de entorno críticas están configuradas');
 
 // Cargar variables de entorno en variables globales para facilitar su uso en toda la aplicación
-let GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
-let GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
-let GUPSHUP_USERID = process.env.GUPSHUP_USERID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const BUSINESS_ID = process.env.BUSINESS_ID;
-let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:7777/api/register-bot-response';
-const ASSISTANT_ID = process.env.ASSISTANT_ID;
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo'; // 'gpt-4o' es otra opción
+const BOT_NAME = process.env.BOT_NAME || 'Bexor Asistente';
+const BOT_EXPERTISE = process.env.BOT_EXPERTISE || 'asistente virtual para inmobiliarias';
+const DEBUG_MODE = process.env.DEBUG_MODE === 'true';
 const PORT = process.env.PORT || 3095;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'verify_token_whatsapp_webhook';
-const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || '';
+const ENV = process.env.NODE_ENV || 'development';
+const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
+const VERCEL_URL = process.env.VERCEL_URL;
+const CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'https://joaquin-hernanjose.vercel.app';
+const WHATSAPP_BOT_URL = RENDER_EXTERNAL_URL || VERCEL_URL || `http://localhost:${PORT}`;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+// Usar SUPABASE_KEY o SUPABASE_ANON_KEY, lo que esté disponible
+const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+
+// Configurar Supabase
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Inicialización temprana para verificar variables críticas
 console.log('Inicializando servidor de WhatsApp con las siguientes credenciales:');
@@ -235,7 +240,8 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Variable global para activar modo debug
-const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || process.env.NODE_ENV === 'development';
+// Reutilizar la variable DEBUG_MODE ya definida arriba
+// const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || process.env.NODE_ENV === 'development';
 
 // Middleware para registro de solicitudes CORS
 app.use((req, res, next) => {
@@ -355,7 +361,8 @@ if (!supabaseKey) {
 console.log('✅ Credenciales de Supabase encontradas correctamente');
 console.log(`🔑 Usando clave de Supabase (primeros 10 caracteres): ${supabaseKey.substring(0, 10)}...`);
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Usar la variable supabase ya definida arriba en lugar de redefinirla
+// const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Función auxiliar para verificar la estructura de la tabla messages
 async function getMessagesTableStructure() {

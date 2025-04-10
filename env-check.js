@@ -42,16 +42,33 @@ let missingRecommendedVars = [];
 
 console.log(`${COLORS.blue}Variables críticas:${COLORS.reset}`);
 for (const varName of criticalVars) {
-  if (process.env[varName]) {
-    // Mostrar sólo primeros 8 caracteres para seguridad
-    const value = process.env[varName];
-    const displayValue = value.length > 10 
-      ? `${value.substring(0, 4)}...${value.substring(value.length - 4)}`
-      : value;
-    console.log(`${COLORS.green}✓ ${varName}${COLORS.reset}: ${displayValue}`);
+  // Caso especial para SUPABASE_KEY/SUPABASE_ANON_KEY (aceptar cualquiera de los dos)
+  if (varName === 'SUPABASE_KEY') {
+    const hasSupabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+    if (hasSupabaseKey) {
+      // Mostrar cuál de las variables está configurada
+      const varNameToShow = process.env.SUPABASE_KEY ? 'SUPABASE_KEY' : 'SUPABASE_ANON_KEY';
+      const value = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+      const displayValue = value.length > 10 
+        ? `${value.substring(0, 4)}...${value.substring(value.length - 4)}`
+        : value;
+      console.log(`${COLORS.green}✓ ${varNameToShow}${COLORS.reset}: ${displayValue}`);
+    } else {
+      console.log(`${COLORS.red}✗ SUPABASE_KEY/SUPABASE_ANON_KEY${COLORS.reset}: NO CONFIGURADA`);
+      missingCriticalVars.push('SUPABASE_KEY o SUPABASE_ANON_KEY');
+    }
   } else {
-    console.log(`${COLORS.red}✗ ${varName}${COLORS.reset}: NO CONFIGURADA`);
-    missingCriticalVars.push(varName);
+    if (process.env[varName]) {
+      // Mostrar sólo primeros 8 caracteres para seguridad
+      const value = process.env[varName];
+      const displayValue = value.length > 10 
+        ? `${value.substring(0, 4)}...${value.substring(value.length - 4)}`
+        : value;
+      console.log(`${COLORS.green}✓ ${varName}${COLORS.reset}: ${displayValue}`);
+    } else {
+      console.log(`${COLORS.red}✗ ${varName}${COLORS.reset}: NO CONFIGURADA`);
+      missingCriticalVars.push(varName);
+    }
   }
 }
 
