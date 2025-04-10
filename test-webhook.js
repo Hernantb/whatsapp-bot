@@ -3,7 +3,7 @@
  * Script para probar el webhook con una petición POST simulada
  * 
  * Este script envía una petición al webhook con un formato similar al que 
- * recibiría de GupShup o cualquier otro proveedor de WhatsApp.
+ * recibiría de GupShup o la API oficial de WhatsApp Business.
  */
 
 const axios = require('axios');
@@ -15,36 +15,86 @@ const WEBHOOK_URL = 'http://localhost:3095/webhook'; // Para pruebas locales
 
 const phoneNumber = process.argv[2] || '5491123456789';
 const message = process.argv[3] || 'Hola, esto es un mensaje de prueba';
+const format = process.argv[4] || 'whatsapp'; // Opciones: 'gupshup' o 'whatsapp'
 
 console.log(`🚀 Iniciando prueba de webhook con:`);
 console.log(`- URL: ${WEBHOOK_URL}`);
 console.log(`- Teléfono: ${phoneNumber}`);
 console.log(`- Mensaje: "${message}"`);
+console.log(`- Formato: ${format}`);
 
-// Crear una estructura simulando la petición real
-const payload = {
-  type: 'message',
-  app: 'WhatsApp',
-  timestamp: new Date().getTime(),
-  messageId: `test_${Date.now()}`,
-  payload: {
-    id: `msg_${Date.now()}`,
-    source: process.env.GUPSHUP_NUMBER || '15557033313',
-    type: 'text',
+// Crear payload según el formato solicitado
+let payload;
+
+if (format === 'gupshup') {
+  // Formato GupShup
+  payload = {
+    type: 'message',
+    app: 'WhatsApp',
+    timestamp: new Date().getTime(),
+    messageId: `test_${Date.now()}`,
     payload: {
-      text: message
-    },
-    sender: {
-      phone: phoneNumber,
-      name: 'Usuario de Prueba'
+      id: `msg_${Date.now()}`,
+      source: process.env.GUPSHUP_NUMBER || '15557033313',
+      type: 'text',
+      payload: {
+        text: message
+      },
+      sender: {
+        phone: phoneNumber,
+        name: 'Usuario de Prueba'
+      }
     }
-  }
-};
+  };
+} else {
+  // Formato WhatsApp Business API oficial
+  payload = {
+    "object": "whatsapp_business_account",
+    "entry": [
+      {
+        "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+        "changes": [
+          {
+            "field": "messages",
+            "value": {
+              "messaging_product": "whatsapp",
+              "metadata": {
+                "display_phone_number": process.env.GUPSHUP_NUMBER || "15557033313",
+                "phone_number_id": "PHONE_NUMBER_ID"
+              },
+              "contacts": [
+                {
+                  "profile": {
+                    "name": "Usuario de Prueba"
+                  },
+                  "wa_id": phoneNumber
+                }
+              ],
+              "messages": [
+                {
+                  "from": phoneNumber,
+                  "id": `wamid.${Date.now()}`,
+                  "timestamp": Math.floor(Date.now() / 1000).toString(),
+                  "type": "text",
+                  "text": {
+                    "body": message
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  };
+}
 
 // Enviar la petición POST
 async function testWebhook() {
   try {
     console.log('📤 Enviando petición al webhook...');
+    console.log('Payload:', JSON.stringify(payload, null, 2));
+    
     const response = await axios.post(WEBHOOK_URL, payload);
     
     console.log('✅ Respuesta recibida:');

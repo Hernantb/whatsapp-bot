@@ -1177,40 +1177,83 @@ app.listen(PORT, async () => {
 
 // Webhook para recibir mensajes de WhatsApp
 app.post('/webhook', async (req, res) => {
-    console.log('📲 Webhook recibido:', req.body?.type);
+    console.log('📲 Webhook recibido:', req.body?.object);
     console.log('📊 Contenido completo del webhook:', JSON.stringify(req.body));
     
     try {
-        // Si el cuerpo del mensaje es undefined o no tiene la estructura esperada
-        if (!req.body || !req.body.payload) {
-            console.log('⚠️ Webhook recibido con estructura inválida');
-            return res.status(200).json({ success: true, message: 'Webhook recibido pero ignorado (estructura inválida)' });
-        }
-        
-        // Extraer información básica del mensaje
-        const payload = req.body.payload;
-        const sender = payload.sender?.phone || payload.from || '';
-        const messageText = payload.payload?.text || payload.text || '';
-        const messageId = payload.messageId || payload.id || `msg_${Date.now()}`;
-        
-        console.log(`👤 Mensaje procesado de ${sender}: "${messageText}"`);
-        
-        if (!sender || !messageText) {
-            console.log('⚠️ Mensaje sin remitente o texto, ignorando');
-            return res.status(200).json({ success: true, message: 'Webhook recibido pero ignorado (sin datos completos)' });
-        }
-        
-        // Generar una respuesta usando la función simplificada
-        const botResponse = await processMessageWithOpenAI(sender, messageText);
-        
-        if (botResponse) {
-            console.log(`✅ Respuesta generada: "${botResponse.substring(0, 50)}..."`);
+        // Verificación para webhook oficial de WhatsApp Business
+        if (req.body?.object === 'whatsapp_business_account') {
+            // Procesar el formato estándar de WhatsApp Business API
+            const entries = req.body.entry || [];
             
-            // Enviar respuesta a WhatsApp
-            await sendWhatsAppResponse(sender, botResponse);
-            console.log(`📲 Respuesta enviada a ${sender}`);
-        } else {
-            console.log('❌ No se pudo generar respuesta');
+            for (const entry of entries) {
+                const changes = entry.changes || [];
+                
+                for (const change of changes) {
+                    if (change.field === 'messages') {
+                        const value = change.value || {};
+                        const messages = value.messages || [];
+                        
+                        for (const message of messages) {
+                            if (message.type === 'text' && message.text) {
+                                const sender = message.from;
+                                const messageText = message.text.body;
+                                const messageId = message.id;
+                                
+                                console.log(`👤 Mensaje de WhatsApp Business API: ${sender} - "${messageText}"`);
+                                
+                                // Procesar el mensaje
+                                if (sender && messageText) {
+                                    // Generar respuesta con OpenAI
+                                    const botResponse = await processMessageWithOpenAI(sender, messageText);
+                                    
+                                    if (botResponse) {
+                                        // Enviar respuesta
+                                        await sendWhatsAppResponse(sender, botResponse);
+                                        console.log(`✅ Respuesta enviada a ${sender}`);
+                                    }
+                                }
+                            } else {
+                                console.log(`⚠️ Recibido mensaje no-texto: ${message.type}`);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return res.status(200).send('EVENT_RECEIVED');
+        } 
+        // Formato GupShup (como respaldo)
+        else if (req.body?.payload) {
+            // Extraer información básica del mensaje
+            const payload = req.body.payload;
+            const sender = payload.sender?.phone || payload.from || '';
+            const messageText = payload.payload?.text || payload.text || '';
+            const messageId = payload.messageId || payload.id || `msg_${Date.now()}`;
+            
+            console.log(`👤 Mensaje procesado (GupShup) de ${sender}: "${messageText}"`);
+            
+            if (!sender || !messageText) {
+                console.log('⚠️ Mensaje sin remitente o texto, ignorando');
+                return res.status(200).json({ success: true, message: 'Webhook recibido pero ignorado (sin datos completos)' });
+            }
+            
+            // Generar una respuesta usando la función simplificada
+            const botResponse = await processMessageWithOpenAI(sender, messageText);
+            
+            if (botResponse) {
+                console.log(`✅ Respuesta generada: "${botResponse.substring(0, 50)}..."`);
+                
+                // Enviar respuesta a WhatsApp
+                await sendWhatsAppResponse(sender, botResponse);
+                console.log(`📲 Respuesta enviada a ${sender}`);
+            } else {
+                console.log('❌ No se pudo generar respuesta');
+            }
+        } 
+        // Formato desconocido
+        else {
+            console.log('⚠️ Webhook recibido con estructura inválida o desconocida');
         }
         
         // Responder al webhook inmediatamente
