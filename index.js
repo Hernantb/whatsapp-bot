@@ -3897,187 +3897,187 @@ global.registerBotResponse = async function(conversationId, botMessage, business
         return { success: false, error: error.message, id: null };
     }
 };
-
-// Función para verificar si un mensaje contiene una frase que requiere notificación
-/* FUNCIÓN DUPLICADA - COMENTADA AUTOMÁTICAMENTE - ELIMINADA */
-  
-  // Asegurarse de que el mensaje es una cadena
-  if (!message || typeof message !== 'string') {
-    console.error(`El mensaje no es válido: ${message}`);
-    return false;
-  }
-  
-  // Normalizar mensaje (quitar acentos, convertir a minúsculas)
-  const normalizedMessage = message.toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  
-  // Lista ampliada de frases que requieren notificación
-  const notificationPhrases = [
-    "perfecto! un asesor te llamara", 
-    "perfecto! un asesor te llamará",
-    "¡perfecto! un asesor te llamará",
-    "¡perfecto! un asesor te llamara",
-    "perfecto un asesor te",
-    "perfecto! tu cita ha sido confirmada",
-    "¡perfecto! tu cita ha sido confirmada",
-    "perfecto! tu cita ha sido registrada",
-    "¡perfecto! tu cita ha sido registrada",
-    "hemos registrado tu cita",
-    "tu cita ha sido",
-    "se ha creado la cita",
-    "asesor te contactara",
-    "asesor te contactará",
-    "¡perfecto!",
-    "cita confirmada",
-    "cita registrada",
-    "te contactará",
-    "te contactara"
-  ];
-  
-  // Lista ampliada de palabras clave para verificación adicional
-  const keyWords = [
-    "cita", 
-    "asesor", 
-    "llamará", 
-    "llamara",
-    "contactará", 
-    "contactara",
-    "confirmada", 
-    "registrada", 
-    "perfecto",
-    "reservada",
-    "agendada"
-  ];
-  
-  // Verificar si el mensaje contiene alguna de las frases de notificación
-  for (const phrase of notificationPhrases) {
-    if (normalizedMessage.includes(phrase)) {
-      console.log(`COINCIDENCIA EXACTA detectada con frase: "${phrase}"`);
-      return true;
-    }
-  }
-  
-  // Verificar coincidencia parcial (al menos 2 palabras clave)
-  let keyWordCount = 0;
-  const matchedKeywords = [];
-  for (const word of keyWords) {
-    if (normalizedMessage.includes(word)) {
-      keyWordCount++;
-      matchedKeywords.push(word);
-      console.log(`🔑 Palabra clave "${word}" encontrada (${keyWordCount}/${keyWords.length})`);
-    }
-  }
-  
-  if (keyWordCount >= 2) {
-    console.log(`COINCIDENCIA PARCIAL: ${keyWordCount} palabras clave encontradas: [${matchedKeywords.join(', ')}]`);
-    return true;
-  }
-  
-  // Verificar patrones específicos
-  if (
-    (normalizedMessage.includes("perfecto") && normalizedMessage.includes("asesor")) ||
-    (normalizedMessage.includes("cita") && normalizedMessage.includes("confirmada")) ||
-    (normalizedMessage.includes("cita") && normalizedMessage.includes("registrada")) ||
-    (normalizedMessage.includes("perfecto") && normalizedMessage.includes("cita"))
-  ) {
-    console.log(`PATRÓN ESPECÍFICO detectado: combinación de palabras clave`);
-    return true;
-  }
-  
-  console.log(`❌ No se detectaron frases que requieran notificación`);
-  return false;
- 
-
-/**
- * Envía una notificación al negocio sobre la conversación del cliente.
- * @param {string} conversationId - ID de la conversación
- * @param {string} botMessage - Mensaje del bot que desencadenó la notificación
- * @param {string} clientPhoneNumber - Número de teléfono del cliente
- * @returns {Promise<boolean>} - True si la notificación se envió correctamente
- */
-
-/* FUNCIÓN DUPLICADA - COMENTADA AUTOMÁTICAMENTE
-
-/* FUNCIÓN DUPLICADA - COMENTADA AUTOMÁTICAMENTE
-async function sendBusinessNotification(conversationId, botMessage, clientPhoneNumber) {
-  try {
-    console.log(`INICIANDO PROCESO DE NOTIFICACIÓN para conversación: ${conversationId}`);
-    console.log(`Mensaje del bot que activó la notificación: "${botMessage}"`);
-    console.log(`Número de teléfono del cliente: ${clientPhoneNumber}`);
-    
-    // Configurar destinatarios fijos para pruebas
-    const targetEmail = 'joaquinisaza@hotmail.com'; // Email principal fijo
-    const bccEmail = 'copia@brexor.com'; // Email BCC fijo
-    
-    console.log(`Email de destino: ${targetEmail}`);
-    console.log(`Email BCC: ${bccEmail}`);
-    
-    // Obtener historial reciente de la conversación (si está disponible)
-    let conversationHistory = [];
-    try {
-      const { data: history, error: historyError } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      
-      if (!historyError && history) {
-        conversationHistory = history;
-        console.log(`Historial de conversación obtenido: ${history.length} mensajes`);
-      } else if (historyError) {
-    console.error(`Error al obtener historial: ${historyError.message}`);
-      }
-    } catch (dbError) {
-    console.error(`Error en consulta de historial: ${dbError.message}`);
-    }
-
-    // Formatear el historial de conversación para el correo
-    const formattedHistory = conversationHistory.length > 0 ? 
-      conversationHistory.map(msg => {
-      const sender = msg.sender_type === 'user' ? 'Cliente' : 'Bot';
-        const time = new Date(msg.created_at || Date.now()).toLocaleString();
-      const content = msg.content || '(sin contenido)';
-      `
-      return `<div style="margin-bottom: 10px; padding: 8px; border-radius: 5px; background-color: ${msg.sender_type === 'user' ? '#f0f0f0' : '#e6f7ff'};">
-        <strong>${sender} (${time}):</strong><br/>
-        ${content}
-      </div>`;\n`
-      }).join('') : '<p>No hay mensajes recientes</p>';
-    
-    // Preparar el HTML del correo con diseño mejorado
-    const emailHTML = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e1e1e1; border-radius: 8px; overflow: hidden;">
-        <div style="background-color: #2c3e50; color: white; padding: 20px; text-align: center;">
-          <h2 style="margin: 0;">🔔 Notificación de Cliente - IMPORTANTE</h2>
-        </div>
-        
-        <div style="padding: 20px;">
-          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #3498db;">
-            <h3 style="margin-top: 0; color: #34495e; margin-bottom: 10px;">Datos del Cliente</h3>
-            <p style="margin: 0;"><strong>Teléfono:</strong> ${clientPhoneNumber}</p>
-            <p style="margin: 0;"><strong>ID Conversación:</strong> ${conversationId}</p>
-            <p style="margin: 0;"><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-            <h3 style="color: #34495e; margin-bottom: 10px;">Mensaje que Generó la Notificación</h3>
-            <div style="background-color: #e6f7ff; padding: 15px; border-radius: 5px; border-left: 4px solid #2196f3;">
-            ${botMessage}
-          </div>
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-            <h3 style="color: #34495e; margin-bottom: 10px;">Historial Reciente de la Conversación</h3>
-            ${formattedHistory}
-        </div>
-        
-        <div style="text-align: center; margin-top: 30px;">
-            <p>Este es un correo automático enviado por el sistema de notificaciones.</p>
-            <p>Se activó por una respuesta del bot que requiere tu atención</p>
-        </div>
-      </div>
-      </div>
+//COMMENTED: 
+//COMMENTED: // COMENTADO: // Función para verificar si un mensaje contiene una frase que requiere notificación
+//COMMENTED: // COMENTADO: /* FUNCIÓN DUPLICADA - COMENTADA AUTOMÁTICAMENTE - ELIMINADA */
+//COMMENTED: // COMENTADO:   
+//COMMENTED: // COMENTADO:   // Asegurarse de que el mensaje es una cadena
+//COMMENTED: // COMENTADO:   if (!message || typeof message !== 'string') {
+//COMMENTED: // COMENTADO:     console.error(`El mensaje no es válido: ${message}`);
+//COMMENTED: // COMENTADO:     return false;
+//COMMENTED:   }
+//COMMENTED:   
+//COMMENTED:   // Normalizar mensaje (quitar acentos, convertir a minúsculas)
+//COMMENTED:   const normalizedMessage = message.toLowerCase()
+//COMMENTED:     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+//COMMENTED:   
+//COMMENTED:   // Lista ampliada de frases que requieren notificación
+//COMMENTED:   const notificationPhrases = [
+//COMMENTED:     "perfecto! un asesor te llamara", 
+//COMMENTED:     "perfecto! un asesor te llamará",
+//COMMENTED:     "¡perfecto! un asesor te llamará",
+//COMMENTED:     "¡perfecto! un asesor te llamara",
+//COMMENTED:     "perfecto un asesor te",
+//COMMENTED:     "perfecto! tu cita ha sido confirmada",
+//COMMENTED:     "¡perfecto! tu cita ha sido confirmada",
+//COMMENTED:     "perfecto! tu cita ha sido registrada",
+//COMMENTED:     "¡perfecto! tu cita ha sido registrada",
+//COMMENTED:     "hemos registrado tu cita",
+//COMMENTED:     "tu cita ha sido",
+//COMMENTED:     "se ha creado la cita",
+//COMMENTED:     "asesor te contactara",
+//COMMENTED:     "asesor te contactará",
+//COMMENTED:     "¡perfecto!",
+//COMMENTED:     "cita confirmada",
+//COMMENTED:     "cita registrada",
+//COMMENTED:     "te contactará",
+//COMMENTED:     "te contactara"
+//COMMENTED:   ];
+//COMMENTED:   
+//COMMENTED:   // Lista ampliada de palabras clave para verificación adicional
+//COMMENTED:   const keyWords = [
+//COMMENTED:     "cita", 
+//COMMENTED:     "asesor", 
+//COMMENTED:     "llamará", 
+//COMMENTED:     "llamara",
+//COMMENTED:     "contactará", 
+//COMMENTED:     "contactara",
+//COMMENTED:     "confirmada", 
+//COMMENTED:     "registrada", 
+//COMMENTED:     "perfecto",
+//COMMENTED:     "reservada",
+//COMMENTED:     "agendada"
+//COMMENTED:   ];
+//COMMENTED:   
+//COMMENTED:   // Verificar si el mensaje contiene alguna de las frases de notificación
+//COMMENTED:   for (const phrase of notificationPhrases) {
+//COMMENTED:     if (normalizedMessage.includes(phrase)) {
+//COMMENTED:       console.log(`COINCIDENCIA EXACTA detectada con frase: "${phrase}"`);
+//COMMENTED:       return true;
+//COMMENTED:     }
+//COMMENTED:   }
+//COMMENTED:   
+//COMMENTED:   // Verificar coincidencia parcial (al menos 2 palabras clave)
+//COMMENTED:   let keyWordCount = 0;
+//COMMENTED:   const matchedKeywords = [];
+//COMMENTED:   for (const word of keyWords) {
+//COMMENTED:     if (normalizedMessage.includes(word)) {
+//COMMENTED:       keyWordCount++;
+//COMMENTED:       matchedKeywords.push(word);
+//COMMENTED:       console.log(`🔑 Palabra clave "${word}" encontrada (${keyWordCount}/${keyWords.length})`);
+//COMMENTED:     }
+//COMMENTED:   }
+//COMMENTED:   
+//COMMENTED:   if (keyWordCount >= 2) {
+//COMMENTED:     console.log(`COINCIDENCIA PARCIAL: ${keyWordCount} palabras clave encontradas: [${matchedKeywords.join(', ')}]`);
+//COMMENTED:     return true;
+//COMMENTED:   }
+//COMMENTED:   
+//COMMENTED:   // Verificar patrones específicos
+//COMMENTED:   if (
+//COMMENTED:     (normalizedMessage.includes("perfecto") && normalizedMessage.includes("asesor")) ||
+//COMMENTED:     (normalizedMessage.includes("cita") && normalizedMessage.includes("confirmada")) ||
+//COMMENTED:     (normalizedMessage.includes("cita") && normalizedMessage.includes("registrada")) ||
+//COMMENTED:     (normalizedMessage.includes("perfecto") && normalizedMessage.includes("cita"))
+//COMMENTED:   ) {
+//COMMENTED:     console.log(`PATRÓN ESPECÍFICO detectado: combinación de palabras clave`);
+//COMMENTED:     return true;
+//COMMENTED:   }
+//COMMENTED:   
+//COMMENTED:   console.log(`❌ No se detectaron frases que requieran notificación`);
+//COMMENTED:   return false;
+//COMMENTED:  
+//COMMENTED: 
+//COMMENTED: /**
+//COMMENTED:  * Envía una notificación al negocio sobre la conversación del cliente.
+//COMMENTED:  * @param {string} conversationId - ID de la conversación
+//COMMENTED:  * @param {string} botMessage - Mensaje del bot que desencadenó la notificación
+//COMMENTED:  * @param {string} clientPhoneNumber - Número de teléfono del cliente
+//COMMENTED:  * @returns {Promise<boolean>} - True si la notificación se envió correctamente
+//COMMENTED:  */
+//COMMENTED: 
+//COMMENTED: /* FUNCIÓN DUPLICADA - COMENTADA AUTOMÁTICAMENTE
+//COMMENTED: 
+//COMMENTED: /* FUNCIÓN DUPLICADA - COMENTADA AUTOMÁTICAMENTE
+//COMMENTED: async function sendBusinessNotification(conversationId, botMessage, clientPhoneNumber) {
+//COMMENTED:   try {
+//COMMENTED:     console.log(`INICIANDO PROCESO DE NOTIFICACIÓN para conversación: ${conversationId}`);
+//COMMENTED:     console.log(`Mensaje del bot que activó la notificación: "${botMessage}"`);
+//COMMENTED:     console.log(`Número de teléfono del cliente: ${clientPhoneNumber}`);
+//COMMENTED:     
+//COMMENTED:     // Configurar destinatarios fijos para pruebas
+//COMMENTED:     const targetEmail = 'joaquinisaza@hotmail.com'; // Email principal fijo
+//COMMENTED:     const bccEmail = 'copia@brexor.com'; // Email BCC fijo
+//COMMENTED:     
+//COMMENTED:     console.log(`Email de destino: ${targetEmail}`);
+//COMMENTED:     console.log(`Email BCC: ${bccEmail}`);
+//COMMENTED:     
+//COMMENTED:     // Obtener historial reciente de la conversación (si está disponible)
+//COMMENTED:     let conversationHistory = [];
+//COMMENTED:     try {
+//COMMENTED:       const { data: history, error: historyError } = await supabase
+//COMMENTED:         .from('messages')
+//COMMENTED:         .select('*')
+//COMMENTED:         .eq('conversation_id', conversationId)
+//COMMENTED:         .order('created_at', { ascending: false })
+//COMMENTED:         .limit(10);
+//COMMENTED:       
+//COMMENTED:       if (!historyError && history) {
+//COMMENTED:         conversationHistory = history;
+//COMMENTED:         console.log(`Historial de conversación obtenido: ${history.length} mensajes`);
+//COMMENTED:       } else if (historyError) {
+//COMMENTED:     console.error(`Error al obtener historial: ${historyError.message}`);
+//COMMENTED:       }
+//COMMENTED:     } catch (dbError) {
+//COMMENTED:     console.error(`Error en consulta de historial: ${dbError.message}`);
+//COMMENTED:     }
+//COMMENTED: 
+//COMMENTED:     // Formatear el historial de conversación para el correo
+//COMMENTED:     const formattedHistory = conversationHistory.length > 0 ? 
+//COMMENTED:       conversationHistory.map(msg => {
+//COMMENTED:       const sender = msg.sender_type === 'user' ? 'Cliente' : 'Bot';
+//COMMENTED:         const time = new Date(msg.created_at || Date.now()).toLocaleString();
+//COMMENTED:       const content = msg.content || '(sin contenido)';
+//COMMENTED:       `
+//COMMENTED:       return `<div style="margin-bottom: 10px; padding: 8px; border-radius: 5px; background-color: ${msg.sender_type === 'user' ? '#f0f0f0' : '#e6f7ff'};">
+//COMMENTED:         <strong>${sender} (${time}):</strong><br/>
+//COMMENTED:         ${content}
+//COMMENTED:       </div>`;\n`
+//COMMENTED:       }).join('') : '<p>No hay mensajes recientes</p>';
+//COMMENTED:     
+//COMMENTED:     // Preparar el HTML del correo con diseño mejorado
+//COMMENTED:     const emailHTML = `
+//COMMENTED:       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e1e1e1; border-radius: 8px; overflow: hidden;">
+//COMMENTED:         <div style="background-color: #2c3e50; color: white; padding: 20px; text-align: center;">
+//COMMENTED:           <h2 style="margin: 0;">🔔 Notificación de Cliente - IMPORTANTE</h2>
+//COMMENTED:         </div>
+//COMMENTED:         
+//COMMENTED:         <div style="padding: 20px;">
+//COMMENTED:           <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #3498db;">
+//COMMENTED:             <h3 style="margin-top: 0; color: #34495e; margin-bottom: 10px;">Datos del Cliente</h3>
+//COMMENTED:             <p style="margin: 0;"><strong>Teléfono:</strong> ${clientPhoneNumber}</p>
+//COMMENTED:             <p style="margin: 0;"><strong>ID Conversación:</strong> ${conversationId}</p>
+//COMMENTED:             <p style="margin: 0;"><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
+//COMMENTED:         </div>
+//COMMENTED:         
+//COMMENTED:         <div style="margin-bottom: 20px;">
+//COMMENTED:             <h3 style="color: #34495e; margin-bottom: 10px;">Mensaje que Generó la Notificación</h3>
+//COMMENTED:             <div style="background-color: #e6f7ff; padding: 15px; border-radius: 5px; border-left: 4px solid #2196f3;">
+//COMMENTED:             ${botMessage}
+//COMMENTED:           </div>
+//COMMENTED:         </div>
+//COMMENTED:         
+//COMMENTED:         <div style="margin-bottom: 20px;">
+//COMMENTED:             <h3 style="color: #34495e; margin-bottom: 10px;">Historial Reciente de la Conversación</h3>
+//COMMENTED:             ${formattedHistory}
+//COMMENTED:         </div>
+//COMMENTED:         
+//COMMENTED:         <div style="text-align: center; margin-top: 30px;">
+//COMMENTED:             <p>Este es un correo automático enviado por el sistema de notificaciones.</p>
+//COMMENTED:             <p>Se activó por una respuesta del bot que requiere tu atención</p>
+//COMMENTED:         </div>
+//COMMENTED:       </div>
+//COMMENTED:       </div>
     `;
 
     // Configurar opciones del correo
