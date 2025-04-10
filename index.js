@@ -16,6 +16,13 @@ const MessageMedia = require('whatsapp-web.js').MessageMedia;
 const { sendTextMessageGupShup } = require('./sendTextMessageGupShup');
 const crypto = require('crypto');
 
+// Verificar variables de entorno críticas usando el módulo env-check
+const envCheck = require('./env-check');
+envCheck.verifyVars(true); // Salir si faltan variables críticas
+
+// Si llegamos aquí, todas las variables críticas están disponibles
+console.log('✅ Todas las variables de entorno críticas están configuradas');
+
 // Cargar variables de entorno en variables globales para facilitar su uso en toda la aplicación
 let GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 let GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
@@ -954,24 +961,23 @@ async function processMessageWithOpenAI(sender, message, conversationId) {
 
 // Función para enviar respuesta a WhatsApp
 async function sendWhatsAppResponse(recipient, message) {
-    try {
-        console.log(`Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
-        
-        // Usar la función de GupShup para enviar el mensaje
-        const result = await sendTextMessageGupShup(recipient, message);
-        
-        if (result && result.success) {
-          console.log(`Mensaje enviado exitosamente a ${recipient}`);
-          return true;
-        } else {
-          console.error(`Error al enviar mensaje: ${JSON.stringify(result)}`);
-          return false;
-        }
-    } catch (error) {
-        console.error(`Error general en sendWhatsAppResponse: ${error.message}`);
-        console.error(error.stack);
-        return false;
-    }
+  try {
+    console.log(`📱 Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`)
+    
+    // Intentar enviar el mensaje a través de GupShup
+    const result = await sendTextMessageGupShup(recipient, message);
+    
+    // Si llegamos aquí, el mensaje se envió correctamente (ya no hay modo simulación)
+    console.log(`✅ Mensaje enviado a ${recipient} exitosamente`);
+    
+    return result;
+  } catch (error) {
+    console.error(`❌ Error al enviar mensaje a ${recipient}:`, error.message);
+    console.error(error.stack);
+    
+    // Propagar el error para que pueda ser manejado por la función que llamó a esta
+    throw new Error(`Error al enviar mensaje a WhatsApp: ${error.message}`);
+  }
 }
 
 // Función para extraer datos del mensaje de la solicitud de webhook
@@ -2946,22 +2952,21 @@ function checkForNotificationPhrases(message) {
 // Función para enviar respuestas de WhatsApp
 async function sendWhatsAppResponse(recipient, message) {
   try {
-    console.log(`Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+    console.log(`📱 Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`)
     
-    // Usar la función de GupShup para enviar el mensaje
+    // Intentar enviar el mensaje a través de GupShup
     const result = await sendTextMessageGupShup(recipient, message);
     
-    if (result && result.success) {
-      console.log(`Mensaje enviado exitosamente a ${recipient}`);
-      return true;
-    } else {
-      console.error(`Error al enviar mensaje: ${JSON.stringify(result)}`);
-      return false;
-    }
+    // Si llegamos aquí, el mensaje se envió correctamente (ya no hay modo simulación)
+    console.log(`✅ Mensaje enviado a ${recipient} exitosamente`);
+    
+    return result;
   } catch (error) {
-    console.error(`Error general en sendWhatsAppResponse: ${error.message}`);
+    console.error(`❌ Error al enviar mensaje a ${recipient}:`, error.message);
     console.error(error.stack);
-    return false;
+    
+    // Propagar el error para que pueda ser manejado por la función que llamó a esta
+    throw new Error(`Error al enviar mensaje a WhatsApp: ${error.message}`);
   }
 }
 

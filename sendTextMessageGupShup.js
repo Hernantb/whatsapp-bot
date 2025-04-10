@@ -6,11 +6,17 @@ async function sendTextMessageGupShup(phoneNumber, message) {
   try {
     // Obtener credenciales de variables de entorno
     const apiKey = process.env.GUPSHUP_API_KEY;
-    const source = process.env.GUPSHUP_SOURCE_PHONE;
+    const source = process.env.GUPSHUP_NUMBER || process.env.GUPSHUP_SOURCE_PHONE;
     const userid = process.env.GUPSHUP_USERID;
     
-    if (!apiKey || !source || !userid) {
-      throw new Error('Faltan credenciales de GupShup en variables de entorno');
+    // Verificar que todas las credenciales estén disponibles
+    const missingCredentials = [];
+    if (!apiKey) missingCredentials.push('GUPSHUP_API_KEY');
+    if (!source) missingCredentials.push('GUPSHUP_NUMBER/GUPSHUP_SOURCE_PHONE');
+    if (!userid) missingCredentials.push('GUPSHUP_USERID');
+    
+    if (missingCredentials.length > 0) {
+      throw new Error(`Faltan credenciales de GupShup [${missingCredentials.join(', ')}]. No se puede enviar el mensaje.`);
     }
     
     // Normalizar número de teléfono (asegurarse que tiene formato correcto)
@@ -49,35 +55,40 @@ async function sendTextMessageGupShup(phoneNumber, message) {
     console.log(`📝 Headers: apikey: ${apiKey.substring(0, 5)}..., userid: ${userid}`);
     console.log(`📝 Destino: ${normalizedPhone}`);
     
-    const response = await axios.post(url, data, config);
-    
-    if (response.data) {
-      console.log(`✅ Mensaje enviado exitosamente a ${normalizedPhone}`);
-      console.log(`📊 Respuesta de GupShup: ${JSON.stringify(response.data)}`);
-      return {
-        success: true, 
-        messageId: response.data.messageId || `gupshup-${Date.now()}`,
-        status: response.data.status || 'sent',
-        responseData: response.data
-      };
-    } else {
-      console.error('❌ La API de GupShup no retornó datos');
-      throw new Error('No se recibió respuesta de GupShup');
+    try {
+      const response = await axios.post(url, data, config);
+      
+      if (response.data) {
+        console.log(`✅ Mensaje enviado exitosamente a ${normalizedPhone}`);
+        console.log(`📊 Respuesta de GupShup: ${JSON.stringify(response.data)}`);
+        return {
+          success: true, 
+          simulated: false,
+          messageId: response.data.messageId || `gupshup-${Date.now()}`,
+          status: response.data.status || 'sent',
+          responseData: response.data
+        };
+      } else {
+        console.error('❌ La API de GupShup no retornó datos');
+        throw new Error('No se recibió respuesta de GupShup');
+      }
+    } catch (apiError) {
+      console.error(`❌ Error al enviar mensaje a GupShup:`);
+      
+      if (apiError.response) {
+        console.error(`- Status: ${apiError.response.status}`);
+        console.error(`- Datos: ${JSON.stringify(apiError.response.data)}`);
+      } else {
+        console.error(`- Error: ${apiError.message}`);
+      }
+      
+      // Propagar el error para que se maneje adecuadamente
+      throw new Error(`Error al enviar mensaje a GupShup: ${apiError.message}`);
     }
   } catch (error) {
-    if (error.response) {
-      // Error de respuesta de la API
-      console.error(`❌ Error de API GupShup (${error.response.status}):`, error.response.data);
-      throw new Error(`Error ${error.response.status} de GupShup: ${JSON.stringify(error.response.data)}`);
-    } else if (error.request) {
-      // Error de red (no se recibió respuesta)
-      console.error('❌ Error de red al contactar API de GupShup:', error.message);
-      throw new Error(`Error de red al contactar API de GupShup: ${error.message}`);
-    } else {
-      // Otro tipo de error
-      console.error(`❌ Error enviando mensaje a ${phoneNumber}:`, error.message);
-      throw error;
-    }
+    console.error(`❌ Error general en sendTextMessageGupShup:`, error.message);
+    // Propagar el error
+    throw error;
   }
 }
 
