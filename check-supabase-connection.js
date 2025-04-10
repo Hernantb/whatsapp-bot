@@ -7,8 +7,8 @@
 const axios = require('axios');
 
 // Configuración de Supabase
-const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://wscijkxwevgxbgwhbqtm.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI3NjgsImV4cCI6MjA1NzM5ODc2OH0._HSnvof7NUk6J__qqq3gJvbJRZnItCAmlI5HYAL8WVI';
 
 // Información del sistema
 console.log('📊 DIAGNÓSTICO DE CONEXIÓN A SUPABASE');
@@ -25,7 +25,7 @@ console.log('\n🔍 VERIFICANDO RESOLUCIÓN DNS PARA SUPABASE...');
 
 // Usar el módulo dns de Node.js para verificar la resolución del hostname
 const dns = require('dns');
-dns.lookup('ecnimzwygbbumxdcilsb.supabase.co', (err, address, family) => {
+dns.lookup('wscijkxwevgxbgwhbqtm.supabase.co', (err, address, family) => {
   if (err) {
     console.error('❌ ERROR DE DNS:', err.message);
     console.error('❌ No se puede resolver el hostname de Supabase - Problema de DNS');
@@ -229,14 +229,19 @@ async function checkSupabaseConnections() {
   
   const conclusiones = [];
   
-  if (global.fetchSuccess) {
-    conclusiones.push('✅ Fetch nativo funciona correctamente para Supabase');
-  } else if (global.nodeFetchSuccess) {
-    conclusiones.push('✅ node-fetch funciona correctamente para Supabase');
-  } else if (global.axiosSuccess) {
-    conclusiones.push('✅ Axios funciona correctamente para Supabase');
-  } else if (global.clientSuccess) {
-    conclusiones.push('✅ Cliente Supabase.js funciona correctamente');
+  // Variables para rastrear el éxito
+  const axiosSuccess = global.axiosSuccess || false;
+  const fetchSuccess = global.fetchSuccess || false;
+  const nodeFetchSuccess = global.nodeFetchSuccess || false;
+  const clientSuccess = global.clientSuccess || false;
+  
+  if (axiosSuccess || fetchSuccess || nodeFetchSuccess || clientSuccess) {
+    conclusiones.push('✅ Al menos un método pudo conectarse a Supabase correctamente');
+    
+    if (axiosSuccess) conclusiones.push('✅ Axios funciona correctamente para Supabase');
+    if (fetchSuccess) conclusiones.push('✅ Fetch nativo funciona correctamente para Supabase');
+    if (nodeFetchSuccess) conclusiones.push('✅ node-fetch funciona correctamente para Supabase');
+    if (clientSuccess) conclusiones.push('✅ Cliente Supabase.js funciona correctamente');
   } else {
     conclusiones.push('❌ Ningún método pudo conectarse a Supabase correctamente');
     

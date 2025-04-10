@@ -17,8 +17,8 @@ try {
 }
 
 // Configuración de Supabase
-const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
+const SUPABASE_URL = 'https://wscijkxwevgxbgwhbqtm.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI3NjgsImV4cCI6MjA1NzM5ODc2OH0._HSnvof7NUk6J__qqq3gJvbJRZnItCAmlI5HYAL8WVI';
 
 // Headers para las solicitudes a Supabase
 const headers = {
@@ -36,7 +36,7 @@ async function syncSingleMessage(messageData) {
     
     // 1. Buscar conversación existente
     console.log('🔍 Buscando conversación existente...');
-    const searchUrl = `${SUPABASE_URL}/rest/v1/conversations?phone_number=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`;
+    const searchUrl = `${SUPABASE_URL}/rest/v1/conversations?user_id=eq.${encodeURIComponent(conversationId)}&business_id=eq.${encodeURIComponent(business_id)}&select=id`;
     
     const { data: conversations } = await axios.get(searchUrl, { headers });
     
@@ -48,11 +48,10 @@ async function syncSingleMessage(messageData) {
       
       const createUrl = `${SUPABASE_URL}/rest/v1/conversations`;
       const newConversation = {
-        phone_number: conversationId,
+        user_id: conversationId,
         business_id: business_id,
-        name: 'Usuario',
-        last_message: message,
-        updated_at: new Date().toISOString()
+        sender_name: 'Usuario',
+        last_message: message
       };
       
       const { data: createdConversation } = await axios.post(
@@ -74,8 +73,8 @@ async function syncSingleMessage(messageData) {
     const messageUrl = `${SUPABASE_URL}/rest/v1/messages`;
     const newMessage = {
       conversation_id: conversationDbId,
-      message: message,
-      is_from_user: false,
+      content: message,
+      sender_type: 'bot',
       created_at: new Date().toISOString()
     };
     
@@ -140,72 +139,12 @@ async function syncFallbackMessages() {
   
   console.log(`🔍 Encontrados ${files.length} mensajes pendientes para sincronizar`);
   
-  // Lista para llevar seguimiento de éxitos y fallos
-  const results = {
-    success: [],
-    failed: []
-  };
-  
-  // Procesar cada archivo
+  // Sincronizar cada mensaje
   for (const file of files) {
-    try {
-      const filePath = path.join(fallbackDir, file);
-      const fileContent = fs.readFileSync(filePath, 'utf8');
-      const messageData = JSON.parse(fileContent);
-      
-      console.log(`🔄 Procesando: ${file}`);
-      const result = await syncSingleMessage(messageData);
-      
-      if (result.success) {
-        console.log(`✅ Mensaje sincronizado correctamente: ${file}`);
-        results.success.push(file);
-        
-        // Eliminar archivo sincronizado
-        fs.unlinkSync(filePath);
-        console.log(`🗑️ Archivo eliminado después de sincronizar: ${file}`);
-      } else {
-        console.error(`❌ Error al sincronizar mensaje: ${file}`);
-        results.failed.push(file);
-      }
-    } catch (error) {
-      console.error(`❌ Error al procesar archivo ${file}:`, error.message);
-      results.failed.push(file);
-    }
-  }
-  
-  // Actualizar contador de pendientes
-  const pendingCountFile = path.join(fallbackDir, 'pending_count.json');
-  
-  if (fs.existsSync(pendingCountFile)) {
-    try {
-      const pendingData = JSON.parse(fs.readFileSync(pendingCountFile, 'utf8'));
-      
-      // Filtrar los mensajes que ya se han sincronizado
-      pendingData.messages = pendingData.messages.filter(msg => 
-        !results.success.includes(path.basename(msg.filename))
-      );
-      
-      pendingData.count = pendingData.messages.length;
-      
-      fs.writeFileSync(pendingCountFile, JSON.stringify(pendingData, null, 2));
-      console.log(`✅ Archivo de conteo actualizado. Mensajes pendientes: ${pendingData.count}`);
-    } catch (error) {
-      console.error('❌ Error al actualizar contador de pendientes:', error.message);
-    }
-  }
-  
-  console.log('📊 Resumen de sincronización:');
-  console.log(`  ✅ Mensajes sincronizados: ${results.success.length}`);
-  console.log(`  ❌ Mensajes fallidos: ${results.failed.length}`);
-  
-  if (results.failed.length === 0 && results.success.length > 0) {
-    console.log('🎉 Todos los mensajes fueron sincronizados correctamente');
-  } else if (results.failed.length > 0) {
-    console.log('⚠️ Algunos mensajes no pudieron ser sincronizados');
+    const messageData = require(path.join(fallbackDir, file));
+    await syncSingleMessage(messageData);
   }
 }
 
-// Ejecutar sincronización
-syncFallbackMessages()
-  .then(() => console.log('🏁 Proceso de sincronización finalizado'))
-  .catch(error => console.error('❌ Error general en sincronización:', error.message)); 
+// Ejecutar la función principal
+syncFallbackMessages();

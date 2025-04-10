@@ -7,8 +7,8 @@
 const axios = require('axios');
 
 // Configuración de Supabase
-const SUPABASE_URL = 'https://ecnimzwygbbumxdcilsb.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjbmltend5Z2JidW14ZGNpbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDM3MTkxMTEsImV4cCI6MjAxOTI5NTExMX0.KGnGBMq0nEG6BRE2CojwhqiOIzvgEvbQ-eKlnQrIaGs';
+const SUPABASE_URL = 'https://wscijkxwevgxbgwhbqtm.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI3NjgsImV4cCI6MjA1NzM5ODc2OH0._HSnvof7NUk6J__qqq3gJvbJRZnItCAmlI5HYAL8WVI';
 const BUSINESS_ID = '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 
 // Headers para las solicitudes a Supabase
@@ -29,7 +29,7 @@ async function testSupabaseWithAxios() {
   try {
     // 1. Buscar conversación existente
     console.log('🔍 Buscando conversación para:', phoneNumber);
-    const searchUrl = `${SUPABASE_URL}/rest/v1/conversations?phone_number=eq.${encodeURIComponent(phoneNumber)}&business_id=eq.${encodeURIComponent(BUSINESS_ID)}&select=id`;
+    const searchUrl = `${SUPABASE_URL}/rest/v1/conversations?user_id=eq.${encodeURIComponent(phoneNumber)}&business_id=eq.${encodeURIComponent(BUSINESS_ID)}&select=id`;
     
     const { data: conversations } = await axios.get(searchUrl, { headers });
     console.log('📊 Resultado de búsqueda:', JSON.stringify(conversations));
@@ -45,11 +45,10 @@ async function testSupabaseWithAxios() {
       
       const createUrl = `${SUPABASE_URL}/rest/v1/conversations`;
       const newConversation = {
-        phone_number: phoneNumber,
+        user_id: phoneNumber,
         business_id: BUSINESS_ID,
-        name: 'Usuario de Prueba',
-        last_message: message,
-        updated_at: new Date().toISOString()
+        sender_name: 'Usuario de Prueba',
+        last_message: message
       };
       
       const { data: createdConversation } = await axios.post(createUrl, newConversation, { headers });
@@ -64,8 +63,8 @@ async function testSupabaseWithAxios() {
     const messageUrl = `${SUPABASE_URL}/rest/v1/messages`;
     const newMessage = {
       conversation_id: conversationId,
-      message: message,
-      is_from_user: false,
+      content: message,
+      sender_type: 'bot',
       created_at: new Date().toISOString()
     };
     
@@ -76,8 +75,7 @@ async function testSupabaseWithAxios() {
     console.log('🔄 Actualizando última actividad de la conversación...');
     const updateUrl = `${SUPABASE_URL}/rest/v1/conversations?id=eq.${conversationId}`;
     const update = {
-      last_message: message,
-      updated_at: new Date().toISOString()
+      last_message: message
     };
     
     const { data: updatedConversation } = await axios.patch(updateUrl, update, { 
@@ -97,7 +95,8 @@ async function testSupabaseWithAxios() {
     
     if (recentMessages && recentMessages.length > 0) {
       recentMessages.forEach((msg, index) => {
-        console.log(`  ${index + 1}. [${msg.created_at}] ${msg.is_from_user ? 'USUARIO:' : 'BOT:'} ${msg.message.substring(0, 50)}${msg.message.length > 50 ? '...' : ''}`);
+        const messageContent = msg.content || msg.message || '';
+        console.log(`  ${index + 1}. [${msg.created_at}] ${msg.sender_type === 'user' ? 'USUARIO:' : 'BOT:'} ${messageContent.substring(0, 50)}${messageContent.length > 50 ? '...' : ''}`);
       });
     } else {
       console.log('  No se encontraron mensajes recientes');

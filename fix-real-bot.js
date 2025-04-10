@@ -439,51 +439,136 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
   console.log('📝 Mensaje:', JSON.stringify(message).substring(0, 100) + (message.length > 100 ? '...' : ''));
   
   try {
-    // Intentar guardar directamente en Supabase
-    await saveMessageToSupabase(normalizedConversationId, message, business_id, sender_type);
-    console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
-    return { success: true, message: "Mensaje guardado en Supabase" };
-  } catch (error) {
-    // Intentar con el servidor como respaldo
-    console.error('❌ Error guardando en Supabase, intentando con el servidor:', error.message);
+    // Primero, verificar si el conversationId es un número de teléfono o un ID de conversación
+    let conversationDbId = normalizedConversationId;
+    let isPhoneNumber = /^\+?\d+$/.test(normalizedConversationId);
     
-    try {
-      // Intentar con la API REST del servidor
-      const serverUrl = `${CONTROL_PANEL_URL}/api/register-bot-response`;
-      console.log('🔄 Enviando mensaje al servidor:', serverUrl);
+    if (isPhoneNumber) {
+      console.log('📱 El ID proporcionado parece ser un número de teléfono, buscando conversación...');
       
-      const response = await axios.post(serverUrl, {
-        conversationId: normalizedConversationId,
-        message,
-        business_id: business_id,
-        sender_type: sender_type
-      });
-      
-      console.log('✅ Mensaje enviado correctamente al servidor:', response.status);
-      return { success: true, message: "Mensaje enviado al servidor" };
-    } catch (serverError) {
-      console.error('❌ Error también al enviar al servidor:', serverError.message);
-      
-      // Intentar URL alternativa
+      // Buscar la conversación por el número de teléfono (user_id)
       try {
-        const alternativeUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
-        console.log('🔄 Intentando URL alternativa:', alternativeUrl);
+        console.log(`🔍 Consultando conversación para número: ${normalizedConversationId}`);
+        const { data, error } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('user_id', normalizedConversationId)
+          .eq('business_id', business_id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+          
+        if (error) {
+          console.error(`❌ Error consultando conversación: ${error.message}`);
+          throw error;
+        }
         
-        const altResponse = await axios.post(alternativeUrl, {
-          conversationId: normalizedConversationId,
-          message,
-          business_id: business_id,
-          sender_type: sender_type
-        });
-        
-        console.log('✅ Mensaje enviado con URL alternativa:', altResponse.status);
-        return { success: true, message: "Mensaje enviado al servidor (alternativa)" };
-      } catch (altError) {
-        console.error('❌ Error en segundo intento:', altError.message);
-        console.error('❌ No se pudo guardar el mensaje por ningún método.');
-        return { success: false, error: altError.message };
+        if (data && data.length > 0) {
+          conversationDbId = data[0].id;
+          console.log(`✅ Encontrada conversación con ID: ${conversationDbId}`);
+        } else {
+          console.error(`❌ No se encontró conversación para el número ${normalizedConversationId}`);
+          
+          // Si no encontramos conversación, intentar crearla
+          console.log(`🔄 Intentando crear una nueva conversación para ${normalizedConversationId}...`);
+          const { data: newConv, error: createError } = await supabase
+            .from('conversations')
+            .insert({
+              user_id: normalizedConversationId,
+              business_id: business_id,
+              last_message: message,
+              last_message_time: new Date().toISOString(),
+              is_bot_active: true
+            })
+            .select('id')
+            .single();
+            
+          if (createError) {
+            console.error(`❌ Error creando conversación: ${createError.message}`);
+            throw createError;
+          }
+          
+          conversationDbId = newConv.id;
+          console.log(`✅ Creada nueva conversación con ID: ${conversationDbId}`);
+        }
+      } catch (dbError) {
+        console.error(`❌ Error al buscar/crear conversación: ${dbError.message}`);
+        throw dbError;
+      }
+    } else {
+      console.log(`🆔 Usando ID de conversación proporcionado: ${conversationDbId}`);
+    }
+    
+    // Ahora guardar el mensaje en la tabla messages
+    console.log(`📝 Guardando mensaje en tabla 'messages' para conversación: ${conversationDbId}`);
+    const { data: msgData, error: msgError } = await supabase
+      .from('messages')
+      .insert([
+        {
+          conversation_id: conversationDbId,
+          content: message,
+          sender_type: sender_type,
+          read: sender_type !== 'user' // Marcar como leído si no es un mensaje del usuario
+        }
+      ])
+      .select();
+      
+    if (msgError) {
+      console.error(`❌ Error guardando mensaje: ${msgError.message}`);
+      throw msgError;
+    }
+    
+    console.log(`✅ Mensaje guardado correctamente con ID: ${msgData[0]?.id || 'desconocido'}`);
+    
+    // Actualizar la información de último mensaje en la conversación
+    const update = {
+      last_message: message,
+      last_message_time: new Date().toISOString()
+    };
+    
+    console.log(`📝 Actualizando información de último mensaje en conversación ${conversationDbId}...`);
+    
+    // Intentar con directSupabaseAxios
+    try {
+      const { error } = await directSupabaseAxios(
+        `conversations?id=eq.${conversationDbId}`, 
+        'patch', 
+        update
+      );
+      if (error) throw error;
+      
+      console.log('✅ Conversación actualizada correctamente');
+    } catch (updateError) {
+      console.error(`❌ Error actualizando conversación: ${updateError.message}`);
+      
+      // Intentar con el cliente de Supabase directamente como fallback
+      try {
+        const { error } = await supabase
+          .from('conversations')
+          .update(update)
+          .eq('id', conversationDbId);
+          
+        if (error) throw error;
+        console.log('✅ Conversación actualizada correctamente (método alternativo)');
+      } catch (fallbackError) {
+        console.error(`❌ Error en actualización de respaldo: ${fallbackError.message}`);
+        // No lanzar excepción para no interrumpir el flujo principal
       }
     }
+    
+    console.log('✅ Mensaje guardado y conversación actualizada correctamente en Supabase');
+    return { 
+      success: true, 
+      message: "Mensaje guardado en Supabase", 
+      messageId: msgData[0]?.id,
+      conversationId: conversationDbId 
+    };
+  } catch (error) {
+    console.error('❌ Error al guardar mensaje en Supabase:', error.message);
+    if (error.response) {
+      console.error('  Status:', error.response.status);
+      console.error('  Data:', JSON.stringify(error.response.data));
+    }
+    return { success: false, error: error.message };
   }
 }
 
