@@ -1177,23 +1177,49 @@ app.listen(PORT, async () => {
 
 // Webhook para recibir mensajes de WhatsApp
 app.post('/webhook', async (req, res) => {
-    console.log('📲 Webhook recibido:', req.body.type);
+    console.log('📲 Webhook recibido:', req.body?.type);
+    console.log('📊 Contenido completo del webhook:', JSON.stringify(req.body));
     
-    // Verificar el tipo de webhook
-    if (req.body.type === 'message' && req.body.payload) {
-        // Detectar si es un mensaje de imagen
-        if (req.body.payload.type === 'image') {
-            await handleMediaMessage(req, res);
-            return;
+    try {
+        // Si el cuerpo del mensaje es undefined o no tiene la estructura esperada
+        if (!req.body || !req.body.payload) {
+            console.log('⚠️ Webhook recibido con estructura inválida');
+            return res.status(200).json({ success: true, message: 'Webhook recibido pero ignorado (estructura inválida)' });
         }
         
-        // Proceso normal para mensajes de texto
-        await handleIncomingMessage(req, res);
-        return;
+        // Extraer información básica del mensaje
+        const payload = req.body.payload;
+        const sender = payload.sender?.phone || payload.from || '';
+        const messageText = payload.payload?.text || payload.text || '';
+        const messageId = payload.messageId || payload.id || `msg_${Date.now()}`;
+        
+        console.log(`👤 Mensaje procesado de ${sender}: "${messageText}"`);
+        
+        if (!sender || !messageText) {
+            console.log('⚠️ Mensaje sin remitente o texto, ignorando');
+            return res.status(200).json({ success: true, message: 'Webhook recibido pero ignorado (sin datos completos)' });
+        }
+        
+        // Generar una respuesta usando la función simplificada
+        const botResponse = await processMessageWithOpenAI(sender, messageText);
+        
+        if (botResponse) {
+            console.log(`✅ Respuesta generada: "${botResponse.substring(0, 50)}..."`);
+            
+            // Enviar respuesta a WhatsApp
+            await sendWhatsAppResponse(sender, botResponse);
+            console.log(`📲 Respuesta enviada a ${sender}`);
+        } else {
+            console.log('❌ No se pudo generar respuesta');
+        }
+        
+        // Responder al webhook inmediatamente
+        return res.status(200).json({ success: true, message: 'Webhook procesado correctamente' });
+    } catch (error) {
+        console.error(`❌ Error procesando webhook: ${error.message}`);
+        console.error(error.stack);
+        return res.status(200).json({ success: true, message: 'Error procesando webhook pero respondiendo OK' });
     }
-    
-    // Para otros tipos de webhooks
-    res.status(200).json({ success: true, message: 'Webhook recibido' });
 });
 
 // Endpoint para enviar un mensaje a WhatsApp
