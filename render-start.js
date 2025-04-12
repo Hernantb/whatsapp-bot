@@ -14,6 +14,8 @@ const fs = require('fs');
 const http = require('http');
 
 console.log('🚀 Iniciando WhatsApp Bot en Render...');
+console.log(`🧪 Entorno NODE_ENV: ${process.env.NODE_ENV || 'no definido'}`);
+console.log(`⏱️ Timestamp: ${new Date().toISOString()}`);
 
 // Configurar variables de entorno para Render
 process.env.RENDER = 'true';
@@ -22,40 +24,50 @@ process.env.NODE_ENV = 'production';
 // Limpiar procesos existentes
 try {
   console.log('🧹 Limpiando procesos previos...');
-  execSync('ps aux | grep node | grep -v grep', { stdio: 'pipe' })
-    .toString()
-    .split('\n')
-    .forEach(line => {
-      if (line && !line.includes('render-start.js')) {
-        const pid = line.split(/\s+/)[1];
-        if (pid) {
-          try {
-            console.log(`🔫 Terminando proceso ${pid}`);
-            execSync(`kill -9 ${pid}`, { stdio: 'pipe' });
-          } catch (e) {
-            // Ignorar errores al matar procesos
-          }
+  const psOutput = execSync('ps aux || ps', { stdio: 'pipe' }).toString();
+  const nodeProcesses = psOutput.split('\n').filter(line => line.includes('node') && !line.includes('render-start.js'));
+  
+  if (nodeProcesses.length > 0) {
+    console.log(`🔍 Encontrados ${nodeProcesses.length} procesos de Node.js`);
+    
+    nodeProcesses.forEach(line => {
+      try {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[1];
+        if (pid && /^\d+$/.test(pid)) {
+          console.log(`🔫 Terminando proceso ${pid}`);
+          execSync(`kill -9 ${pid}`, { stdio: 'pipe' });
         }
+      } catch (e) {
+        // Ignorar errores al matar procesos
       }
     });
-  console.log('✅ Limpieza de procesos completada');
+    
+    console.log('✅ Limpieza de procesos completada');
+  } else {
+    console.log('ℹ️ No se encontraron procesos de Node.js para limpiar');
+  }
 } catch (err) {
-  console.log('ℹ️ No se encontraron procesos previos para limpiar');
+  console.log('ℹ️ No se pudieron verificar los procesos previos');
 }
 
 // Ruta del archivo PID
 const PID_FILE = path.join(__dirname, 'server.pid');
 
 // Manejar el puerto
-// Forzar un puerto diferente al 3000 (ya que parece que está siempre en uso en Render)
-const DEFAULT_PORT = 10000;  // Un puerto alto para evitar conflictos
-const PORT = process.env.FORCE_PORT || process.env.PORT || DEFAULT_PORT;
+// En Render, el puerto se proporciona en la variable de entorno PORT
+// y debemos usarlo obligatoriamente
+const DEFAULT_PORT = 10000;
+const RENDER_PORT = parseInt(process.env.PORT) || 3000;
 
-console.log(`📡 Configurando puerto: ${PORT}`);
+console.log(`📡 Puerto proporcionado por Render: ${process.env.PORT || 'no definido'}`);
+console.log(`📡 Puerto interpretado: ${RENDER_PORT}`);
 
-// Forzar un puerto específico para evitar conflictos
-process.env.FORCE_PORT = PORT;
-process.env.PORT = PORT;
+// Asegurarse de que las variables de entorno sean coherentes
+process.env.FORCE_PORT = RENDER_PORT.toString();
+process.env.PORT = RENDER_PORT.toString();
+
+console.log(`📡 Configurando puerto final: ${process.env.PORT}`);
 
 // Verificar que el puerto NO esté en uso
 function isPortInUse(port) {
@@ -88,16 +100,26 @@ function clearPort(port) {
     console.log(`🔍 Verificando si el puerto ${port} está en uso...`);
     
     // En entorno Render, intentar matar cualquier proceso en el puerto
-    exec(`lsof -ti:${port}`, (error, stdout) => {
+    exec(`lsof -ti:${port} || netstat -tulpn | grep ${port} || ss -tulpn | grep ${port}`, (error, stdout) => {
       if (error) {
         // No hay procesos usando el puerto o error al verificar
+        console.log(`✅ Puerto ${port} disponible o no se pudo verificar`);
+        resolve();
+        return;
+      }
+      
+      if (!stdout || stdout.trim() === '') {
         console.log(`✅ Puerto ${port} disponible`);
         resolve();
         return;
       }
       
-      const pids = stdout.trim().split('\n');
-      if (pids.length > 0 && pids[0]) {
+      const pids = stdout.trim().split('\n').map(line => {
+        const match = line.match(/\d+/);
+        return match ? match[0] : null;
+      }).filter(Boolean);
+      
+      if (pids.length > 0) {
         console.log(`⚠️ Puerto ${port} ocupado por los procesos: ${pids.join(', ')}`);
         
         // Intentar matar los procesos
@@ -107,7 +129,9 @@ function clearPort(port) {
           } else {
             console.log(`✅ Procesos terminados y puerto ${port} liberado`);
           }
-          resolve();
+          
+          // Esperar un momento para que el puerto se libere
+          setTimeout(resolve, 2000);
         });
       } else {
         console.log(`✅ Puerto ${port} disponible`);
@@ -128,7 +152,13 @@ function checkAndClearPid() {
         // Intentar matar el proceso anterior
         exec(`kill -9 ${oldPid}`, () => {
           console.log(`🔄 Intento de terminar el proceso anterior (PID: ${oldPid})`);
-          resolve();
+          
+          // Borrar el archivo PID
+          fs.unlinkSync(PID_FILE);
+          console.log(`✅ Archivo PID eliminado`);
+          
+          // Esperar un momento para que el proceso termine
+          setTimeout(resolve, 1000);
         });
       } catch (error) {
         console.error(`⚠️ Error al leer/matar PID anterior: ${error.message}`);
@@ -145,6 +175,18 @@ function savePid() {
   try {
     fs.writeFileSync(PID_FILE, process.pid.toString());
     console.log(`✅ PID actual guardado: ${process.pid}`);
+    
+    // Registrar un manejador para borrar el archivo PID al salir
+    process.on('exit', () => {
+      try {
+        if (fs.existsSync(PID_FILE)) {
+          fs.unlinkSync(PID_FILE);
+          console.log(`✅ Archivo PID eliminado al salir`);
+        }
+      } catch (error) {
+        // Ignorar errores al borrar el archivo
+      }
+    });
   } catch (error) {
     console.error(`⚠️ Error al guardar PID: ${error.message}`);
   }
@@ -200,17 +242,13 @@ async function findAvailablePort(startPort) {
 // Función para manejar errores de puerto
 async function handleServerError(error) {
   if (error.code === 'EADDRINUSE') {
-    console.error(`❌ Error: Puerto ${PORT} ya está en uso`);
+    console.error(`❌ Error: Puerto ${RENDER_PORT} ya está en uso`);
     
-    // Buscar un puerto disponible
-    const newPort = await findAvailablePort(DEFAULT_PORT);
-    console.log(`🔄 Encontrado puerto disponible: ${newPort}`);
+    // En Render, usar un puerto específico es obligatorio, así que intentamos liberar
+    console.log(`🔄 Intentando forzar liberación del puerto ${RENDER_PORT}...`);
+    await clearPort(RENDER_PORT);
     
-    process.env.PORT = newPort.toString();
-    process.env.FORCE_PORT = newPort.toString();
-    
-    // Reintentar con el nuevo puerto
-    await clearPort(newPort);
+    // Reintento con el mismo puerto después de liberarlo
     startServer();
   } else {
     console.error('❌ Error al iniciar el servidor:', error.message);
@@ -225,7 +263,7 @@ function startServer() {
     // Guardar PID del proceso actual
     savePid();
     
-    console.log('📡 Puerto configurado:', process.env.PORT || '(usando puerto por defecto)');
+    console.log('📡 Puerto configurado:', process.env.PORT);
     console.log('🌐 Iniciando servidor principal...');
     
     // Configurar listener para errores no manejados
@@ -235,7 +273,16 @@ function startServer() {
       } else {
         console.error('❌ Error no manejado:', error.message);
         console.error(error.stack);
-        process.exit(1);
+        
+        // En producción, reintentar en lugar de terminar
+        if (process.env.NODE_ENV === 'production') {
+          console.log('🔄 Reiniciando servidor después de error...');
+          setTimeout(() => {
+            startServer();
+          }, 5000);
+        } else {
+          process.exit(1);
+        }
       }
     });
     
@@ -262,20 +309,30 @@ function startServer() {
 // Iniciar la secuencia de arranque
 (async function() {
   try {
+    console.log('🔄 Iniciando secuencia de arranque...');
+    
     // Verificar y limpiar PID anterior
     await checkAndClearPid();
     
     // Limpiar el puerto configurado
-    await clearPort(PORT);
+    await clearPort(RENDER_PORT);
     
-    // Verificar si el puerto está en uso
-    const inUse = await isPortInUse(PORT);
+    // Verificar si el puerto está libre ahora
+    const inUse = await isPortInUse(RENDER_PORT);
     if (inUse) {
-      // Buscar un puerto disponible
-      const newPort = await findAvailablePort(DEFAULT_PORT);
-      console.log(`🔄 Puerto ${PORT} en uso, usando puerto alternativo: ${newPort}`);
-      process.env.PORT = newPort.toString();
-      process.env.FORCE_PORT = newPort.toString();
+      // En Render, es obligatorio usar el puerto asignado
+      console.log(`⚠️ Puerto ${RENDER_PORT} sigue ocupado después de limpieza. Forzando liberación...`);
+      
+      // Intentar una liberación más agresiva
+      try {
+        execSync(`fuser -k ${RENDER_PORT}/tcp || true`, { stdio: 'pipe' });
+        console.log(`✅ Puerto ${RENDER_PORT} liberado forzosamente`);
+      } catch (error) {
+        console.log(`⚠️ No se pudo forzar la liberación del puerto: ${error.message}`);
+      }
+      
+      // Esperar un poco antes de continuar
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
     
     // Iniciar el servidor

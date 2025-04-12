@@ -2,12 +2,11 @@
   "name": "whatsapp-bot",
   "version": "1.0.0",
   "description": "Bot de WhatsApp con integración de OpenAI y notificaciones",
-  "main": "index.js",
+  "main": "render-start.js",
   "scripts": {
     "start": "node render-start.js",
     "dev": "node index.js",
-    "test": "node test-server.js",
-    "lint": "eslint *.js"
+    "test": "node test-server.js"
   },
   "repository": {
     "type": "git",
