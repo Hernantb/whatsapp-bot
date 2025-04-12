@@ -1,0 +1,252 @@
+🔑 Inicializando servidor de WhatsApp con las siguientes credenciales:
+📱 GUPSHUP_NUMBER: 15557033313
+🔑 GUPSHUP_API_KEY: sk_58a31...a6e6b
+👤 GUPSHUP_USERID: crxty1qf...
+🔗 SUPABASE_URL: https://wscijkxwevgxbgwhbqtm.supabase.co
+🖥️ CONTROL_PANEL_URL: http://localhost:3010/api/register-bot-response
+📢 GLOBAL-PATCH: Verificando variables al inicio:
+- CONTROL_PANEL_URL: http://localhost:3010/api/register-bot-response
+- NODE_ENV: development
+- RENDER: no definido
+✅ Usando SUPABASE_URL desde variable de entorno
+✅ Usando SUPABASE_KEY desde variable de entorno
+✅ Usando BUSINESS_ID desde variable de entorno
+✅ node-fetch cargado exitosamente
+🔄 Inicializando cliente Supabase...
+✅ Cliente Supabase inicializado correctamente
+🔍 FIX-REAL-BOT: Estado de URL antes de procesar:
+- CONTROL_PANEL_URL: http://localhost:3010/api/register-bot-response
+- NODE_ENV: development
+- RENDER: no definido
+🔍 FIX-REAL-BOT: Usando selección de URL para entorno de desarrollo
+🌐 Ambiente de DESARROLLO detectado - Intentando URL local
+🔍 Verificando disponibilidad de servidor local en desarrollo: disponible
+⚠️ Detectada URL con ruta incluida. Corrigiendo para usar solo el dominio base...
+⚠️ URL original: http://localhost:3010/api/register-bot-response
+✅ URL corregida a dominio base: http://localhost:3010
+✅ URL base guardada en variable de entorno
+🌐 Ambiente de DESARROLLO detectado - Intentando URL local
+🔍 Verificando disponibilidad de servidor local en desarrollo: disponible
+🔧 APLICANDO PARCHE PARA CORREGIR URLs DEL BOT WHATSAPP
+CONTROL_PANEL_URL actual: http://localhost:3010
+Ambiente: Desarrollo
+URL que se usará: http://localhost:3010
+📡 VERIFICACIÓN DE ACCESO A SUPABASE
+🔍 Intentando acceder a Supabase (https://wscijkxwevgxbgwhbqtm.supabase.co) con Axios...
+📌 GLOBAL-PATCH: URL final: http://localhost:3010
+🔧 PARCHE GLOBAL APLICADO
+✅ Función global.registerBotResponse definida
+ℹ️ Guardando mensajes en Supabase: https://wscijkxwevgxbgwhbqtm.supabase.co
+🔧 APLICANDO PARCHE PARA CORREGIR URLs DEL BOT WHATSAPP
+Ambiente: Desarrollo
+Render detectado: NO
+CONTROL_PANEL_URL actual: http://localhost:3010
+URL final que se usará: http://localhost:3010/register-bot-response
+✅ Parche aplicado correctamente
+📝 De ahora en adelante, las URLs duplicadas serán corregidas automáticamente
+🌐 En ambiente de producción, se usará: URL de desarrollo
+🔍 También puedes usar la función global registerBotResponse() para enviar mensajes
+🔑 API Keys cargadas:
+OPENAI_API_KEY: ✅ OK
+GUPSHUP_API_KEY: ✅ OK
+GUPSHUP_NUMBER: ✅ OK
+GUPSHUP_USERID: ✅ OK
+CONTROL_PANEL_URL: http://localhost:3010/register-bot-response
+🔑 DEBUG - Variables de entorno para Supabase:
+- SUPABASE_URL: https://wscijkxwevgxbgwhbqtm.supabase.co
+- SUPABASE_ANON_KEY: eyJhbGciOi...
+- SUPABASE_KEY: eyJhbGciOi...
+- NEXT_PUBLIC_SUPABASE_ANON_KEY: no definido
+✅ Credenciales de Supabase encontradas correctamente
+🔑 Usando clave de Supabase (primeros 10 caracteres): eyJhbGciOi...
+🚀 Servidor iniciado en puerto 3090
+🤖 Bot conectado al panel: http://localhost:3010/register-bot-response
+🔍 Verificando credenciales de integración...
+✅ Credenciales de GupShup presentes:
+  - API Key: sk_58a31...
+  - Número de origen: 15557033313
+  - User ID: crxty1qf...
+✅ Clave API de OpenAI configurada: sk-svcac...
+🔄 Inicializando mapeos y estados...
+🔄 Actualizando mapeos de conversaciones y números...
+🔍 Encontradas 22 conversaciones para mapeo
+✅ Mapeos actualizados: 16 números mapeados
+🔄 Cargando estados de bot activo...
+✅ SUPABASE ACCESIBLE VIA AXIOS: 200
+✅ CONTENIDO DE RESPUESTA: [{"id":"9471be7e-1cd5-4b96-abaa-58749f1a5d3e","user_id":"4a42aa05-2ffd-418b-aa52-29e7c571eee8","busi...
+🔍 Intentando acceder a Supabase (https://wscijkxwevgxbgwhbqtm.supabase.co) con Fetch nativo...
+ℹ️ Bot para 4a42aa05-2ffd-418b-aa52-29e7c571eee8: ACTIVO
+ℹ️ Bot para 5491123456789: ACTIVO
+ℹ️ Bot para +12223334444: ACTIVO
+ℹ️ Bot para +19876543210: ACTIVO
+ℹ️ Bot para +5493513123456: ACTIVO
+ℹ️ Bot para 522221192568: ACTIVO
+ℹ️ Bot para test: ACTIVO
+ℹ️ Bot para +15557033313: ACTIVO
+ℹ️ Bot para ARCHIVED_92568: ACTIVO
+ℹ️ Bot para ARCHIVED_92568: ACTIVO
+ℹ️ Bot para ARCHIVED_92568: ACTIVO
+ℹ️ Bot para ARCHIVED_92568: ACTIVO
+ℹ️ Bot para ARCHIVED_92568: ACTIVO
+ℹ️ Bot para ARCHIVED_92568: ACTIVO
+ℹ️ Bot para ARCHIVED_92568: ACTIVO
+ℹ️ Bot para 5212221192568_TEST_2: ACTIVO
+ℹ️ Bot para +11234567890: INACTIVO
+ℹ️ Bot para 5219876543210: ACTIVO
+ℹ️ Bot para 5212221192568: INACTIVO
+ℹ️ Bot para 5219999888777: ACTIVO
+ℹ️ Bot para 5212213647963: INACTIVO
+ℹ️ Bot para +5213341495625: ACTIVO
+✅ Estados de bot cargados para 16 conversaciones
+✅ SUPABASE ACCESIBLE VIA FETCH NATIVO: 200
+✅ CONTENIDO DE RESPUESTA: [{"id":"9471be7e-1cd5-4b96-abaa-58749f1a5d3e","user_id":"4a42aa05-2ffd-418b-aa52-29e7c571eee8","busi...
+🔍 Intentando acceder a Supabase (https://wscijkxwevgxbgwhbqtm.supabase.co) con node-fetch...
+✅ SUPABASE ACCESIBLE VIA NODE-FETCH: 200
+✅ CONTENIDO DE RESPUESTA: [{"id":"9471be7e-1cd5-4b96-abaa-58749f1a5d3e","user_id":"4a42aa05-2ffd-418b-aa52-29e7c571eee8","busi...
+📡 FIN DE VERIFICACIÓN DE ACCESO A SUPABASE
+🔄 POST /api/send-manual-message - Origin: Unknown
+📥 POST /api/send-manual-message
+📝 Recibida solicitud para enviar mensaje manual: {"phoneNumber":"5212213647963","message":"Test message with DEBUG","forceManual":true}
+⚙️ Procesando mensaje manual para 5212213647963 { tieneMedia: false, longitudMensaje: 23, forzado: true }
+⚠️ Modo forzado manual activado: enviando mensaje independientemente del estado de activación del bot
+📱 Enviando mensaje de texto forzado a 5212213647963: Test message with DEBUG
+🔍 [TARGET] Intento de envío a número problemático: 5212213647963
+🔍 [TARGET] Texto del mensaje: "Test message with DEBUG"
+🔍 [TARGET] Número corregido (quitando 1): 522213647963
+🔍 [TARGET] Número limpio final: 522213647963
+🔍 [TARGET] GUPSHUP_NUMBER: 15557033313
+🔍 [TARGET] GUPSHUP_USERID: crxty1qflktvwvm7sodtrfe9dpvoowm1
+🔍 [TARGET] API Key configurada: SÍ
+🔍 [TARGET] URL de la API: https://api.gupshup.io/wa/api/v1/msg
+🔍 [TARGET] Headers: {
+  "Cache-Control": "no-cache",
+  "Content-Type": "application/x-www-form-urlencoded",
+  "apikey": "sk_58a31041fdeb4d98b9f0e073792a6e6b",
+  "userid": "crxty1qflktvwvm7sodtrfe9dpvoowm1"
+}
+🔍 [TARGET] Datos del formulario: channel=whatsapp&source=15557033313&destination=522213647963&src.name=15557033313&message=%7B%22type%22%3A%22text%22%2C%22text%22%3A%22Test+message+with+DEBUG%22%7D
+📤 Enviando mensaje a GupShup para 522213647963: "Test message with DEBUG..."
+🔍 [TARGET] Intento 1/3
+🔍 [TARGET] Respuesta de GupShup: {
+  "status": "submitted",
+  "messageId": "29e8fcf2-0e00-4e7d-8bb0-be75741d6aae"
+}
+🔍 [TARGET] Código de estado: 202
+✅ Mensaje enviado correctamente a 522213647963 (intento 1)
+✅ Mensaje de texto enviado correctamente a 5212213647963 (modo forzado)
+🔄 POST /api/send-manual-message - Origin: Unknown
+📥 POST /api/send-manual-message
+📝 Recibida solicitud para enviar mensaje manual: {"phoneNumber":"5212221192568","message":"Test working number","forceManual":true}
+⚙️ Procesando mensaje manual para 5212221192568 { tieneMedia: false, longitudMensaje: 19, forzado: true }
+⚠️ Modo forzado manual activado: enviando mensaje independientemente del estado de activación del bot
+📱 Enviando mensaje de texto forzado a 5212221192568: Test working number
+📤 Enviando mensaje a GupShup para 522221192568: "Test working number..."
+✅ Mensaje enviado correctamente a 522221192568 (intento 1)
+✅ Mensaje de texto enviado correctamente a 5212221192568 (modo forzado)
+🔄 GET /api/status - Origin: http://localhost:3001
+📥 GET /api/status
+🔄 POST /api/send-manual-message - Origin: http://localhost:3001
+📥 POST /api/send-manual-message
+📝 Recibida solicitud para enviar mensaje manual: {"phoneNumber":"5212221192568","message":"5212213647963","forceManual":true}
+⚙️ Procesando mensaje manual para 5212221192568 { tieneMedia: false, longitudMensaje: 13, forzado: true }
+⚠️ Modo forzado manual activado: enviando mensaje independientemente del estado de activación del bot
+📱 Enviando mensaje de texto forzado a 5212221192568: 5212213647963
+📤 Enviando mensaje a GupShup para 522221192568: "5212213647963..."
+✅ Mensaje enviado correctamente a 522221192568 (intento 1)
+✅ Mensaje de texto enviado correctamente a 5212221192568 (modo forzado)
+🔄 GET /api/status - Origin: http://localhost:3001
+📥 GET /api/status
+🔄 POST /api/send-manual-message - Origin: http://localhost:3001
+📥 POST /api/send-manual-message
+📝 Recibida solicitud para enviar mensaje manual: {"phoneNumber":"5212213647963","message":"hola","forceManual":true}
+⚙️ Procesando mensaje manual para 5212213647963 { tieneMedia: false, longitudMensaje: 4, forzado: true }
+⚠️ Modo forzado manual activado: enviando mensaje independientemente del estado de activación del bot
+📱 Enviando mensaje de texto forzado a 5212213647963: hola
+🔍 [TARGET] Intento de envío a número problemático: 5212213647963
+🔍 [TARGET] Texto del mensaje: "hola"
+🔍 [TARGET] Número corregido (quitando 1): 522213647963
+🔍 [TARGET] Número limpio final: 522213647963
+🔍 [TARGET] GUPSHUP_NUMBER: 15557033313
+🔍 [TARGET] GUPSHUP_USERID: crxty1qflktvwvm7sodtrfe9dpvoowm1
+🔍 [TARGET] API Key configurada: SÍ
+🔍 [TARGET] URL de la API: https://api.gupshup.io/wa/api/v1/msg
+🔍 [TARGET] Headers: {
+  "Cache-Control": "no-cache",
+  "Content-Type": "application/x-www-form-urlencoded",
+  "apikey": "sk_58a31041fdeb4d98b9f0e073792a6e6b",
+  "userid": "crxty1qflktvwvm7sodtrfe9dpvoowm1"
+}
+🔍 [TARGET] Datos del formulario: channel=whatsapp&source=15557033313&destination=522213647963&src.name=15557033313&message=%7B%22type%22%3A%22text%22%2C%22text%22%3A%22hola%22%7D
+📤 Enviando mensaje a GupShup para 522213647963: "hola..."
+🔍 [TARGET] Intento 1/3
+🔍 [TARGET] Respuesta de GupShup: {
+  "status": "submitted",
+  "messageId": "ea280dcc-a036-486f-84d6-74bc40d379bb"
+}
+🔍 [TARGET] Código de estado: 202
+✅ Mensaje enviado correctamente a 522213647963 (intento 1)
+✅ Mensaje de texto enviado correctamente a 5212213647963 (modo forzado)
+🔄 GET /api/status - Origin: http://localhost:3001
+📥 GET /api/status
+🔄 POST /api/send-manual-message - Origin: http://localhost:3001
+📥 POST /api/send-manual-message
+📝 Recibida solicitud para enviar mensaje manual: {"phoneNumber":"5212213647963","message":"ahora te llga","forceManual":true}
+⚙️ Procesando mensaje manual para 5212213647963 { tieneMedia: false, longitudMensaje: 13, forzado: true }
+⚠️ Modo forzado manual activado: enviando mensaje independientemente del estado de activación del bot
+📱 Enviando mensaje de texto forzado a 5212213647963: ahora te llga
+🔍 [TARGET] Intento de envío a número problemático: 5212213647963
+🔍 [TARGET] Texto del mensaje: "ahora te llga"
+🔍 [TARGET] Número corregido (quitando 1): 522213647963
+🔍 [TARGET] Número limpio final: 522213647963
+🔍 [TARGET] GUPSHUP_NUMBER: 15557033313
+🔍 [TARGET] GUPSHUP_USERID: crxty1qflktvwvm7sodtrfe9dpvoowm1
+🔍 [TARGET] API Key configurada: SÍ
+🔍 [TARGET] URL de la API: https://api.gupshup.io/wa/api/v1/msg
+🔍 [TARGET] Headers: {
+  "Cache-Control": "no-cache",
+  "Content-Type": "application/x-www-form-urlencoded",
+  "apikey": "sk_58a31041fdeb4d98b9f0e073792a6e6b",
+  "userid": "crxty1qflktvwvm7sodtrfe9dpvoowm1"
+}
+🔍 [TARGET] Datos del formulario: channel=whatsapp&source=15557033313&destination=522213647963&src.name=15557033313&message=%7B%22type%22%3A%22text%22%2C%22text%22%3A%22ahora+te+llga%22%7D
+📤 Enviando mensaje a GupShup para 522213647963: "ahora te llga..."
+🔍 [TARGET] Intento 1/3
+🔍 [TARGET] Respuesta de GupShup: {
+  "status": "submitted",
+  "messageId": "c5c0c245-2d7b-4eac-bdbf-16df83d5fb40"
+}
+🔍 [TARGET] Código de estado: 202
+✅ Mensaje enviado correctamente a 522213647963 (intento 1)
+✅ Mensaje de texto enviado correctamente a 5212213647963 (modo forzado)
+🔄 GET /api/status - Origin: http://localhost:3001
+📥 GET /api/status
+🔄 POST /api/send-manual-message - Origin: http://localhost:3001
+📥 POST /api/send-manual-message
+📝 Recibida solicitud para enviar mensaje manual: {"phoneNumber":"5212213647963","message":"te amoo","forceManual":true}
+⚙️ Procesando mensaje manual para 5212213647963 { tieneMedia: false, longitudMensaje: 7, forzado: true }
+⚠️ Modo forzado manual activado: enviando mensaje independientemente del estado de activación del bot
+📱 Enviando mensaje de texto forzado a 5212213647963: te amoo
+🔍 [TARGET] Intento de envío a número problemático: 5212213647963
+🔍 [TARGET] Texto del mensaje: "te amoo"
+🔍 [TARGET] Número corregido (quitando 1): 522213647963
+🔍 [TARGET] Número limpio final: 522213647963
+🔍 [TARGET] GUPSHUP_NUMBER: 15557033313
+🔍 [TARGET] GUPSHUP_USERID: crxty1qflktvwvm7sodtrfe9dpvoowm1
+🔍 [TARGET] API Key configurada: SÍ
+🔍 [TARGET] URL de la API: https://api.gupshup.io/wa/api/v1/msg
+🔍 [TARGET] Headers: {
+  "Cache-Control": "no-cache",
+  "Content-Type": "application/x-www-form-urlencoded",
+  "apikey": "sk_58a31041fdeb4d98b9f0e073792a6e6b",
+  "userid": "crxty1qflktvwvm7sodtrfe9dpvoowm1"
+}
+🔍 [TARGET] Datos del formulario: channel=whatsapp&source=15557033313&destination=522213647963&src.name=15557033313&message=%7B%22type%22%3A%22text%22%2C%22text%22%3A%22te+amoo%22%7D
+📤 Enviando mensaje a GupShup para 522213647963: "te amoo..."
+🔍 [TARGET] Intento 1/3
+🔍 [TARGET] Respuesta de GupShup: {
+  "status": "submitted",
+  "messageId": "6f1f8f84-31c5-45bb-a9f7-66f5fafab0cb"
+}
+🔍 [TARGET] Código de estado: 202
+✅ Mensaje enviado correctamente a 522213647963 (intento 1)
+✅ Mensaje de texto enviado correctamente a 5212213647963 (modo forzado)

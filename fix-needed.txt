@@ -1,0 +1,2 @@
+Error 1: Línea 2968 - phoneNumber no está definido. Solución: definir phoneNumber como parámetro de una función o declararla antes.
+Error 2: Línea 3014 - 'await' fuera de una función async. Solución: envolver el código dentro de una función async.
