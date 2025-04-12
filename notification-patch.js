@@ -13,10 +13,27 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || '';
 
+// Función para sanitizar cabeceras HTTP para Supabase
+function sanitizeHeaders(key) {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + key
+  };
+}
+
+
 // Solo crear el cliente de Supabase si tenemos las credenciales
 let supabase = null;
 if (supabaseUrl && supabaseKey) {
-  supabase = createClient(supabaseUrl, supabaseKey);
+  supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: false },
+        global: {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + supabaseKey
+          }
+        }
+      });
   console.log('✅ Cliente Supabase inicializado en notification-patch.js');
 } else {
   console.warn('⚠️ Falta configuración de Supabase. Las notificaciones funcionarán con limitaciones.');

@@ -1,4 +1,7 @@
 // Importar librerías
+// Fix para Supabase en Render
+require('./supabase-render-helper');
+
 require('dotenv').config();
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
@@ -16,6 +19,15 @@ const MessageMedia = require('whatsapp-web.js').MessageMedia;
 const { sendTextMessageGupShup } = require('./sendTextMessageGupShup');
 const crypto = require('crypto');
 
+// Función para sanitizar cabeceras HTTP para Supabase
+function sanitizeHeaders(key) {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + key
+  };
+}
+
+
 // Cargar variables de entorno en variables globales para facilitar su uso en toda la aplicación
 let GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
 let GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
@@ -26,7 +38,7 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const BUSINESS_ID = process.env.BUSINESS_ID;
 let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:7777/api/register-bot-response';
 const ASSISTANT_ID = process.env.ASSISTANT_ID;
-const PORT = process.env.PORT || 3095;
+const PORT = process.env.PORT || 3096;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'verify_token_whatsapp_webhook';
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || '';
 
@@ -348,7 +360,15 @@ if (!supabaseKey) {
 console.log('✅ Credenciales de Supabase encontradas correctamente');
 console.log(`🔑 Usando clave de Supabase (primeros 10 caracteres): ${supabaseKey.substring(0, 10)}...`);
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: false },
+        global: {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + supabaseKey
+          }
+        }
+      });
 
 // Función auxiliar para verificar la estructura de la tabla messages
 async function getMessagesTableStructure() {
@@ -1074,8 +1094,8 @@ async function sendWhatsAppResponse(recipient, message) {
         const headers = {
             'Cache-Control': 'no-cache',
             'Content-Type': 'application/x-www-form-urlencoded',
-            'apikey': apiKey
-        };
+            'Authorization': 'Bearer ' + apiKey
+        , 'Content-Type': 'application/json'};
         
         if (GUPSHUP_USERID) {
             headers['userid'] = GUPSHUP_USERID;
@@ -1592,7 +1612,7 @@ app.post('/api/messages', async (req, res) => {
       const headers = {
         'Cache-Control': 'no-cache',
         'Content-Type': 'application/x-www-form-urlencoded',
-        'apikey': GUPSHUP_API_KEY,
+        'Authorization': 'Bearer ' + GUPSHUP_API_KEY, 'Content-Type': 'application/json',
         'userid': GUPSHUP_USERID  // Añadimos el userid para mejorar la autenticación
       };
       
@@ -1744,7 +1764,7 @@ app.get('/api/conversations/business/:businessId', async (req, res) => {
     // Realizar la consulta a Supabase
     const response = await axios.get(url, {
       headers: {
-        'apikey': supabaseKey,
+        'Authorization': 'Bearer ' + supabaseKey, 'Content-Type': 'application/json',
         'Authorization': `Bearer ${supabaseKey}`,
         'Content-Type': 'application/json'
       }
@@ -1782,6 +1802,17 @@ app.get('/api/messages/:conversationId', async (req, res) => {
     
     // Cargar directamente la configuración de Supabase para asegurar que siempre use valores correctos
     const supabaseConfig = require('./supabase-config');
+
+// Importar sistema de notificaciones - agregado para el deployment en Render
+global.notificationModule = require('./notification-patch');
+// Exponer funciones del módulo de notificaciones a variables globales
+global.processMessageForNotification = global.notificationModule.processMessageForNotification;
+global.sendWhatsAppResponseWithNotification = global.notificationModule.sendWhatsAppResponseWithNotification;
+global.checkForNotificationPhrases = global.notificationModule.checkForNotificationPhrases;
+global.sendBusinessNotification = global.notificationModule.sendBusinessNotification;
+
+// Fin de importación del sistema de notificaciones
+
     const supabaseUrl = process.env.SUPABASE_URL || supabaseConfig.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_KEY || supabaseConfig.SUPABASE_KEY;
     
@@ -1807,7 +1838,7 @@ app.get('/api/messages/:conversationId', async (req, res) => {
           
           const conversationResponse = await axios.get(conversationUrl, {
           headers: {
-              'apikey': supabaseKey,
+              'Authorization': 'Bearer ' + supabaseKey, 'Content-Type': 'application/json',
               'Authorization': `Bearer ${supabaseKey}`,
               'Content-Type': 'application/json'
             }
@@ -1845,7 +1876,7 @@ app.get('/api/messages/:conversationId', async (req, res) => {
     // Realizar la consulta a Supabase
     const response = await axios.get(url, {
         headers: {
-        'apikey': supabaseKey,
+        'Authorization': 'Bearer ' + supabaseKey, 'Content-Type': 'application/json',
         'Authorization': `Bearer ${supabaseKey}`,
         'Content-Type': 'application/json'
       }
@@ -2208,7 +2239,7 @@ app.get('/api/test-gupshup', async (req, res) => {
     const apiUrl = 'https://api.gupshup.io/wa/api/v1/users/info';
     
     const headers = {
-      'apikey': GUPSHUP_API_KEY,
+      'Authorization': 'Bearer ' + GUPSHUP_API_KEY, 'Content-Type': 'application/json',
       'Content-Type': 'application/json'
     };
     
@@ -2298,7 +2329,7 @@ app.post('/api/update-gupshup-credentials', async (req, res) => {
     const apiUrl = 'https://api.gupshup.io/wa/api/v1/users/info';
     
     const headers = {
-      'apikey': GUPSHUP_API_KEY,
+      'Authorization': 'Bearer ' + GUPSHUP_API_KEY, 'Content-Type': 'application/json',
       'Content-Type': 'application/json'
     };
     
@@ -2474,7 +2505,7 @@ async function sendWhatsAppTextMessage(phoneNumber, message) {
         headers: {
           'Cache-Control': 'no-cache',
           'Content-Type': 'application/x-www-form-urlencoded',
-          'apikey': GUPSHUP_API_KEY,
+          'Authorization': 'Bearer ' + GUPSHUP_API_KEY, 'Content-Type': 'application/json',
           'Accept': 'application/json'
         }
       }
@@ -2551,7 +2582,7 @@ async function sendMediaMessage(recipient, mediaUrl, caption = '') {
         const headers = {
             'Cache-Control': 'no-cache',
             'Content-Type': 'application/x-www-form-urlencoded',
-            'apikey': apiKey,
+            'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json',
             'userid': GUPSHUP_USERID
         };
         
@@ -2580,7 +2611,7 @@ async function sendMediaMessage(recipient, mediaUrl, caption = '') {
                     );
                     console.log('✅ Mensaje media guardado en Supabase');
                 } catch (dbError) {
-    console.error(`⚠️ Error guardando mensaje media en Supabase: ${dbError.message}`);
+                    console.error(`⚠️ Error guardando mensaje media en Supabase: ${dbError.message}`);
                 }
                 
                 return true;
@@ -2592,11 +2623,11 @@ async function sendMediaMessage(recipient, mediaUrl, caption = '') {
     console.error(`Error en solicitud de media a GupShup:`, apiError.message);
             
             if (apiError.response) {
-    console.error(`- Status: ${apiError.response.status}`);
+                console.error(`- Status: ${apiError.response.status}`);
                 console.error(`- Datos: `, JSON.stringify(apiError.response.data, null, 2));
                 console.error(`- Headers: `, JSON.stringify(apiError.response.headers, null, 2));
             } else if (apiError.request) {
-    console.error(`- No hubo respuesta del servidor`);
+                console.error(`- No hubo respuesta del servidor`);
             } else {
                 console.error(`- Error al configurar la solicitud:`, apiError.message);
             }
@@ -3004,10 +3035,53 @@ async function sendBusinessNotification(conversationId, botMessage, clientPhoneN
   try {
     console.log('Iniciando notificación por correo...');
     return true;
-  } catch (error) {
+    } catch (error) {
     console.error('Error en notificación:', error);
     return false;
   }
 }
 
-// Fin del archivo
+// Test endpoint for notification detection
+app.get('/test-notification-detection', (req, res) => {
+  try {
+    const message = req.query.message || 'no puedo ayudarte con eso';
+    console.log(`🔍 Probando detección de notificación con mensaje: "${message}"`);
+    
+    // Check if our notification module is loaded correctly
+    if (!global.checkForNotificationPhrases) {
+      console.error('❌ Error: Función checkForNotificationPhrases no está disponible globalmente');
+      return res.status(500).json({
+        error: 'Módulo de notificaciones no cargado correctamente',
+        availableFunctions: Object.keys(global).filter(key => typeof global[key] === 'function')
+      });
+    }
+    
+    // Analyze the message
+    const analysis = global.checkForNotificationPhrases(message);
+    console.log('✅ Análisis completado:', analysis);
+    
+      return res.json({
+        success: true,
+      message: 'Análisis completado',
+      analysis,
+      notificationModuleLoaded: !!global.notificationModule,
+      availableFunctions: global.notificationModule ? Object.keys(global.notificationModule) : []
+      });
+    } catch (error) {
+    console.error(`❌ Error en test de notificación: ${error.message}`);
+      return res.status(500).json({
+        success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor WhatsApp Bot iniciado en http://localhost:${PORT}`);
+  console.log(`📡 Endpoints disponibles:`);
+  console.log(` - /api/status: Estado del servidor`);
+  console.log(` - /api/send-manual-message: Envío manual de mensajes`);
+  console.log(` - /test-notification-detection: Probar detección de notificaciones`);
+});

@@ -6,6 +6,19 @@
  */
 
 // Mostrar información de variables antes de importar fix-real-bot
+
+// Asegurar que SUPABASE_KEY está disponible
+if (!process.env.SUPABASE_KEY && process.env.SUPABASE_ANON_KEY) {
+  console.log('📌 GLOBAL-PATCH: Copiando SUPABASE_ANON_KEY a SUPABASE_KEY');
+  process.env.SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
+}
+
+// Si tenemos clave de Supabase pero no URL, usar la predeterminada
+if (process.env.SUPABASE_KEY && !process.env.SUPABASE_URL) {
+  console.log('📌 GLOBAL-PATCH: Configurando URL predeterminada de Supabase');
+  process.env.SUPABASE_URL = 'https://wscijkxwevgxbgwhbqtm.supabase.co';
+}
+
 console.log('📢 GLOBAL-PATCH: Verificando variables al inicio:');
 console.log('- CONTROL_PANEL_URL:', process.env.CONTROL_PANEL_URL || 'no definida');
 console.log('- NODE_ENV:', process.env.NODE_ENV || 'no definido');
