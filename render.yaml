@@ -5,7 +5,7 @@ services:
     region: singapore # Choose the region closest to your users
     plan: starter # Adjust based on your needs
     buildCommand: npm install
-    startCommand: node render-start.js
+    startCommand: pkill -f node || true && sleep 5 && node render-start.js
     healthCheckPath: /status
     autoDeploy: true
     envVars:
@@ -13,6 +13,8 @@ services:
         value: production
       - key: TZ
         value: America/Argentina/Buenos_Aires
+      - key: FORCE_PORT
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL

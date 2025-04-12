@@ -50,11 +50,10 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const BUSINESS_ID = process.env.BUSINESS_ID;
 let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:7777/api/register-bot-response';
 const ASSISTANT_ID = process.env.ASSISTANT_ID;
-const PORT = process.env.FORCE_PORT || process.env.PORT || 3095;
-console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
+const PORT = process.env.FORCE_PORT || process.env.PORT || 10000;
+console.log(`🔑 Puerto configurado en index.js: ${PORT}`);
+console.log(`🚀 Iniciando servidor en puerto ${PORT}`);
 console.log(`🤖 Bot conectado al panel: ${CONTROL_PANEL_URL}`);
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'verify_token_whatsapp_webhook';
-const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || '';
 
 // Inicialización temprana para verificar variables críticas
 console.log('Inicializando servidor de WhatsApp con las siguientes credenciales:');
@@ -3114,3 +3113,84 @@ global.logMessage = function(message) {
   console.log(message);
 };
 // ... existing code ...
+
+// Iniciar el servidor
+function startServer(port) {
+  const serverPort = port || PORT;
+  
+  try {
+    console.log(`🚀 Intentando iniciar el servidor en puerto ${serverPort}...`);
+    
+    const server = app.listen(serverPort, () => {
+      // En entorno de producción, mostrar un mensaje adecuado
+      if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+        console.log(`✅ Servidor WhatsApp Bot iniciado en puerto ${serverPort}`);
+        console.log(`🌐 Ambiente de producción detectado en Render`);
+      } else {
+        console.log(`✅ Servidor WhatsApp Bot iniciado en http://localhost:${serverPort}`);
+      }
+      
+      console.log(`📡 Endpoints disponibles:`);
+      console.log(` - /status: Estado del servidor`);
+      console.log(` - /diagnostico: Diagnóstico del sistema`);
+      console.log(` - /api/send-manual-message: Envío manual de mensajes`);
+      console.log(` - /test-message: Endpoint de prueba para mensajes`);
+      console.log(` - /test-notification: Endpoint para probar notificaciones`);
+    }).on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Error: Puerto ${serverPort} ya está en uso`);
+        
+        // Intentar con un puerto alternativo
+        const alternativePort = parseInt(serverPort) + 1000;
+        console.log(`🔄 Intentando con puerto alternativo: ${alternativePort}`);
+        
+        // Llamada recursiva con el nuevo puerto
+        startServer(alternativePort);
+      } else {
+        console.error(`❌ Error fatal al iniciar servidor: ${err.message}`);
+        console.error(err.stack);
+        
+        // En producción, registrar el error y intentar una vez más
+        if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+          const fallbackPort = 8080;
+          console.log(`🆘 Último intento con puerto de emergencia: ${fallbackPort}`);
+          
+          try {
+            app.listen(fallbackPort, () => {
+              console.log(`✅ [RECUPERACIÓN] Servidor iniciado en puerto de emergencia ${fallbackPort}`);
+            }).on('error', (finalError) => {
+              console.error(`💥 Error fatal en intento de recuperación: ${finalError.message}`);
+              process.exit(1); // Terminar si falla el último intento
+            });
+          } catch (finalError) {
+            console.error(`💥 Error catastrófico: ${finalError.message}`);
+            process.exit(1);
+          }
+        }
+      }
+    });
+    
+    return server;
+  } catch (err) {
+    console.error(`❌ Error inesperado al iniciar servidor: ${err.message}`);
+    console.error(err.stack);
+    
+    // En producción, intentar una vez más
+    if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+      const emergencyPort = 9090;
+      console.log(`🚨 Intento de emergencia en puerto: ${emergencyPort}`);
+      
+      try {
+        return app.listen(emergencyPort, () => {
+          console.log(`✅ [RECUPERACIÓN DE EMERGENCIA] Servidor iniciado en puerto ${emergencyPort}`);
+        });
+      } catch (emergencyError) {
+        console.error(`💥 Error en recuperación de emergencia: ${emergencyError.message}`);
+        process.exit(1);
+      }
+    }
+  }
+}
+
+// Iniciar el servidor con el puerto configurado
+startServer(PORT);

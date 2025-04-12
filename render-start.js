@@ -8,9 +8,10 @@
  * antes de iniciar el servidor principal.
  */
 
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 
 console.log('🚀 Iniciando WhatsApp Bot en Render...');
 
@@ -18,8 +19,68 @@ console.log('🚀 Iniciando WhatsApp Bot en Render...');
 process.env.RENDER = 'true';
 process.env.NODE_ENV = 'production';
 
+// Limpiar procesos existentes
+try {
+  console.log('🧹 Limpiando procesos previos...');
+  execSync('ps aux | grep node | grep -v grep', { stdio: 'pipe' })
+    .toString()
+    .split('\n')
+    .forEach(line => {
+      if (line && !line.includes('render-start.js')) {
+        const pid = line.split(/\s+/)[1];
+        if (pid) {
+          try {
+            console.log(`🔫 Terminando proceso ${pid}`);
+            execSync(`kill -9 ${pid}`, { stdio: 'pipe' });
+          } catch (e) {
+            // Ignorar errores al matar procesos
+          }
+        }
+      }
+    });
+  console.log('✅ Limpieza de procesos completada');
+} catch (err) {
+  console.log('ℹ️ No se encontraron procesos previos para limpiar');
+}
+
 // Ruta del archivo PID
 const PID_FILE = path.join(__dirname, 'server.pid');
+
+// Manejar el puerto
+// Forzar un puerto diferente al 3000 (ya que parece que está siempre en uso en Render)
+const DEFAULT_PORT = 10000;  // Un puerto alto para evitar conflictos
+const PORT = process.env.FORCE_PORT || process.env.PORT || DEFAULT_PORT;
+
+console.log(`📡 Configurando puerto: ${PORT}`);
+
+// Forzar un puerto específico para evitar conflictos
+process.env.FORCE_PORT = PORT;
+process.env.PORT = PORT;
+
+// Verificar que el puerto NO esté en uso
+function isPortInUse(port) {
+  return new Promise((resolve) => {
+    const server = http.createServer();
+    
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`❌ Puerto ${port} ya está en uso`);
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+      server.close();
+    });
+    
+    server.once('listening', () => {
+      console.log(`✅ Puerto ${port} está disponible`);
+      server.close();
+      resolve(false);
+    });
+    
+    server.listen(port);
+  });
+}
 
 // Liberar el puerto si está en uso
 function clearPort(port) {
@@ -89,12 +150,6 @@ function savePid() {
   }
 }
 
-// Manejar el puerto
-const PORT = process.env.PORT || 10000;
-console.log(`📡 Configurando puerto: ${PORT}`);
-// Forzar un puerto específico para evitar conflictos
-process.env.FORCE_PORT = PORT;
-
 // Verificar variables críticas
 const requiredVars = [
   'OPENAI_API_KEY',
@@ -123,18 +178,40 @@ if (missingVars.length > 0) {
   }
 }
 
+// Función para encontrar un puerto disponible
+async function findAvailablePort(startPort) {
+  let port = startPort;
+  const maxPort = startPort + 1000;
+  
+  while (port < maxPort) {
+    const inUse = await isPortInUse(port);
+    if (!inUse) {
+      return port;
+    }
+    port++;
+    console.log(`🔍 Probando con puerto: ${port}`);
+  }
+  
+  // Si llegamos aquí, no encontramos puerto disponible
+  console.error(`❌ No se pudo encontrar un puerto disponible entre ${startPort} y ${maxPort}`);
+  return startPort;
+}
+
 // Función para manejar errores de puerto
-function handleServerError(error) {
+async function handleServerError(error) {
   if (error.code === 'EADDRINUSE') {
     console.error(`❌ Error: Puerto ${PORT} ya está en uso`);
-    // Intentar con un puerto aleatorio entre 10000 y 20000
-    const newPort = Math.floor(Math.random() * 10000) + 10000;
-    console.log(`🔄 Intentando con puerto alternativo: ${newPort}`);
-    process.env.PORT = newPort;
-    process.env.FORCE_PORT = newPort;
+    
+    // Buscar un puerto disponible
+    const newPort = await findAvailablePort(DEFAULT_PORT);
+    console.log(`🔄 Encontrado puerto disponible: ${newPort}`);
+    
+    process.env.PORT = newPort.toString();
+    process.env.FORCE_PORT = newPort.toString();
     
     // Reintentar con el nuevo puerto
-    clearPort(newPort).then(startServer);
+    await clearPort(newPort);
+    startServer();
   } else {
     console.error('❌ Error al iniciar el servidor:', error.message);
     console.error(error.stack);
@@ -162,6 +239,17 @@ function startServer() {
       }
     });
     
+    // Configurar escuchador de eventos de proceso
+    process.on('SIGTERM', () => {
+      console.log('🛑 Recibida señal SIGTERM, cerrando servidor...');
+      process.exit(0);
+    });
+    
+    process.on('SIGINT', () => {
+      console.log('🛑 Recibida señal SIGINT, cerrando servidor...');
+      process.exit(0);
+    });
+    
     // Importar y ejecutar el archivo principal
     require('./index.js');
     
@@ -179,6 +267,16 @@ function startServer() {
     
     // Limpiar el puerto configurado
     await clearPort(PORT);
+    
+    // Verificar si el puerto está en uso
+    const inUse = await isPortInUse(PORT);
+    if (inUse) {
+      // Buscar un puerto disponible
+      const newPort = await findAvailablePort(DEFAULT_PORT);
+      console.log(`🔄 Puerto ${PORT} en uso, usando puerto alternativo: ${newPort}`);
+      process.env.PORT = newPort.toString();
+      process.env.FORCE_PORT = newPort.toString();
+    }
     
     // Iniciar el servidor
     startServer();
