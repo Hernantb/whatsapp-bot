@@ -5,7 +5,7 @@ services:
     region: singapore # Choose the region closest to your users
     plan: starter # Adjust based on your needs
     buildCommand: npm install
-    startCommand: sh -c "echo 'Starting service...' && pkill -f node || true && sleep 5 && NODE_OPTIONS='--max-old-space-size=512' node render-start.js"
+    startCommand: node index.js
     healthCheckPath: /status
     autoDeploy: true
     envVars:
