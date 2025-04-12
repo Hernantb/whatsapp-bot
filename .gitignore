@@ -1,11 +1,58 @@
+# Dependencias
+node_modules/
+package-lock.json
+
+# Archivos de entorno
+.env
+.env.local
+.env.*.local
+.env.backup
+.env.test
+.env.development
+.env.production
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
+server.log
+debug.log
+whatsapp_server.log
+whatsapp_log.txt
+whatsapp-logs.txt
+whatsapp_logs.txt
+bot_log.txt
+nohup.out
+server_output.log
+server_output_now.log
+server_test.log
+
+# Archivos de respaldo
+*.backup*
+*.bak
+*.bak2
+*.backup-*
+*.old
+*.orig
+*.corrupted
+backup*/
+backups/
+
+# Archivos temporales
+.tmp
+.temp
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos locales específicos del bot
+fallback_messages/
+resultados_test_*.json
+resultado_desactivado.json
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
@@ -39,7 +86,6 @@ bower_components
 build/Release
 
 # Dependency directories
-node_modules/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
