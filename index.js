@@ -2,6 +2,18 @@
 // Fix para Supabase en Render
 require('./supabase-render-helper');
 
+// Configuración específica para Render
+if (process.env.RENDER === 'true') {
+  console.log('🚀 Iniciando en entorno Render...');
+  // Render asigna PORT=3000 por defecto, pero nuestro servicio debe adaptarse
+  if (!process.env.PORT) {
+    console.log('⚠️ Variable PORT no detectada. Usando valor predeterminado 3000');
+    process.env.PORT = 3000;
+  } else {
+    console.log(`✅ Usando puerto asignado por Render: ${process.env.PORT}`);
+  }
+}
+
 require('dotenv').config();
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
@@ -39,6 +51,7 @@ const BUSINESS_ID = process.env.BUSINESS_ID;
 let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:7777/api/register-bot-response';
 const ASSISTANT_ID = process.env.ASSISTANT_ID;
 const PORT = process.env.PORT || 3096;
+console.log(`🔌 Configuración de puerto: PORT=${process.env.PORT} (usando ${PORT})`);
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'verify_token_whatsapp_webhook';
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || '';
 
@@ -3079,7 +3092,14 @@ app.get('/test-notification-detection', (req, res) => {
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor WhatsApp Bot iniciado en http://localhost:${PORT}`);
+  // En entorno de producción, mostrar un mensaje adecuado
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+    console.log(`🚀 Servidor WhatsApp Bot iniciado en puerto ${PORT}`);
+    console.log(`🌐 Ambiente de producción detectado en Render`);
+  } else {
+    console.log(`🚀 Servidor WhatsApp Bot iniciado en http://localhost:${PORT}`);
+  }
+  
   console.log(`📡 Endpoints disponibles:`);
   console.log(` - /api/status: Estado del servidor`);
   console.log(` - /api/send-manual-message: Envío manual de mensajes`);
