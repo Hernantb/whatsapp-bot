@@ -8,11 +8,86 @@
  * antes de iniciar el servidor principal.
  */
 
+const { exec } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
 console.log('🚀 Iniciando WhatsApp Bot en Render...');
 
 // Configurar variables de entorno para Render
 process.env.RENDER = 'true';
 process.env.NODE_ENV = 'production';
+
+// Ruta del archivo PID
+const PID_FILE = path.join(__dirname, 'server.pid');
+
+// Liberar el puerto si está en uso
+function clearPort(port) {
+  return new Promise((resolve) => {
+    console.log(`🔍 Verificando si el puerto ${port} está en uso...`);
+    
+    // En entorno Render, intentar matar cualquier proceso en el puerto
+    exec(`lsof -ti:${port}`, (error, stdout) => {
+      if (error) {
+        // No hay procesos usando el puerto o error al verificar
+        console.log(`✅ Puerto ${port} disponible`);
+        resolve();
+        return;
+      }
+      
+      const pids = stdout.trim().split('\n');
+      if (pids.length > 0 && pids[0]) {
+        console.log(`⚠️ Puerto ${port} ocupado por los procesos: ${pids.join(', ')}`);
+        
+        // Intentar matar los procesos
+        exec(`kill -9 ${pids.join(' ')}`, (killError) => {
+          if (killError) {
+            console.error(`❌ Error al liberar puerto: ${killError.message}`);
+          } else {
+            console.log(`✅ Procesos terminados y puerto ${port} liberado`);
+          }
+          resolve();
+        });
+      } else {
+        console.log(`✅ Puerto ${port} disponible`);
+        resolve();
+      }
+    });
+  });
+}
+
+// Verificar si hay un PID previo y matarlo
+function checkAndClearPid() {
+  return new Promise((resolve) => {
+    if (fs.existsSync(PID_FILE)) {
+      try {
+        const oldPid = fs.readFileSync(PID_FILE, 'utf8').trim();
+        console.log(`🔍 PID anterior encontrado: ${oldPid}`);
+        
+        // Intentar matar el proceso anterior
+        exec(`kill -9 ${oldPid}`, () => {
+          console.log(`🔄 Intento de terminar el proceso anterior (PID: ${oldPid})`);
+          resolve();
+        });
+      } catch (error) {
+        console.error(`⚠️ Error al leer/matar PID anterior: ${error.message}`);
+        resolve();
+      }
+    } else {
+      resolve();
+    }
+  });
+}
+
+// Guardar el PID actual
+function savePid() {
+  try {
+    fs.writeFileSync(PID_FILE, process.pid.toString());
+    console.log(`✅ PID actual guardado: ${process.pid}`);
+  } catch (error) {
+    console.error(`⚠️ Error al guardar PID: ${error.message}`);
+  }
+}
 
 // Manejar el puerto
 const PORT = process.env.PORT || 10000;
@@ -59,7 +134,7 @@ function handleServerError(error) {
     process.env.FORCE_PORT = newPort;
     
     // Reintentar con el nuevo puerto
-    startServer();
+    clearPort(newPort).then(startServer);
   } else {
     console.error('❌ Error al iniciar el servidor:', error.message);
     console.error(error.stack);
@@ -70,6 +145,9 @@ function handleServerError(error) {
 // Función para iniciar el servidor
 function startServer() {
   try {
+    // Guardar PID del proceso actual
+    savePid();
+    
     console.log('📡 Puerto configurado:', process.env.PORT || '(usando puerto por defecto)');
     console.log('🌐 Iniciando servidor principal...');
     
@@ -93,5 +171,19 @@ function startServer() {
   }
 }
 
-// Iniciar el servidor
-startServer(); 
+// Iniciar la secuencia de arranque
+(async function() {
+  try {
+    // Verificar y limpiar PID anterior
+    await checkAndClearPid();
+    
+    // Limpiar el puerto configurado
+    await clearPort(PORT);
+    
+    // Iniciar el servidor
+    startServer();
+  } catch (error) {
+    console.error('❌ Error durante la inicialización:', error.message);
+    process.exit(1);
+  }
+})(); 
