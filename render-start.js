@@ -14,6 +14,12 @@ console.log('🚀 Iniciando WhatsApp Bot en Render...');
 process.env.RENDER = 'true';
 process.env.NODE_ENV = 'production';
 
+// Manejar el puerto
+const PORT = process.env.PORT || 10000;
+console.log(`📡 Configurando puerto: ${PORT}`);
+// Forzar un puerto específico para evitar conflictos
+process.env.FORCE_PORT = PORT;
+
 // Verificar variables críticas
 const requiredVars = [
   'OPENAI_API_KEY',
@@ -42,17 +48,50 @@ if (missingVars.length > 0) {
   }
 }
 
-// Iniciar el servidor principal
-try {
-  console.log('📡 Puerto configurado:', process.env.PORT || '(usando puerto por defecto)');
-  console.log('🌐 Iniciando servidor principal...');
-  
-  // Importar y ejecutar el archivo principal
-  require('./index.js');
-  
-  console.log('✅ Servidor principal iniciado correctamente');
-} catch (error) {
-  console.error('❌ Error al iniciar el servidor principal:', error.message);
-  console.error(error.stack);
-  process.exit(1);
-} 
+// Función para manejar errores de puerto
+function handleServerError(error) {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Error: Puerto ${PORT} ya está en uso`);
+    // Intentar con un puerto aleatorio entre 10000 y 20000
+    const newPort = Math.floor(Math.random() * 10000) + 10000;
+    console.log(`🔄 Intentando con puerto alternativo: ${newPort}`);
+    process.env.PORT = newPort;
+    process.env.FORCE_PORT = newPort;
+    
+    // Reintentar con el nuevo puerto
+    startServer();
+  } else {
+    console.error('❌ Error al iniciar el servidor:', error.message);
+    console.error(error.stack);
+    process.exit(1);
+  }
+}
+
+// Función para iniciar el servidor
+function startServer() {
+  try {
+    console.log('📡 Puerto configurado:', process.env.PORT || '(usando puerto por defecto)');
+    console.log('🌐 Iniciando servidor principal...');
+    
+    // Configurar listener para errores no manejados
+    process.on('uncaughtException', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        handleServerError(error);
+      } else {
+        console.error('❌ Error no manejado:', error.message);
+        console.error(error.stack);
+        process.exit(1);
+      }
+    });
+    
+    // Importar y ejecutar el archivo principal
+    require('./index.js');
+    
+    console.log('✅ Servidor principal iniciado correctamente');
+  } catch (error) {
+    handleServerError(error);
+  }
+}
+
+// Iniciar el servidor
+startServer(); 

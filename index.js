@@ -50,8 +50,9 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const BUSINESS_ID = process.env.BUSINESS_ID;
 let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'http://localhost:7777/api/register-bot-response';
 const ASSISTANT_ID = process.env.ASSISTANT_ID;
-const PORT = process.env.PORT || 3096;
-console.log(`🔌 Configuración de puerto: PORT=${process.env.PORT} (usando ${PORT})`);
+const PORT = process.env.FORCE_PORT || process.env.PORT || 3095;
+console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
+console.log(`🤖 Bot conectado al panel: ${CONTROL_PANEL_URL}`);
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'verify_token_whatsapp_webhook';
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || '';
 
@@ -3105,3 +3106,11 @@ app.listen(PORT, () => {
   console.log(` - /api/send-manual-message: Envío manual de mensajes`);
   console.log(` - /test-notification-detection: Probar detección de notificaciones`);
 });
+
+// ... existing code ...
+// Línea aproximadamente 372
+global.__openaiCache = {};
+global.logMessage = function(message) {
+  console.log(message);
+};
+// ... existing code ...
