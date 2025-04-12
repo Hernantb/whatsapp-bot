@@ -373,15 +373,17 @@ if (!supabaseKey) {
 console.log('✅ Credenciales de Supabase encontradas correctamente');
 console.log(`🔑 Usando clave de Supabase (primeros 10 caracteres): ${supabaseKey.substring(0, 10)}...`);
 
-const supabase = createClient(supabaseUrl, supabaseKey, {
-        auth: { persistSession: false },
-        global: {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + supabaseKey
-          }
-        }
-      });
+const supabaseOptions = {
+  auth: { persistSession: false },
+  global: {
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + supabaseKey
+    }
+  }
+};
+
+const supabase = createClient(supabaseUrl, supabaseKey, supabaseOptions);
 
 // Función auxiliar para verificar la estructura de la tabla messages
 async function getMessagesTableStructure() {
