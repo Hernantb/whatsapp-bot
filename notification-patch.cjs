@@ -104,24 +104,51 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     }
     
     // Obtener el correo del negocio según el business_id
+    // Por defecto, usar el correo definido en las variables de entorno
     let businessEmail = EMAIL_TO_DEFAULT;
+    let businessName = "Negocio";
     
     if (businessId) {
       try {
-        console.log(`🔍 Buscando correo del negocio con ID: ${businessId}`);
+        console.log(`🔍 Buscando información del negocio con ID: ${businessId}`);
+        
+        // Obtener todos los campos del negocio para verificar qué campos existen
         const { data: businessData, error: businessError } = await supabase
           .from('businesses')
-          .select('email, name')
+          .select('*')
           .eq('id', businessId)
           .single();
         
         if (businessError) {
-          console.error(`❌ Error obteniendo correo del negocio: ${businessError.message}`);
-        } else if (businessData && businessData.email) {
-          businessEmail = businessData.email;
-          console.log(`✉️ Correo del negocio obtenido: ${businessEmail} (${businessData.name})`);
+          console.error(`❌ Error obteniendo datos del negocio: ${businessError.message}`);
+        } else if (businessData) {
+          console.log(`✅ Datos del negocio obtenidos:`, businessData);
+          
+          // Verificar varios campos posibles que podrían contener el correo
+          // Intentar diferentes campos que podrían contener un correo electrónico
+          const possibleEmailFields = ['email', 'contact_email', 'notification_email', 'business_email', 'admin_email'];
+          
+          // Buscar el primer campo que exista y tenga un valor
+          for (const field of possibleEmailFields) {
+            if (businessData[field] && businessData[field].includes('@')) {
+              businessEmail = businessData[field];
+              console.log(`✉️ Correo del negocio encontrado en campo '${field}': ${businessEmail}`);
+              break;
+            }
+          }
+          
+          // Verificar si encontramos un correo
+          if (businessEmail === EMAIL_TO_DEFAULT) {
+            console.warn(`⚠️ No se encontró correo válido para el negocio con ID: ${businessId}`);
+            console.log(`⚠️ Usando correo predeterminado: ${EMAIL_TO_DEFAULT}`);
+          }
+          
+          // Obtener nombre del negocio si está disponible
+          if (businessData.name) {
+            businessName = businessData.name;
+          }
         } else {
-          console.warn(`⚠️ No se encontró correo para el negocio con ID: ${businessId}`);
+          console.warn(`⚠️ No se encontró el negocio con ID: ${businessId}`);
         }
       } catch (businessDbError) {
         console.error(`❌ Error consultando información del negocio: ${businessDbError.message}`);
@@ -136,7 +163,8 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
       conversationId,
       clientPhone,
       businessEmail,
-      businessId
+      businessId,
+      businessName
     );
     
     return {
@@ -161,9 +189,10 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
  * @param {string} phoneNumber - Número de teléfono del cliente
  * @param {string} emailTo - Correo electrónico de destino
  * @param {string} businessId - ID del negocio
+ * @param {string} businessName - Nombre del negocio
  * @returns {boolean} - True si la notificación se envió correctamente
  */
-async function sendBusinessNotification(message, conversationId, phoneNumber, emailTo, businessId) {
+async function sendBusinessNotification(message, conversationId, phoneNumber, emailTo, businessId, businessName = 'BEXOR') {
   try {
     if (!EMAIL_APP_PASSWORD) {
       console.error('⚠️ IMPORTANTE: No se puede enviar notificación por correo: falta configurar EMAIL_APP_PASSWORD');
@@ -186,7 +215,7 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
     // Crear contenido del correo
     const emailSubject = `🔔 Atención requerida: Cliente en WhatsApp (${formattedPhone})`;
     const emailHtml = `
-      <h2>🤖 Notificación de Bot de WhatsApp</h2>
+      <h2>🤖 Notificación de Bot de WhatsApp - ${businessName}</h2>
       <p><strong>Se requiere atención humana para un cliente.</strong></p>
       <hr>
       <p><strong>📱 Número de teléfono:</strong> ${formattedPhone}</p>
