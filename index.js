@@ -999,64 +999,61 @@ async function sendWhatsAppResponse(recipient, message) {
 
             // Verificación principal utilizando la función mejorada
             console.log("Ejecutando verificación con función actualizada checkForNotificationPhrases");
-            const requiresNotification = checkForNotificationPhrases(message);
-            console.log("Resultado: " + (requiresNotification ? 'REQUIERE NOTIFICACIÓN' : 'NO REQUIERE NOTIFICACIÓN'));
-            
-            if (requiresNotification) {
-                console.log("NOTIFICACIÓN REQUERIDA - Procesando envío de correo");
+            if (global.checkForNotificationPhrases && typeof global.checkForNotificationPhrases === 'function') {
+                const requiresNotification = global.checkForNotificationPhrases(message);
+                console.log("Resultado: " + (requiresNotification ? 'REQUIERE NOTIFICACIÓN' : 'NO REQUIERE NOTIFICACIÓN'));
                 
-                // Buscar la conversación para este número
-                let conversationId = phoneToConversationMap[recipient];
+                if (requiresNotification && global.sendBusinessNotification) {
+                    console.log("NOTIFICACIÓN REQUERIDA - Procesando envío de correo");
+                    
+                    // Buscar la conversación para este número
+                    let conversationId = phoneToConversationMap[recipient];
 
-                if (!conversationId) {
-                    try {
-                        console.log("Buscando conversación para número: " + recipient);
-                        const { data: convData, error: convError } = await supabase
-                            .from('conversations')
-                            .select('id')
-                            .eq('user_id', recipient)
-                            .single();
+                    if (!conversationId) {
+                        try {
+                            console.log("Buscando conversación para número: " + recipient);
+                            const { data: convData, error: convError } = await supabase
+                                .from('conversations')
+                                .select('id')
+                                .eq('user_id', recipient)
+                                .single();
 
-                        if (convError) {
-                            console.error("Error al buscar conversación: " + convError.message);
-                        } else if (convData) {
-                            conversationId = convData.id;
-                            console.log("Conversación encontrada: " + conversationId);
+                            if (convError) {
+                                console.error("Error al buscar conversación: " + convError.message);
+                            } else if (convData) {
+                                conversationId = convData.id;
+                                console.log("Conversación encontrada: " + conversationId);
 
-                            // Actualizar mapeo en memoria
-                            phoneToConversationMap[recipient] = conversationId;
+                                // Actualizar mapeo en memoria
+                                phoneToConversationMap[recipient] = conversationId;
+                            }
+                        } catch (dbError) {
+                            console.error("Error en consulta: " + dbError.message);
                         }
-                    } catch (dbError) {
-                        console.error("Error en consulta: " + dbError.message);
                     }
-                }
 
-                // Enviar notificación si corresponde
-                if (conversationId) {
-                    console.log("ENVIANDO NOTIFICACIÓN DESDE SENDWHATSAPPRESPONSE");
-                    console.log("Conversación: " + conversationId);
-                    console.log("Teléfono: " + recipient);
-                    console.log("Mensaje que activó la notificación: \"" + message + "\"");
+                    // Enviar notificación si corresponde
+                    if (conversationId && global.sendBusinessNotification) {
+                        console.log("ENVIANDO NOTIFICACIÓN DESDE SENDWHATSAPPRESPONSE");
+                        console.log("Conversación: " + conversationId);
+                        console.log("Teléfono: " + recipient);
+                        console.log("Mensaje que activó la notificación: \"" + message + "\"");
 
-                    try {
-                        console.log("PRIMER INTENTO de envío de notificación");
-                        const result = await sendBusinessNotification(conversationId, message, recipient);
-                        console.log("RESULTADO de notificación: " + (result ? 'ÉXITO' : 'FALLIDO'));
-                        
-                        if (!result) {
-                            console.log("Primer intento fallido, reintentando...");
-                            const result2 = await sendBusinessNotification(conversationId, message, recipient);
-                            console.log("RESULTADO de segundo intento: " + (result2 ? 'ÉXITO' : 'FALLIDO'));
+                        try {
+                            console.log("PRIMER INTENTO de envío de notificación");
+                            const result = await global.sendBusinessNotification(conversationId, message, recipient);
+                            console.log("RESULTADO de notificación: " + (result ? 'ÉXITO' : 'FALLIDO'));
+                        } catch (emailError) {
+                            console.error("Error al enviar notificación: " + emailError.message);
                         }
-                    } catch (emailError) {
-                        console.error("Error al enviar notificación: " + emailError.message);
-                        console.error(emailError.stack);
+                    } else {
+                        console.error("No se pudo obtener ID de conversación para " + recipient + ", notificación no enviada");
                     }
                 } else {
-                    console.error("No se pudo obtener ID de conversación para " + recipient + ", notificación no enviada");
+                    console.log("Mensaje no requiere notificación según las reglas configuradas");
                 }
             } else {
-                console.log("Mensaje no requiere notificación según las reglas configuradas");
+                console.log("Función checkForNotificationPhrases no disponible globalmente");
             }
         } catch (notifError) {
             console.error("Error en verificación de notificación: " + notifError.message);
@@ -1080,7 +1077,9 @@ async function sendWhatsAppResponse(recipient, message) {
             return false;
         }
         
-        // Enviar mensaje a través de Gupshup
+        // *** SOLUCIÓN AL ERROR 401 DE GUPSHUP ***
+        // 1. URL correcta para la API de WhatsApp
+        const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
         const source = GUPSHUP_NUMBER;
         
         console.log('Variables de entorno para GupShup:');
@@ -1093,24 +1092,30 @@ async function sendWhatsAppResponse(recipient, message) {
             return false;
         }
         
-        const apiUrl = 'https://api.gupshup.io/sm/api/v1/msg';
-        
         console.log("URL de API: " + apiUrl);
         console.log("Número de origen: " + GUPSHUP_NUMBER);
         console.log("Número de destino: " + formattedNumber);
         
+        // 2. Formato correcto para el mensaje en JSON
+        const messageData = JSON.stringify({
+            type: 'text',
+            text: message
+        });
+        
+        // Configurar formulario con los parámetros requeridos
         const formData = new URLSearchParams();
         formData.append('channel', 'whatsapp');
         formData.append('source', source);
         formData.append('destination', formattedNumber);
-        formData.append('message', message);
+        formData.append('message', messageData);
         formData.append('src.name', source);
         
+        // 3. Encabezados correctos para la autenticación
         const headers = {
             'Cache-Control': 'no-cache',
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Bearer ' + apiKey
-        , 'Content-Type': 'application/json'};
+            'apikey': apiKey
+        };
         
         if (GUPSHUP_USERID) {
             headers['userid'] = GUPSHUP_USERID;
@@ -1160,7 +1165,42 @@ async function sendWhatsAppResponse(recipient, message) {
                 console.error("- Error al configurar la solicitud:", apiError.message);
             }
             
-            return false;
+            // Intentar con formato alternativo si falla el primero
+            try {
+                console.log("🔄 Reintentando con formato alternativo...");
+                
+                const altHeaders = {
+                    'Cache-Control': 'no-cache',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'apikey': apiKey,
+                    'userid': GUPSHUP_USERID
+                };
+                
+                // Usar mensaje directo en lugar de JSON en el segundo intento
+                const altFormData = new URLSearchParams();
+                altFormData.append('channel', 'whatsapp');
+                altFormData.append('source', source);
+                altFormData.append('destination', formattedNumber);
+                altFormData.append('message', message);
+                altFormData.append('src.name', source);
+                
+                console.log("Reintentando con formulario alternativo:", Object.fromEntries(altFormData));
+                console.log("Headers alternativos:", altHeaders);
+                
+                const altResponse = await axios.post(apiUrl, altFormData, { headers: altHeaders });
+                console.log("Respuesta alternativa:", JSON.stringify(altResponse.data));
+                
+                return true;
+            } catch (altError) {
+                console.error("Error en intento alternativo:", altError.message);
+                
+                if (altError.response) {
+                    console.error("- Alt Status: " + altError.response.status);
+                    console.error("- Alt Datos: ", JSON.stringify(altError.response.data, null, 2));
+                }
+                
+                return false;
+            }
         }
     } catch (error) {
         console.error("Error general en sendWhatsAppResponse:", error.message);
@@ -1370,85 +1410,25 @@ app.listen(PORT, async () => {
   }
 });
 
-// Ruta del webhook para WhatsApp
+// Webhook para recibir mensajes de WhatsApp
 app.post('/webhook', async (req, res) => {
-  try {
-    console.log('📨 WEBHOOK COMPLETO RECIBIDO:');
-    console.log('Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Body:', JSON.stringify(req.body, null, 2));
-    console.log('Content-Type:', req.headers['content-type']);
+    console.log('📲 Webhook recibido:', req.body.type);
     
-    // Intento directo de envío para prueba
-    if (req.body && req.body.payload && req.body.payload.sender && req.body.payload.sender.phone) {
-      const testPhone = req.body.payload.sender.phone;
-      console.log(`🔄 ENVIANDO MENSAJE DE PRUEBA DIRECTA A: ${testPhone}`);
-      try {
-        const testResponse = await sendWhatsAppResponse(testPhone, "He recibido tu mensaje de prueba");
-        console.log(`✅ RESPUESTA DE PRUEBA DIRECTA: ${JSON.stringify(testResponse)}`);
-      } catch (testError) {
-        console.error(`❌ ERROR EN PRUEBA DIRECTA: ${testError.message}`);
-      }
+    // Verificar el tipo de webhook
+    if (req.body.type === 'message' && req.body.payload) {
+        // Detectar si es un mensaje de imagen
+        if (req.body.payload.type === 'image') {
+            await handleMediaMessage(req, res);
+            return;
+        }
+        
+        // Proceso normal para mensajes de texto
+        await handleIncomingMessage(req, res);
+        return;
     }
     
-    // Extraer datos del mensaje
-    const messageData = extractMessageData(req.body);
-    
-    if (!messageData) {
-      console.log('⚠️ No se pudieron extraer datos del mensaje');
-      return res.status(200).send('OK');
-    }
-    
-    console.log(`📱 Datos extraídos: ${JSON.stringify(messageData)}`);
-    
-    // Si es una actualización de estado, solo registrarla
-    if (messageData.isStatusUpdate) {
-      console.log(`📊 Notificación de estado recibida, no requiere respuesta`);
-      console.log(`📊 Procesada notificación de estado`);
-      return res.status(200).send('OK');
-    }
-    
-    const { sender, message, messageId } = messageData;
-    
-    if (!sender || !message) {
-      console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
-      return res.status(200).send('OK');
-    }
-    
-    console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
-    
-    // Verificar si este mensaje ya fue procesado recientemente
-    const messageKey = `${messageId || sender}_${message}`;
-    if (recentlyProcessedMessages.has(messageKey)) {
-      console.log(`⚠️ Mensaje duplicado detectado, ignorando: ${messageKey}`);
-      return res.status(200).send('OK');
-    }
-    
-    // Marcar este mensaje como procesado
-    recentlyProcessedMessages.add(messageKey);
-    setTimeout(() => recentlyProcessedMessages.delete(messageKey), 60000); // Eliminar después de 1 minuto
-    
-    // Procesar mensaje con OpenAI y enviar respuesta directamente (sin pasar por handleIncomingMessage)
-    console.log(`⚙️ PROCESAMIENTO DIRECTO: Procesando mensaje de ${sender}`);
-    try {
-      const botResponse = await processMessageWithOpenAI(sender, message);
-      
-      if (botResponse) {
-        console.log(`✅ Respuesta generada: "${botResponse.substring(0, 100)}..."`);
-        await sendWhatsAppResponse(sender, botResponse);
-        console.log(`✅ Respuesta enviada a ${sender}`);
-      } else {
-        console.log(`⚠️ No se pudo generar respuesta para ${sender}`);
-      }
-    } catch (aiError) {
-      console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
-    }
-    
-    return res.status(200).send('OK');
-  } catch (error) {
-    console.error('❌ Error al procesar webhook:', error.message);
-    console.error(error.stack);
-    return res.status(200).send('OK');
-  }
+    // Para otros tipos de webhooks
+    res.status(200).json({ success: true, message: 'Webhook recibido' });
 });
 
 // Endpoint para enviar un mensaje a WhatsApp
@@ -3152,6 +3132,22 @@ app.get('/test-notification-detection', (req, res) => {
   }
 });
 
+// Start the server
+app.listen(PORT, () => {
+  // En entorno de producción, mostrar un mensaje adecuado
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+    console.log(`🚀 Servidor WhatsApp Bot iniciado en puerto ${PORT}`);
+    console.log(`🌐 Ambiente de producción detectado en Render`);
+  } else {
+    console.log(`🚀 Servidor WhatsApp Bot iniciado en http://localhost:${PORT}`);
+  }
+  
+  console.log(`📡 Endpoints disponibles:`);
+  console.log(` - /api/status: Estado del servidor`);
+  console.log(` - /api/send-manual-message: Envío manual de mensajes`);
+  console.log(` - /test-notification-detection: Probar detección de notificaciones`);
+});
+
 // ... existing code ...
 // Línea aproximadamente 372
 global.__openaiCache = {};
@@ -3167,112 +3163,62 @@ function startServer(port) {
   try {
     console.log(`🚀 Intentando iniciar el servidor en puerto ${serverPort}...`);
     
-    // En Render, intentar detectar y manejar puertos ocupados
-    if (process.env.RENDER === 'true') {
-      const alternativePorts = [10000, 8080, 4000, 5000];
+    const server = app.listen(serverPort, () => {
+      // En entorno de producción, mostrar un mensaje adecuado
+      if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+        console.log(`✅ Servidor WhatsApp Bot iniciado en puerto ${serverPort}`);
+        console.log(`🌐 Ambiente de producción detectado en Render`);
+      } else {
+        console.log(`✅ Servidor WhatsApp Bot iniciado en http://localhost:${serverPort}`);
+      }
       
-      console.log(`🔍 Ambiente Render detectado - Configurando para usar puertos alternativos si es necesario`);
-      
-      const server = app.listen(serverPort)
-        .on('error', (err) => {
-          if (err.code === 'EADDRINUSE') {
-            console.error(`❌ Error: Puerto ${serverPort} ya está en uso en Render`);
-            
-            // Intentar con puertos alternativos
-            let tried = false;
-            for (const altPort of alternativePorts) {
-              if (!tried) {
-                tried = true;
-                console.log(`🔄 Intentando con puerto alternativo en Render: ${altPort}`);
-                
-                try {
-                  const altServer = app.listen(altPort, () => {
-                    console.log(`✅ [RECUPERACIÓN] Servidor iniciado en puerto alternativo ${altPort}`);
-                    
-                    if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
-                      console.log(`🌐 Ambiente de producción detectado en Render`);
-                    }
-                    
-                    console.log(`📡 Endpoints disponibles:`);
-                    console.log(` - /webhook: Webhook principal de WhatsApp`);
-                    console.log(` - /status: Estado del servidor`);
-                    console.log(` - /diagnostico: Diagnóstico del sistema`);
-                  });
-                  
-                  return altServer;
-                } catch (altPortError) {
-                  console.error(`❌ Error en puerto alternativo ${altPort}: ${altPortError.message}`);
-                }
-              }
-            }
-            
-            // Si todos los puertos alternativos fallan
-            console.error(`💥 No se pudo iniciar en ningún puerto alternativo`);
-            return null;
-          } else {
-            // Otros errores
-            console.error(`❌ Error al iniciar servidor: ${err.message}`);
-            console.error(err.stack);
-            return null;
-          }
-        })
-        .on('listening', () => {
-          console.log(`✅ Servidor WhatsApp Bot iniciado en puerto ${serverPort}`);
-          
-          if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
-            console.log(`🌐 Ambiente de producción detectado en Render`);
-          } else {
-            console.log(`✅ Servidor WhatsApp Bot iniciado en http://localhost:${serverPort}`);
-          }
-          
-          console.log(`📡 Endpoints disponibles:`);
-          console.log(` - /webhook: Webhook principal de WhatsApp`);
-          console.log(` - /status: Estado del servidor`);
-          console.log(` - /diagnostico: Diagnóstico del sistema`);
-        });
-      
-      return server;
-    } else {
-      // Comportamiento normal para entornos que no son Render
-      const server = app.listen(serverPort, () => {
-        // En entorno de producción, mostrar un mensaje adecuado
-        if (process.env.NODE_ENV === 'production') {
-          console.log(`✅ Servidor WhatsApp Bot iniciado en puerto ${serverPort}`);
-          console.log(`🌐 Ambiente de producción detectado`);
-        } else {
-          console.log(`✅ Servidor WhatsApp Bot iniciado en http://localhost:${serverPort}`);
-        }
+      console.log(`📡 Endpoints disponibles:`);
+      console.log(` - /status: Estado del servidor`);
+      console.log(` - /diagnostico: Diagnóstico del sistema`);
+      console.log(` - /api/send-manual-message: Envío manual de mensajes`);
+      console.log(` - /test-message: Endpoint de prueba para mensajes`);
+      console.log(` - /test-notification: Endpoint para probar notificaciones`);
+    }).on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Error: Puerto ${serverPort} ya está en uso`);
         
-        console.log(`📡 Endpoints disponibles:`);
-        console.log(` - /status: Estado del servidor`);
-        console.log(` - /diagnostico: Diagnóstico del sistema`);
-        console.log(` - /api/send-manual-message: Envío manual de mensajes`);
-        console.log(` - /test-message: Endpoint de prueba para mensajes`);
-        console.log(` - /test-notification: Endpoint para probar notificaciones`);
-      }).on('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-          console.error(`❌ Error: Puerto ${serverPort} ya está en uso`);
+        // Intentar con un puerto alternativo
+        const alternativePort = parseInt(serverPort) + 1000;
+        console.log(`🔄 Intentando con puerto alternativo: ${alternativePort}`);
+        
+        // Llamada recursiva con el nuevo puerto
+        startServer(alternativePort);
+      } else {
+        console.error(`❌ Error fatal al iniciar servidor: ${err.message}`);
+        console.error(err.stack);
+        
+        // En producción, registrar el error y intentar una vez más
+        if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+          const fallbackPort = 8080;
+          console.log(`🆘 Último intento con puerto de emergencia: ${fallbackPort}`);
           
-          // Intentar con un puerto alternativo
-          const alternativePort = parseInt(serverPort) + 1000;
-          console.log(`🔄 Intentando con puerto alternativo: ${alternativePort}`);
-          
-          // Llamada recursiva con el nuevo puerto
-          startServer(alternativePort);
-        } else {
-          console.error(`❌ Error fatal al iniciar servidor: ${err.message}`);
-          console.error(err.stack);
+          try {
+            app.listen(fallbackPort, () => {
+              console.log(`✅ [RECUPERACIÓN] Servidor iniciado en puerto de emergencia ${fallbackPort}`);
+            }).on('error', (finalError) => {
+              console.error(`💥 Error fatal en intento de recuperación: ${finalError.message}`);
+              process.exit(1); // Terminar si falla el último intento
+            });
+          } catch (finalError) {
+            console.error(`💥 Error catastrófico: ${finalError.message}`);
+            process.exit(1);
+          }
         }
-      });
-      
-      return server;
-    }
+      }
+    });
+    
+    return server;
   } catch (err) {
     console.error(`❌ Error inesperado al iniciar servidor: ${err.message}`);
     console.error(err.stack);
     
     // En producción, intentar una vez más
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
       const emergencyPort = 9090;
       console.log(`🚨 Intento de emergencia en puerto: ${emergencyPort}`);
       
@@ -3282,11 +3228,9 @@ function startServer(port) {
         });
       } catch (emergencyError) {
         console.error(`💥 Error en recuperación de emergencia: ${emergencyError.message}`);
-        return null;
+        process.exit(1);
       }
     }
-    
-    return null;
   }
 }
 
