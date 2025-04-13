@@ -33,7 +33,7 @@ const cors = require('cors');
 const OpenAI = require('openai');
 
 // Importar módulo de notificaciones
-const notificationModule = require('./notification-patch');
+const notificationModule = require('./notification-patch.cjs');
 
 // Importar Supabase
 const { createClient } = require('@supabase/supabase-js');
