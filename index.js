@@ -3194,5 +3194,46 @@ function startServer(port) {
   }
 }
 
-// Iniciar el servidor con el puerto configurado
-startServer(PORT);
+// Verificar si el servidor ya está escuchando en el puerto para evitar EADDRINUSE
+let serverAlreadyStarted = false;
+
+function startServerSafely(port) {
+  if (serverAlreadyStarted) {
+    console.log(`🔍 Servidor ya iniciado, evitando múltiples inicios en puerto ${port}`);
+    return;
+  }
+
+  console.log(`🚀 Iniciando servidor en puerto ${port} (primera vez)`);
+  try {
+    serverAlreadyStarted = true;
+    startServer(port);
+  } catch (error) {
+    console.error(`❌ Error al iniciar servidor: ${error.message}`);
+    serverAlreadyStarted = false;
+  }
+}
+
+// En Render, es posible que el servidor ya esté ejecutándose por el script render-start.js
+// Verificamos esto para evitar iniciar el servidor dos veces
+if (process.env.RENDER === 'true') {
+  console.log('🔍 Ambiente Render detectado, verificando si el servidor ya está iniciado...');
+  const http = require('http');
+  const testServer = http.createServer();
+  
+  testServer.once('error', () => {
+    console.log(`⚠️ Puerto ${PORT} ya está en uso, probablemente el servidor ya está iniciado`);
+    console.log('✅ Evitando iniciar el servidor nuevamente para prevenir error EADDRINUSE');
+  });
+  
+  testServer.once('listening', () => {
+    console.log(`✅ Puerto ${PORT} disponible, iniciando servidor normalmente`);
+    testServer.close(() => {
+      startServerSafely(PORT);
+    });
+  });
+  
+  testServer.listen(PORT);
+} else {
+  // En desarrollo, iniciar normalmente
+  startServerSafely(PORT);
+}
