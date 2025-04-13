@@ -1107,7 +1107,6 @@ async function sendWhatsAppResponse(recipient, message) {
 function extractMessageData(body) {
   try {
     console.log(`🔍 Extrayendo datos de mensaje de webhook: ${JSON.stringify(body).substring(0, 200)}...`);
-    logDebug(`🔍 Extrayendo datos de mensaje de webhook: ${JSON.stringify(body).substring(0, 200)}...`);
     
     // Valores por defecto
     const result = {
@@ -1120,7 +1119,58 @@ function extractMessageData(body) {
     
     // Imprimir la estructura completa para depuración
     console.log('📝 Estructura completa del webhook:');
-    console.log(JSON.stringify(body, null, 2));
+    console.log(JSON.stringify(body, null, 2).substring(0, 500) + "...");
+    
+    // MÉTODO 0: Contenido raw del middleware
+    if (body && body.rawContent) {
+      console.log('🔍 Detectado contenido raw del middleware, intentando extraer datos');
+      
+      let rawContent = body.rawContent;
+      
+      // Intentar buscar patrones comunes en el texto raw
+      try {
+        // Buscar un posible número de teléfono
+        const phoneMatch = rawContent.match(/(?:"phone"|sender|from|number)["\s:]+["']?(\+?\d{10,15})["']?/i);
+        if (phoneMatch && phoneMatch[1]) {
+          result.sender = phoneMatch[1];
+          console.log(`🔍 Encontrado número de teléfono en contenido raw: ${result.sender}`);
+        }
+        
+        // Buscar un posible texto de mensaje
+        const messageMatch = rawContent.match(/(?:"text"|"body"|message|content)["\s:]+["']?([^"'\n,}{]+)["']?/i);
+        if (messageMatch && messageMatch[1]) {
+          result.message = messageMatch[1].trim();
+          console.log(`🔍 Encontrado mensaje en contenido raw: "${result.message}"`);
+        }
+        
+        // Buscar posible ID de mensaje
+        const idMatch = rawContent.match(/(?:"id"|messageId)["\s:]+["']?([^"'\n,}{]+)["']?/i);
+        if (idMatch && idMatch[1]) {
+          result.messageId = idMatch[1].trim();
+          console.log(`🔍 Encontrado ID en contenido raw: ${result.messageId}`);
+        }
+        
+        // Si encontramos al menos el remitente o el mensaje, considerar éxito
+        if (result.sender || result.message) {
+          console.log('✅ Datos extraídos del contenido raw');
+          result.timestamp = new Date();
+          return result;
+        }
+        
+        // Intentar como última opción analizar como JSON (por si acaso)
+        try {
+          const jsonData = JSON.parse(rawContent);
+          console.log('🔍 Pude analizar el contenido raw como JSON, procesándolo normalmente');
+          // Llamar recursivamente con el objeto JSON
+          return extractMessageData(jsonData);
+        } catch (jsonError) {
+          // No es JSON, continuar con otros métodos
+          console.log('⚠️ El contenido raw no es JSON válido, continuando con otros métodos');
+        }
+      } catch (rawError) {
+        console.error('❌ Error al procesar contenido raw:', rawError.message);
+      }
+    }
     
     // MÉTODO 1: Formato estándar de Meta/WhatsApp Business API
     if (body && body.entry && body.entry.length > 0) {
@@ -1333,17 +1383,14 @@ function extractMessageData(body) {
     // Verificar si pudimos extraer los datos necesarios
     if (!result.isStatusUpdate && (!result.sender || !result.message)) {
       console.log(`⚠️ No se pudieron extraer datos completos del mensaje:`, result);
-      logDebug(`⚠️ No se pudieron extraer datos completos del mensaje:`, result);
     } else {
       console.log(`✅ Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}: "${result.message}"`}`);
-      logDebug(`✅ Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}`}`);
     }
     
     return result;
   } catch (error) {
     console.log(`❌ Error extrayendo datos del mensaje: ${error.message}`);
     console.log(`❌ Stack: ${error.stack}`);
-    logDebug(`❌ Error extrayendo datos del mensaje: ${error.message}`);
     return {
       isStatusUpdate: false,
       sender: null,
@@ -1441,12 +1488,15 @@ app.use((req, res, next) => {
     
     // Crear copia de la solicitud original para registro
     const rawBody = [];
-    req.on('data', chunk => rawBody.push(chunk));
+    req.on('data', chunk => {
+      console.log(`📝 CHUNK recibido: ${chunk.toString()}`);
+      rawBody.push(chunk);
+    });
     req.on('end', () => {
       try {
         const bodyBuffer = Buffer.concat(rawBody);
         const bodyText = bodyBuffer.toString();
-        console.log(`📝 Cuerpo Raw: ${bodyText}`);
+        console.log(`📝 Cuerpo Raw COMPLETO: ${bodyText}`);
 
         // Intentar analizar como JSON o form-urlencoded si no se ha analizado aún
         if (!req.body || Object.keys(req.body).length === 0) {
@@ -1455,17 +1505,27 @@ app.use((req, res, next) => {
             
             if (contentType.includes('application/json')) {
               req.body = JSON.parse(bodyText);
+              console.log('✅ Cuerpo parseado como JSON');
             } else if (contentType.includes('application/x-www-form-urlencoded')) {
               req.body = {};
               const params = new URLSearchParams(bodyText);
               for (const [key, value] of params) {
                 req.body[key] = value;
               }
+              console.log('✅ Cuerpo parseado como form-urlencoded');
             }
             
             console.log(`📝 Cuerpo analizado: ${JSON.stringify(req.body)}`);
           } catch (parseError) {
             console.error(`❌ Error al analizar cuerpo: ${parseError.message}`);
+            
+            // Si falla el parse, intentar pasar el cuerpo raw como string
+            req.rawBody = bodyText;
+            if (bodyText && bodyText.length > 0) {
+              // Forzar pase del cuerpo raw a processWebhook
+              req.body = { rawContent: bodyText };
+              console.log('⚠️ Usando cuerpo raw como fallback');
+            }
           }
         }
       } catch (error) {
@@ -1486,6 +1546,26 @@ app.post('/webhook', async (req, res) => {
   if (!req.body || Object.keys(req.body).length === 0) {
     console.error('❌ Cuerpo del webhook vacío o no analizado correctamente');
     console.log('📋 Headers de la solicitud:', req.headers);
+    
+    // Si existe req.rawBody (del middleware), usarlo directamente
+    if (req.rawBody) {
+      console.log('🔄 Usando rawBody del middleware:', req.rawBody.substring(0, 200));
+      let parsedBody = { rawContent: req.rawBody };
+      
+      // Intentar extraer información útil del texto raw
+      try {
+        if (req.rawBody.includes('"type":"message"')) {
+          console.log('✅ Detectado mensaje en contenido raw');
+          // Manejar formato JSON incrustado en el texto
+          parsedBody = JSON.parse(req.rawBody);
+        } 
+      } catch (parseError) {
+        console.error('⚠️ No se pudo analizar el contenido raw como JSON:', parseError.message);
+      }
+      
+      processWebhook(parsedBody, res);
+      return;
+    }
     
     // Intentar leer el cuerpo raw nuevamente
     let rawData = '';
@@ -1513,13 +1593,19 @@ app.post('/webhook', async (req, res) => {
           parsedBody = { rawContent: rawData };
         }
         
-        console.log('📋 Cuerpo parseado manualmente:', JSON.stringify(parsedBody));
+        console.log('📋 Cuerpo parseado manualmente:', JSON.stringify(parsedBody).substring(0, 200));
         
         // Procesar el webhook con los datos parseados manualmente
         processWebhook(parsedBody, res);
       } catch (parseError) {
         console.error('❌ Error al parsear manualmente:', parseError.message);
-        res.status(200).send('OK'); // Responder OK para que GupShup no reintente
+        
+        // Último intento: pasar el cuerpo raw directamente
+        if (rawData && rawData.length > 0) {
+          processWebhook({ rawContent: rawData }, res);
+        } else {
+          res.status(200).send('OK'); // Responder OK para que GupShup no reintente
+        }
       }
     });
     
@@ -1528,7 +1614,7 @@ app.post('/webhook', async (req, res) => {
   
   // Log del tipo de cuerpo para debug
   console.log('📊 Tipo de cuerpo del webhook:', typeof req.body);
-  console.log('📊 Cuerpo del webhook:', JSON.stringify(req.body));
+  console.log('📊 Cuerpo del webhook:', JSON.stringify(req.body).substring(0, 200));
   
   // Procesar el webhook normalmente si el cuerpo existe
   processWebhook(req.body, res);
