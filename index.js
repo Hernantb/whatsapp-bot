@@ -1529,86 +1529,125 @@ app.use((req, res, next) => {
   }
 });
 
+// Función auxiliar para procesar mensajes de texto directamente
+async function handleIncomingTextMessage(sender, message, messageId) {
+  try {
+    console.log(`🔄 Procesando mensaje de texto de ${sender}: "${message}"`);
+    
+    if (!sender || !message) {
+      console.log(`❌ Datos incompletos, se requiere remitente y mensaje`);
+      return false;
+    }
+    
+    // Guardar en Supabase
+    try {
+      await saveMessageToSupabase({
+        sender,
+        message,
+        messageId,
+        timestamp: new Date(),
+      });
+      console.log(`✅ Mensaje guardado en Supabase`);
+    } catch (dbError) {
+      console.error(`❌ Error guardando mensaje en Supabase: ${dbError.message}`);
+      // Continuar aunque falle la base de datos
+    }
+    
+    // Procesar con OpenAI
+    console.log(`🤖 Generando respuesta con OpenAI`);
+    const botResponse = await processMessageWithOpenAI(sender, message);
+    
+    if (!botResponse) {
+      console.log(`⚠️ OpenAI no generó una respuesta`);
+      return false;
+    }
+    
+    // Enviar respuesta
+    console.log(`📱 Enviando respuesta a ${sender}`);
+    await sendWhatsAppResponse(sender, botResponse);
+    
+    console.log(`✅ Mensaje procesado completamente: ${sender}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error en handleIncomingTextMessage: ${error.message}`);
+    console.error(error.stack);
+    return false;
+  }
+}
+
 // Ruta del webhook para WhatsApp
 app.post('/webhook', async (req, res) => {
   try {
-    console.log('📨 Webhook recibido:', JSON.stringify(req.headers));
+    console.log('📨 Webhook recibido:', req.headers);
+    console.log('📝 Datos del webhook:', JSON.stringify(req.body));
     
-    const webhookBody = req.body;
-    console.log('📝 Cuerpo del webhook:', JSON.stringify(webhookBody).substring(0, 300));
-    
-    // Guardar el webhook para depuración
-    global.lastWebhookData = {
-      timestamp: new Date(),
-      headers: req.headers,
-      body: webhookBody,
-      processed: false
-    };
-    
-    // Verificar formato WhatsApp Business API
-    if (webhookBody?.object === 'whatsapp_business_account') {
-      console.log('✅ Formato WhatsApp Business API detectado');
+    // Verificar formato de WhatsApp Business API
+    if (req.body && req.body.object === 'whatsapp_business_account') {
+      console.log('✅ Detectado formato WhatsApp Business API');
       
-      const entries = webhookBody.entry || [];
-      
-      for (const entry of entries) {
-        const changes = entry.changes || [];
+      try {
+        const entries = req.body.entry || [];
         
-        for (const change of changes) {
-          if (change.field === 'messages') {
-            const value = change.value || {};
-            const messages = value.messages || [];
-            
-            for (const message of messages) {
-              if (message.type === 'text' && message.text) {
-                const sender = message.from;
-                const messageText = message.text.body;
-                const messageId = message.id;
-                
-                console.log(`👤 Mensaje de WhatsApp Business API: ${sender} - "${messageText}"`);
-                
-                // Extraer datos básicos y procesar
-                const messageData = {
-                  sender: sender,
-                  message: messageText,
-                  messageId: messageId,
-                  timestamp: new Date()
-                };
-                
-                // Procesar mensaje
-                await handleIncomingMessage(messageData, res);
-                global.lastWebhookData.processed = true;
-              } else {
-                console.log(`⚠️ Mensaje de tipo no soportado: ${message.type}`);
+        for (const entry of entries) {
+          const changes = entry.changes || [];
+          
+          for (const change of changes) {
+            if (change.field === 'messages') {
+              const value = change.value || {};
+              const messages = value.messages || [];
+              
+              for (const message of messages) {
+                if (message.type === 'text' && message.text) {
+                  const sender = message.from;
+                  const messageText = message.text.body;
+                  const messageId = message.id;
+                  
+                  console.log(`✅ Mensaje de WhatsApp: ${sender} - "${messageText}"`);
+                  
+                  // Procesar el mensaje directamente
+                  await handleIncomingTextMessage(sender, messageText, messageId);
+                }
               }
             }
           }
         }
+        
+        return res.status(200).send('EVENT_RECEIVED');
+      } catch (processError) {
+        console.error('❌ Error al procesar webhook de WhatsApp:', processError.message);
+        return res.status(200).send('OK');
       }
-      
-      return res.status(200).send('EVENT_RECEIVED');
-    } 
+    }
     
-    // Extraer datos del webhook usando la función existente
-    const messageData = extractMessageData(webhookBody);
+    // Proceso antiguo para compatibilidad con GupShup
+    console.log('⚠️ Formato no reconocido, intentando extractMessageData');
+    const messageData = extractMessageData(req.body);
     
     if (!messageData) {
-      console.log('⚠️ No se pudieron extraer datos del mensaje');
+      console.log('❌ No se pudieron extraer datos del mensaje');
       return res.status(200).send('OK');
     }
     
-    console.log('📱 Datos extraídos:', JSON.stringify(messageData));
-    global.lastWebhookData.extracted = messageData;
+    console.log(`📱 Datos extraídos: ${JSON.stringify(messageData)}`);
     
-    // Procesar el mensaje
-    await handleIncomingMessage(messageData, res);
-    global.lastWebhookData.processed = true;
+    // Verificar que tenemos todos los datos necesarios
+    if (!messageData.sender || !messageData.message) {
+      console.log('❌ Faltan datos obligatorios (remitente o mensaje)');
+      return res.status(200).send('OK');
+    }
+    
+    // Procesar directamente con nuestra función auxiliar
+    await handleIncomingTextMessage(
+      messageData.sender,
+      messageData.message,
+      messageData.messageId
+    );
     
     return res.status(200).send('OK');
   } catch (error) {
-    console.error('❌ Error al procesar webhook:', error.message);
+    console.error('❌ Error general en webhook:', error.message);
     console.error(error.stack);
-    return res.status(200).send('OK'); // Responder 200 siempre para que GupShup no reintente
+    return res.status(200).send('OK');
   }
 });
 
