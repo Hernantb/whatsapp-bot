@@ -109,9 +109,9 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     
     if (businessId) {
       try {
-        console.log(`🔍 Buscando información del perfil asociado al negocio con ID: ${businessId}`);
+        console.log(`🔍 Buscando información del negocio con ID: ${businessId}`);
         
-        // Primero, obtener el profile_id asociado a este business_id
+        // Primero, obtener datos del negocio
         const { data: businessData, error: businessError } = await supabase
           .from('businesses')
           .select('*')
@@ -128,57 +128,87 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
             businessName = businessData.name;
           }
           
-          // Buscar en la tabla profiles usando el business_id para encontrar el correo
-          console.log(`🔍 Buscando perfil asociado al negocio`);
+          // Verificar si hay un correo directo en el negocio
+          const businessEmailFields = ['email', 'contact_email', 'notification_email', 'business_email', 'admin_email'];
+          for (const field of businessEmailFields) {
+            if (businessData[field] && businessData[field].includes('@')) {
+              businessEmail = businessData[field];
+              console.log(`✉️ Correo encontrado en el negocio (campo '${field}'): ${businessEmail}`);
+              break;
+            }
+          }
           
-          const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('business_id', businessId)
-            .single();
+          // Si no encontramos correo en el negocio, buscar usuarios relacionados con el negocio
+          if (businessEmail === EMAIL_TO_DEFAULT) {
+            console.log(`🔍 Buscando usuarios relacionados con el negocio`);
             
-          if (profileError) {
-            console.error(`❌ Error obteniendo perfil: ${profileError.message}`);
-          } else if (profileData) {
-            console.log(`✅ Datos del perfil obtenidos:`, profileData);
-            
-            // Verificar si hay un correo en el perfil
-            if (profileData.email && profileData.email.includes('@')) {
-              businessEmail = profileData.email;
-              console.log(`✉️ Correo encontrado en perfil: ${businessEmail}`);
-            } else {
-              console.warn(`⚠️ No se encontró correo válido en el perfil del negocio`);
+            // 1. Intentar encontrar owner_id en el negocio
+            if (businessData.owner_id) {
+              const userId = businessData.owner_id;
+              console.log(`🔍 Buscando perfil de usuario con ID: ${userId}`);
               
-              // Intentar buscar en otros campos del perfil
-              const possibleEmailFields = ['contact_email', 'notification_email', 'business_email', 'admin_email'];
-              for (const field of possibleEmailFields) {
-                if (profileData[field] && profileData[field].includes('@')) {
-                  businessEmail = profileData[field];
-                  console.log(`✉️ Correo encontrado en campo '${field}' del perfil: ${businessEmail}`);
-                  break;
-                }
+              const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', userId)
+                .single();
+                
+              if (profileError) {
+                console.error(`❌ Error obteniendo perfil por owner_id: ${profileError.message}`);
+              } else if (profileData && profileData.email) {
+                businessEmail = profileData.email;
+                console.log(`✉️ Correo encontrado en el perfil del propietario: ${businessEmail}`);
               }
+            }
+            
+            // 2. Si aún no tenemos correo, buscar en la tabla users_businesses
+            if (businessEmail === EMAIL_TO_DEFAULT) {
+              console.log(`🔍 Buscando en tabla de relaciones users_businesses`);
               
-              // También buscar en el negocio por si acaso
-              const businessEmailFields = ['email', 'contact_email', 'notification_email', 'business_email', 'admin_email'];
-              for (const field of businessEmailFields) {
-                if (businessData[field] && businessData[field].includes('@')) {
-                  businessEmail = businessData[field];
-                  console.log(`✉️ Correo encontrado en campo '${field}' del negocio: ${businessEmail}`);
-                  break;
+              const { data: usersBusinesses, error: relError } = await supabase
+                .from('users_businesses')
+                .select('user_id')
+                .eq('business_id', businessId)
+                .order('created_at', { ascending: false })
+                .limit(1);
+                
+              if (relError) {
+                console.error(`❌ Error buscando en users_businesses: ${relError.message}`);
+              } else if (usersBusinesses && usersBusinesses.length > 0) {
+                const userId = usersBusinesses[0].user_id;
+                console.log(`🔍 Encontrado usuario relacionado con ID: ${userId}`);
+                
+                // Buscar el perfil de este usuario
+                const { data: userData, error: userError } = await supabase
+                  .from('profiles')
+                  .select('*')
+                  .eq('id', userId)
+                  .single();
+                  
+                if (userError) {
+                  console.error(`❌ Error obteniendo perfil de usuario: ${userError.message}`);
+                } else if (userData && userData.email) {
+                  businessEmail = userData.email;
+                  console.log(`✉️ Correo encontrado en el perfil del usuario asociado: ${businessEmail}`);
                 }
               }
             }
-          } else {
-            console.warn(`⚠️ No se encontró perfil para el negocio con ID: ${businessId}`);
             
-            // Intentar buscar directamente en la tabla businesses
-            const businessEmailFields = ['email', 'contact_email', 'notification_email', 'business_email', 'admin_email'];
-            for (const field of businessEmailFields) {
-              if (businessData[field] && businessData[field].includes('@')) {
-                businessEmail = businessData[field];
-                console.log(`✉️ Correo encontrado en campo '${field}' del negocio: ${businessEmail}`);
-                break;
+            // 3. Intentar buscar directamente en la tabla auth.users
+            if (businessEmail === EMAIL_TO_DEFAULT) {
+              // Consultar estructura de tabla
+              console.log(`🔍 Examinando estructura de tabla auth.users`);
+              const { data: authUsersData, error: authError } = await supabase
+                .from('users')
+                .select('email')
+                .eq('business_id', businessId)
+                .limit(1);
+                
+              if (!authError && authUsersData && authUsersData.length > 0) {
+                businessEmail = authUsersData[0].email;
+                console.log(`✉️ Correo encontrado en auth.users: ${businessEmail}`);
+              } else {
+                console.log(`📋 No se encontró correo en auth.users o la tabla no existe`);
               }
             }
           }
