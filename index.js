@@ -296,8 +296,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware para opciones preflight
-app.options('*', cors(corsOptions));
+// Middleware para opciones preflight - CORREGIDO
+app.options('*', cors());
 
 // Middleware para logs detallados
 app.use((req, res, next) => {
