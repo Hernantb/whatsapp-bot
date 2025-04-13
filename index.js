@@ -3059,53 +3059,36 @@ async function sendBusinessNotification(conversationId, botMessage, clientPhoneN
 // Test endpoint for notification detection
 app.get('/test-notification-detection', (req, res) => {
   try {
-    const message = req.query.message || 'no puedo ayudarte con eso';
-    console.log(`🔍 Probando detección de notificación con mensaje: "${message}"`);
+    // Construir un mensaje de prueba
+    const testBody = {
+      app: "IPPBX",
+      timestamp: Date.now(),
+      type: "notification",
+      payload: {
+        type: "incoming",
+        destination: "1588XXXXXXX",
+        source: "15557033313",
+        text: "Este es un mensaje de prueba de detección de notificaciones desde el servidor",
+        notification_type: "test"
+      }
+    };
     
-    // Check if our notification module is loaded correctly
-    if (!global.checkForNotificationPhrases) {
-      console.error('❌ Error: Función checkForNotificationPhrases no está disponible globalmente');
-      return res.status(500).json({
-        error: 'Módulo de notificaciones no cargado correctamente',
-        availableFunctions: Object.keys(global).filter(key => typeof global[key] === 'function')
-      });
-    }
+    // Procesar como si fuera un webhook
+    const result = processWebhookData(testBody);
     
-    // Analyze the message
-    const analysis = global.checkForNotificationPhrases(message);
-    console.log('✅ Análisis completado:', analysis);
-    
-      return res.json({
-        success: true,
-      message: 'Análisis completado',
-      analysis,
-      notificationModuleLoaded: !!global.notificationModule,
-      availableFunctions: global.notificationModule ? Object.keys(global.notificationModule) : []
-      });
-    } catch (error) {
-    console.error(`❌ Error en test de notificación: ${error.message}`);
-      return res.status(500).json({
-        success: false,
+    res.status(200).json({
+      success: true,
+      message: "Prueba de detección de notificación ejecutada",
+      result: result
+    });
+  } catch (error) {
+    console.error("Error en prueba de notificación:", error);
+    res.status(500).json({
+      success: false,
       error: error.message,
       stack: error.stack
     });
   }
-});
-
-// Start the server
-app.listen(PORT, () => {
-  // En entorno de producción, mostrar un mensaje adecuado
-  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
-    console.log(`🚀 Servidor WhatsApp Bot iniciado en puerto ${PORT}`);
-    console.log(`🌐 Ambiente de producción detectado en Render`);
-  } else {
-    console.log(`🚀 Servidor WhatsApp Bot iniciado en http://localhost:${PORT}`);
-  }
-  
-  console.log(`📡 Endpoints disponibles:`);
-  console.log(` - /api/status: Estado del servidor`);
-  console.log(` - /api/send-manual-message: Envío manual de mensajes`);
-  console.log(` - /test-notification-detection: Probar detección de notificaciones`);
 });
 
 // ... existing code ...
