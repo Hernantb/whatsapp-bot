@@ -3152,22 +3152,6 @@ app.get('/test-notification-detection', (req, res) => {
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
-  // En entorno de producción, mostrar un mensaje adecuado
-  if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
-    console.log(`🚀 Servidor WhatsApp Bot iniciado en puerto ${PORT}`);
-    console.log(`🌐 Ambiente de producción detectado en Render`);
-  } else {
-    console.log(`🚀 Servidor WhatsApp Bot iniciado en http://localhost:${PORT}`);
-  }
-  
-  console.log(`📡 Endpoints disponibles:`);
-  console.log(` - /api/status: Estado del servidor`);
-  console.log(` - /api/send-manual-message: Envío manual de mensajes`);
-  console.log(` - /test-notification-detection: Probar detección de notificaciones`);
-});
-
 // ... existing code ...
 // Línea aproximadamente 372
 global.__openaiCache = {};
@@ -3183,62 +3167,112 @@ function startServer(port) {
   try {
     console.log(`🚀 Intentando iniciar el servidor en puerto ${serverPort}...`);
     
-    const server = app.listen(serverPort, () => {
-      // En entorno de producción, mostrar un mensaje adecuado
-      if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
-        console.log(`✅ Servidor WhatsApp Bot iniciado en puerto ${serverPort}`);
-        console.log(`🌐 Ambiente de producción detectado en Render`);
-      } else {
-        console.log(`✅ Servidor WhatsApp Bot iniciado en http://localhost:${serverPort}`);
-      }
+    // En Render, intentar detectar y manejar puertos ocupados
+    if (process.env.RENDER === 'true') {
+      const alternativePorts = [10000, 8080, 4000, 5000];
       
-      console.log(`📡 Endpoints disponibles:`);
-      console.log(` - /status: Estado del servidor`);
-      console.log(` - /diagnostico: Diagnóstico del sistema`);
-      console.log(` - /api/send-manual-message: Envío manual de mensajes`);
-      console.log(` - /test-message: Endpoint de prueba para mensajes`);
-      console.log(` - /test-notification: Endpoint para probar notificaciones`);
-    }).on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(`❌ Error: Puerto ${serverPort} ya está en uso`);
-        
-        // Intentar con un puerto alternativo
-        const alternativePort = parseInt(serverPort) + 1000;
-        console.log(`🔄 Intentando con puerto alternativo: ${alternativePort}`);
-        
-        // Llamada recursiva con el nuevo puerto
-        startServer(alternativePort);
-      } else {
-        console.error(`❌ Error fatal al iniciar servidor: ${err.message}`);
-        console.error(err.stack);
-        
-        // En producción, registrar el error y intentar una vez más
-        if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
-          const fallbackPort = 8080;
-          console.log(`🆘 Último intento con puerto de emergencia: ${fallbackPort}`);
-          
-          try {
-            app.listen(fallbackPort, () => {
-              console.log(`✅ [RECUPERACIÓN] Servidor iniciado en puerto de emergencia ${fallbackPort}`);
-            }).on('error', (finalError) => {
-              console.error(`💥 Error fatal en intento de recuperación: ${finalError.message}`);
-              process.exit(1); // Terminar si falla el último intento
-            });
-          } catch (finalError) {
-            console.error(`💥 Error catastrófico: ${finalError.message}`);
-            process.exit(1);
+      console.log(`🔍 Ambiente Render detectado - Configurando para usar puertos alternativos si es necesario`);
+      
+      const server = app.listen(serverPort)
+        .on('error', (err) => {
+          if (err.code === 'EADDRINUSE') {
+            console.error(`❌ Error: Puerto ${serverPort} ya está en uso en Render`);
+            
+            // Intentar con puertos alternativos
+            let tried = false;
+            for (const altPort of alternativePorts) {
+              if (!tried) {
+                tried = true;
+                console.log(`🔄 Intentando con puerto alternativo en Render: ${altPort}`);
+                
+                try {
+                  const altServer = app.listen(altPort, () => {
+                    console.log(`✅ [RECUPERACIÓN] Servidor iniciado en puerto alternativo ${altPort}`);
+                    
+                    if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+                      console.log(`🌐 Ambiente de producción detectado en Render`);
+                    }
+                    
+                    console.log(`📡 Endpoints disponibles:`);
+                    console.log(` - /webhook: Webhook principal de WhatsApp`);
+                    console.log(` - /status: Estado del servidor`);
+                    console.log(` - /diagnostico: Diagnóstico del sistema`);
+                  });
+                  
+                  return altServer;
+                } catch (altPortError) {
+                  console.error(`❌ Error en puerto alternativo ${altPort}: ${altPortError.message}`);
+                }
+              }
+            }
+            
+            // Si todos los puertos alternativos fallan
+            console.error(`💥 No se pudo iniciar en ningún puerto alternativo`);
+            return null;
+          } else {
+            // Otros errores
+            console.error(`❌ Error al iniciar servidor: ${err.message}`);
+            console.error(err.stack);
+            return null;
           }
+        })
+        .on('listening', () => {
+          console.log(`✅ Servidor WhatsApp Bot iniciado en puerto ${serverPort}`);
+          
+          if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+            console.log(`🌐 Ambiente de producción detectado en Render`);
+          } else {
+            console.log(`✅ Servidor WhatsApp Bot iniciado en http://localhost:${serverPort}`);
+          }
+          
+          console.log(`📡 Endpoints disponibles:`);
+          console.log(` - /webhook: Webhook principal de WhatsApp`);
+          console.log(` - /status: Estado del servidor`);
+          console.log(` - /diagnostico: Diagnóstico del sistema`);
+        });
+      
+      return server;
+    } else {
+      // Comportamiento normal para entornos que no son Render
+      const server = app.listen(serverPort, () => {
+        // En entorno de producción, mostrar un mensaje adecuado
+        if (process.env.NODE_ENV === 'production') {
+          console.log(`✅ Servidor WhatsApp Bot iniciado en puerto ${serverPort}`);
+          console.log(`🌐 Ambiente de producción detectado`);
+        } else {
+          console.log(`✅ Servidor WhatsApp Bot iniciado en http://localhost:${serverPort}`);
         }
-      }
-    });
-    
-    return server;
+        
+        console.log(`📡 Endpoints disponibles:`);
+        console.log(` - /status: Estado del servidor`);
+        console.log(` - /diagnostico: Diagnóstico del sistema`);
+        console.log(` - /api/send-manual-message: Envío manual de mensajes`);
+        console.log(` - /test-message: Endpoint de prueba para mensajes`);
+        console.log(` - /test-notification: Endpoint para probar notificaciones`);
+      }).on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(`❌ Error: Puerto ${serverPort} ya está en uso`);
+          
+          // Intentar con un puerto alternativo
+          const alternativePort = parseInt(serverPort) + 1000;
+          console.log(`🔄 Intentando con puerto alternativo: ${alternativePort}`);
+          
+          // Llamada recursiva con el nuevo puerto
+          startServer(alternativePort);
+        } else {
+          console.error(`❌ Error fatal al iniciar servidor: ${err.message}`);
+          console.error(err.stack);
+        }
+      });
+      
+      return server;
+    }
   } catch (err) {
     console.error(`❌ Error inesperado al iniciar servidor: ${err.message}`);
     console.error(err.stack);
     
     // En producción, intentar una vez más
-    if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+    if (process.env.NODE_ENV === 'production') {
       const emergencyPort = 9090;
       console.log(`🚨 Intento de emergencia en puerto: ${emergencyPort}`);
       
@@ -3248,9 +3282,11 @@ function startServer(port) {
         });
       } catch (emergencyError) {
         console.error(`💥 Error en recuperación de emergencia: ${emergencyError.message}`);
-        process.exit(1);
+        return null;
       }
     }
+    
+    return null;
   }
 }
 
