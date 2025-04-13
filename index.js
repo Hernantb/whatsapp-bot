@@ -1312,7 +1312,8 @@ module.exports = {
 };
 
 // Iniciar el servidor en el puerto especificado
-app.listen(PORT, async () => {
+// COMENTADO PARA EVITAR EADDRINUSE
+// app.listen(PORT, async () => {
   console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
   console.log(`🤖 Bot conectado al panel: ${CONTROL_PANEL_URL}`);
   
@@ -1368,7 +1369,7 @@ app.listen(PORT, async () => {
   } catch (e) {
     console.error('❌ Error en inicialización de mapeos:', e.message);
   }
-});
+// });
 
 // Webhook para recibir mensajes de WhatsApp
 app.post('/webhook', async (req, res) => {
