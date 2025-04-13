@@ -237,20 +237,50 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 // Configuración express
 const app = express();
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
 
-// Configurar CORS
-const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'https://whatsapp-mern-front.vercel.app'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204,
-  exposedHeaders: ['Access-Control-Allow-Origin', 'Access-Control-Allow-Credentials']
-};
-app.use(cors(corsOptions));
+// Configuración de middleware para Express
+app.use(cors());
+
+// Middleware especial para capturar el cuerpo bruto de solicitudes POST
+// DEBE ESTAR ANTES DE express.json() y express.urlencoded()
+app.use((req, res, next) => {
+  if (req.method === 'POST') {
+    let rawData = '';
+    req.on('data', chunk => {
+      rawData += chunk.toString();
+      console.log(`⚡ CHUNK RECIBIDO (${chunk.length} bytes): ${rawData.length} bytes acumulados`);
+    });
+    
+    req.on('end', () => {
+      if (rawData) {
+        console.log(`⚡ DATOS RAW COMPLETOS (${rawData.length} bytes):`);
+        console.log(rawData);
+        
+        // Guardar el cuerpo bruto en req para su uso posterior
+        req.rawBody = rawData;
+        
+        // Intentar parsear como JSON
+        try {
+          if (rawData.trim().startsWith('{') && rawData.trim().endsWith('}')) {
+            req.parsedRawBody = JSON.parse(rawData);
+            console.log('⚡ Datos parseados como JSON');
+          }
+        } catch (err) {
+          console.log('⚡ No se pudo parsear como JSON:', err.message);
+        }
+      } else {
+        console.log('⚡ No se recibieron datos en el cuerpo');
+      }
+      next();
+    });
+  } else {
+    next();
+  }
+});
+
+// Después de capturar el cuerpo raw, continuar con los middlewares normales
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Variable global para activar modo debug
 const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || process.env.NODE_ENV === 'development';
@@ -1538,56 +1568,52 @@ app.use((req, res, next) => {
   }
 });
 
-// Endpoint /webhook principal
+// Ruta del webhook para WhatsApp
 app.post('/webhook', async (req, res) => {
-  try {
-    console.log('[WEBHOOK] Procesando webhook POST...');
+  console.log('📨 Webhook recibido - Headers:', JSON.stringify(req.headers));
+  
+  let webhookBody = req.body;
+  
+  // Verificar si hay datos en formato raw en la solicitud
+  if (!webhookBody || Object.keys(webhookBody).length === 0) {
+    console.log('⚠️ Cuerpo de solicitud vacío, intentando acceder al cuerpo sin procesar');
     
-    // Si el cuerpo ya ha sido procesado por el middleware, usarlo
-    const webhookBody = req.body;
-    
-    if (!webhookBody || Object.keys(webhookBody).length === 0) {
-      console.error('❌ [WEBHOOK] Cuerpo vacío después del middleware');
+    if (req.rawBody) {
+      console.log('🔍 Datos sin procesar disponibles, longitud:', req.rawBody.length);
+      
+      // Intentar interpretar como JSON
+      try {
+        webhookBody = JSON.parse(req.rawBody);
+        console.log('✅ Cuerpo analizado como JSON correctamente');
+      } catch (e) {
+        console.log('⚠️ No es JSON válido, intentando como URLSearchParams');
+        
+        // Intentar interpretar como URL encoded data
+        try {
+          const params = new URLSearchParams(req.rawBody.toString());
+          webhookBody = {};
+          
+          // Convertir URLSearchParams a objeto
+          for (const [key, value] of params.entries()) {
+            webhookBody[key] = value;
+          }
+          
+          console.log('✅ Datos interpretados como URLSearchParams:', JSON.stringify(webhookBody).substring(0, 200));
+        } catch (err) {
+          console.error('❌ No se pudo interpretar el cuerpo de la solicitud:', err.message);
+          console.log('📝 Cuerpo sin procesar (primeros 200 caracteres):', req.rawBody.toString().substring(0, 200));
+          return res.status(200).send('OK');
+        }
+      }
+    } else {
+      console.log('❌ No hay datos disponibles para procesar');
       return res.status(200).send('OK');
     }
-    
-    console.log('[WEBHOOK] Tipo de cuerpo:', typeof webhookBody);
-    console.log('[WEBHOOK] Extracto del cuerpo:', 
-      typeof webhookBody === 'object' 
-        ? JSON.stringify(webhookBody).substring(0, 200) 
-        : webhookBody.substring(0, 200)
-    );
-    
-    // Procesar el webhook
-    processWebhook(webhookBody, res);
-  } catch (error) {
-    console.error('❌ [WEBHOOK] Error en endpoint principal:', error.message);
-    res.status(200).send('OK'); // Responder OK para que GupShup no reintente
   }
+  
+  // Procesar el webhook con los datos disponibles
+  processWebhook(webhookBody, res);
 });
-
-// Función para procesar webhooks después de asegurar que el cuerpo esté correctamente parseado
-function processWebhook(webhookBody, res) {
-  try {
-    console.log('🔍 Procesando webhook con datos:', JSON.stringify(webhookBody).substring(0, 200));
-    
-    // Extraer los datos del mensaje utilizando la función existente
-    const messageData = extractMessageData(webhookBody);
-    
-    if (!messageData) {
-      console.log('⚠️ No se pudieron extraer datos del mensaje');
-      return res.status(200).send('OK');
-    }
-    
-    console.log('📱 Datos extraídos del webhook:', JSON.stringify(messageData));
-    
-    // Continuar con el procesamiento del webhook como antes
-    handleIncomingMessage(messageData, res);
-  } catch (error) {
-    console.error('❌ Error al procesar webhook:', error.message);
-    res.status(200).send('OK'); // Siempre responder OK para que GupShup no reintente
-  }
-}
 
 // Endpoint para enviar un mensaje a WhatsApp
 app.post('/api/messages', async (req, res) => {
