@@ -32,6 +32,9 @@ const path = require('path');
 const cors = require('cors');
 const OpenAI = require('openai');
 
+// Importar módulo de notificaciones
+const notificationModule = require('./notification-patch');
+
 // Importar Supabase
 const { createClient } = require('@supabase/supabase-js');
 
@@ -723,50 +726,78 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
       
       messageRecord = data;
       console.log(`✅ Mensaje guardado en Supabase con ID: ${messageRecord.id}`);
-    } catch (supabaseError) {
-      // Alternativa: usar el servicio REST del panel para guardar el mensaje
-      console.error(`❌ Error al guardar mensaje en Supabase: ${supabaseError.message}`);
-      console.error(`  Status: ${supabaseError.status || 'N/A'}`);
-      console.error(`  Data: ${JSON.stringify(supabaseError.data || {})}`);
-      
-      console.error(`❌ Error guardando en Supabase, intentando con el servidor: ${supabaseError.message}`);
+    } catch (saveError) {
+      // Alternativa: Usar API REST
+      console.log(`🔄 Intentando alternativa: API REST`);
       
       try {
-        // Intentar usando la API del panel
-        const serverResponse = await axios.post(
-          CONTROL_PANEL_URL,
-          {
-            conversationId: conversationRecord.id,
-            content: message,
-            senderType: sender_type,
-            businessId: business_id
-          },
-          {
-            headers: { 'Content-Type': 'application/json' }
-          }
-        );
+        // Intentar con API REST
+        const payload = {
+          conversationId: conversationRecord.id,
+          message,
+          sender_type
+        };
         
-        console.log(`✅ Mensaje enviado correctamente al servidor: ${serverResponse.status}`);
-        messageRecord = serverResponse.data;
-      } catch (serverError) {
-        console.error(`❌ Error al guardar el mensaje en el servidor: ${serverError.message}`);
-        return { success: false, error: serverError.message };
+        const response = await axios.post(CONTROL_PANEL_URL, payload);
+        console.log(`✅ Mensaje guardado vía API REST: ${response.status}`);
+        
+        messageRecord = {
+          id: response.data?.id || 'unknown',
+          conversation_id: conversationRecord.id,
+          content: message,
+          sender_type: sender_type
+        };
+      } catch (restError) {
+        console.error(`❌ Error también con API REST: ${restError.message}`);
+        // No detenemos la ejecución, seguimos con el flujo aunque no se haya podido guardar
       }
     }
     
-    // 3. Actualizar la última actividad de la conversación
+    // 3. Actualizar timestamp de última actividad
     try {
-      await updateConversationLastActivity(conversationRecord.id, message);
-      console.log(`✅ Última actividad de conversación actualizada`);
-    } catch (updateError) {
-      console.warn(`⚠️ Error al actualizar actividad de conversación: ${updateError.message}`);
-      // No fallar por esto, ya tenemos el mensaje guardado
+      const { error: updateError } = await supabase
+        .from('conversations')
+        .update({
+          last_message: message.substring(0, 100),
+          last_message_time: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', conversationRecord.id);
+      
+      if (updateError) {
+        console.warn(`⚠️ Error actualizando timestamp: ${updateError.message}`);
+      } else {
+        console.log(`✅ Timestamp de conversación actualizado`);
+      }
+    } catch (timeError) {
+      console.warn(`⚠️ Error en actualización de timestamp: ${timeError.message}`);
     }
     
-    // 4. Devolver resultado exitoso
-    return { 
-      success: true, 
-      id: messageRecord?.id, 
+    // 4. Si es un mensaje de bot, verificar si contiene frases que requieren notificación
+    if (sender_type === 'bot' && notificationModule) {
+      try {
+        console.log(`🔔 Verificando si el mensaje del bot requiere notificación...`);
+        const phoneNumber = conversationRecord.user_id || conversationIdToPhoneMap[conversationRecord.id];
+        
+        const notificationResult = await notificationModule.processMessageForNotification(
+          message,
+          conversationRecord.id,
+          phoneNumber
+        );
+        
+        if (notificationResult.requiresNotification) {
+          console.log(`✅ Se requiere notificación - Enviada: ${notificationResult.notificationSent}`);
+        } else {
+          console.log(`ℹ️ No se requiere enviar notificación para este mensaje`);
+        }
+      } catch (notifError) {
+        console.error(`❌ Error procesando notificación: ${notifError.message}`);
+      }
+    }
+    
+    return {
+      success: true,
+      id: messageRecord?.id || 'unknown',
       message: 'Mensaje guardado correctamente',
       conversationId: conversationRecord.id
     };
@@ -961,36 +992,44 @@ async function processMessageWithOpenAI(sender, message, conversationId) {
     }
 }
 
-// Función para enviar respuesta a WhatsApp
+// Función para enviar mensajes de WhatsApp usando GupShup
 async function sendWhatsAppResponse(recipient, message) {
     try {
-        console.log(`📤 Enviando respuesta a ${recipient}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
-
         if (!recipient || !message) {
-            console.log('❌ Error: destinatario o mensaje faltantes');
-            return false;
-        }
-
-        // Formatear el número (eliminar + al principio si existe)
-        const formattedNumber = recipient.startsWith('+') 
-            ? recipient.substring(1) 
-            : recipient;
-        
-        // Verificar que el número contenga solo dígitos
-        if (!/^\d+$/.test(formattedNumber)) {
-            console.log(`❌ Número inválido: ${formattedNumber}`);
+            console.error('❌ Faltan parámetros para enviar mensaje');
             return false;
         }
         
-        // API v1 de GupShup - Método que funciona
+        if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER || !GUPSHUP_USERID) {
+            console.error('❌ Error: Faltan credenciales GupShup (API_KEY, NUMBER o USERID). No se puede enviar el mensaje.');
+            return false;
+        }
+        
+        // Corregir números de teléfono que empiezan con 52 o +52 (México) y no tienen el formato correcto
+        let formattedNumber = recipient.toString();
+        if (!formattedNumber.startsWith('52') && !formattedNumber.startsWith('+52')) {
+            // Validar que es número de México (10 dígitos que empiezan con 5)
+            if (/^[1-9]\d{9}$/.test(formattedNumber) || 
+                formattedNumber.length === 10 && formattedNumber.startsWith('5')) {
+                formattedNumber = '52' + formattedNumber;
+                console.log(`📱 Número corregido a formato México: ${formattedNumber}`);
+            }
+        } else if (formattedNumber.startsWith('+')) {
+            // Quitar el + para compatibilidad con GupShup
+            formattedNumber = formattedNumber.substring(1);
+            console.log(`📱 Formato corregido sin +: ${formattedNumber}`);
+        }
+        
+        // Asegurar valores obligatorios para GupShup
+        const apiKey = GUPSHUP_API_KEY;
         const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
-        const apiKey = GUPSHUP_API_KEY; // Enviamos la API key completa con prefijo
         const source = GUPSHUP_NUMBER;
         
-        console.log(`🔑 Usando API Key: ${apiKey}`);
-        console.log(`📱 Usando número completo en GupShup: ${GUPSHUP_NUMBER}`);
-        console.log(`📱 Hacia número: ${formattedNumber}`);
+        console.log('📤 Enviando mensaje a GupShup:');
+        console.log(`📞 Destino: ${formattedNumber}`);
+        console.log(`💬 Mensaje: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
         
+        // Formato del cuerpo de la solicitud (similar a FormData pero como URLSearchParams)
         const formData = new URLSearchParams();
         formData.append('channel', 'whatsapp');
         formData.append('source', source);
@@ -1019,17 +1058,46 @@ async function sendWhatsAppResponse(recipient, message) {
             if (response.status >= 200 && response.status < 300) {
                 console.log('✅ Mensaje enviado exitosamente a WhatsApp');
                 
+                // Obtener el ID de la conversación correspondiente al número de teléfono
+                let conversationId = phoneToConversationMap[recipient];
+                
                 // Guardar mensaje en la base de datos
                 try {
-                    await global.registerBotResponse(
+                    const saveResult = await global.registerBotResponse(
                         recipient,
                         message,
                         BUSINESS_ID, 
                         'bot'
                     );
-                    console.log('✅ Mensaje del bot guardado en Supabase');
+                    
+                    if (saveResult && saveResult.success) {
+                        console.log('✅ Mensaje del bot guardado en Supabase');
+                        conversationId = saveResult.conversationId || conversationId;
+                    } else {
+                        console.warn(`⚠️ No se pudo guardar el mensaje en Supabase: ${saveResult?.error || 'Error desconocido'}`);
+                    }
                 } catch (dbError) {
                     console.log(`⚠️ Error guardando mensaje en Supabase: ${dbError.message}`);
+                }
+                
+                // Verificar si el mensaje del bot requiere enviar notificación
+                if (notificationModule && conversationId) {
+                    console.log(`🔍 Verificando si el mensaje requiere notificación...`);
+                    try {
+                        const notificationResult = await notificationModule.processMessageForNotification(
+                            message,
+                            conversationId,
+                            recipient
+                        );
+                        
+                        if (notificationResult.requiresNotification) {
+                            console.log(`✅ Se ha enviado una notificación por correo: ${notificationResult.notificationSent}`);
+                        } else {
+                            console.log(`ℹ️ El mensaje no requiere envío de notificación`);
+                        }
+                    } catch (notificationError) {
+                        console.error(`❌ Error al procesar notificación: ${notificationError.message}`);
+                    }
                 }
                 
                 return true;
@@ -1249,33 +1317,56 @@ app.listen(PORT, async () => {
     }
   }
   
-  // Cargar mapeos iniciales
-  console.log('🔄 Inicializando mapeos y estados...');
+  // Verificar conexión con Supabase
   try {
-    // Cargar todos los mapeos de números telefónicos a conversaciones
-    await updateConversationMappings();
+    console.log('🔄 Verificando conexión con Supabase...');
+    const { data, error } = await supabase.from('conversations').select('id').limit(1);
     
-    // Actualizar estado de bots activos para tener una caché inicial
-    console.log('🔄 Cargando estados de bot activo...');
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('id, user_id, is_bot_active')
-      .eq('business_id', BUSINESS_ID);
-    
-    if (!error && data && data.length > 0) {
-      data.forEach(conv => {
-        if (conv.user_id) {
-          senderBotStatusMap[conv.user_id] = conv.is_bot_active;
-          console.log(`ℹ️ Bot para ${conv.user_id}: ${conv.is_bot_active ? 'ACTIVO' : 'INACTIVO'}`);
-        }
-      });
-      console.log(`✅ Estados de bot cargados para ${Object.keys(senderBotStatusMap).length} conversaciones`);
-    } else if (error) {
-      console.warn('⚠️ Error al cargar estados iniciales de bots:', error.message);
+    if (error) {
+      console.error('❌ Error de conexión a Supabase:', error.message);
+      console.warn('⚠️ Asegúrate de que las credenciales de Supabase son correctas');
+    } else {
+      console.log('✅ Conexión a Supabase verificada correctamente');
+      
+      // Cargar mapeos iniciales
+      console.log('🔄 Inicializando mapeos y estados...');
+      await updateConversationMappings();
     }
-  } catch (e) {
-    console.error('❌ Error en inicialización de mapeos:', e.message);
+  } catch (error) {
+    console.error('❌ Error crítico al verificar conexión con Supabase:', error.message);
   }
+  
+  // Verificar módulo de notificaciones
+  if (notificationModule) {
+    console.log('📧 Verificando módulo de notificaciones...');
+    
+    if (typeof notificationModule.processMessageForNotification === 'function') {
+      console.log('✅ Módulo de notificaciones cargado correctamente');
+      
+      // Verificar las frases de notificación
+      if (notificationModule.checkForNotificationPhrases) {
+        console.log('📝 Frases que generan notificaciones:');
+        const testPhrases = [
+          "¡Perfecto! tu cita ha sido confirmada para mañana",
+          "Te llamará un asesor",
+          "Una persona te contactará"
+        ];
+        
+        for (const phrase of testPhrases) {
+          const requiresNotification = notificationModule.checkForNotificationPhrases(phrase);
+          console.log(`  - "${phrase}": ${requiresNotification ? '✅ Notifica' : '❌ No notifica'}`);
+        }
+      } else {
+        console.warn('⚠️ El módulo no expone la función checkForNotificationPhrases');
+      }
+    } else {
+      console.warn('⚠️ El módulo de notificaciones no expone la función processMessageForNotification');
+    }
+  } else {
+    console.warn('⚠️ Módulo de notificaciones no disponible');
+  }
+  
+  console.log('🤖 Bot WhatsApp listo y funcionando');
 });
 
 // Webhook para recibir mensajes de WhatsApp
