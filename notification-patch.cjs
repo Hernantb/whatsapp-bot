@@ -8,12 +8,12 @@ const { supabase } = require('./supabase-config.cjs');
 // Configuración para envío de correos
 const EMAIL_USER = process.env.EMAIL_USER || 'bexorai@gmail.com';
 const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD;
-const EMAIL_TO = process.env.EMAIL_TO || 'bexorai@gmail.com';
+const EMAIL_TO_DEFAULT = process.env.EMAIL_TO || 'bexorai@gmail.com';
 
 // Verificar configuración
 console.log(`📧 Configuración de notificaciones por correo:`);
 console.log(`📧 Correo remitente: ${EMAIL_USER}`);
-console.log(`📧 Correo destinatario: ${EMAIL_TO}`);
+console.log(`📧 Correo destinatario predeterminado: ${EMAIL_TO_DEFAULT}`);
 console.log(`📧 Contraseña configurada: ${EMAIL_APP_PASSWORD ? '✅ SÍ' : '❌ NO'}`);
 
 // Configurar transport de correo
@@ -80,37 +80,69 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     
     // Si no tenemos el número de teléfono, intentar obtenerlo de la base de datos
     let clientPhone = phoneNumber;
+    let businessId = null;
     
-    if (!clientPhone) {
+    if (!clientPhone || !businessId) {
       try {
-        // Obtener el número de teléfono del cliente desde Supabase
+        // Obtener información de la conversación desde Supabase
         const { data, error } = await supabase
           .from('conversations')
-          .select('phone_number')
+          .select('phone_number, user_id, business_id')
           .eq('id', conversationId)
           .single();
         
         if (error) {
-          console.error(`❌ Error obteniendo número de teléfono: ${error.message}`);
+          console.error(`❌ Error obteniendo datos de conversación: ${error.message}`);
         } else if (data) {
-          clientPhone = data.phone_number;
-          console.log(`📱 Número de teléfono obtenido de la base de datos: ${clientPhone}`);
+          clientPhone = data.phone_number || data.user_id;
+          businessId = data.business_id;
+          console.log(`📱 Datos obtenidos de la base de datos: teléfono=${clientPhone}, negocioId=${businessId}`);
         }
       } catch (dbError) {
         console.error(`❌ Error consultando la base de datos: ${dbError.message}`);
       }
     }
     
+    // Obtener el correo del negocio según el business_id
+    let businessEmail = EMAIL_TO_DEFAULT;
+    
+    if (businessId) {
+      try {
+        console.log(`🔍 Buscando correo del negocio con ID: ${businessId}`);
+        const { data: businessData, error: businessError } = await supabase
+          .from('businesses')
+          .select('email, name')
+          .eq('id', businessId)
+          .single();
+        
+        if (businessError) {
+          console.error(`❌ Error obteniendo correo del negocio: ${businessError.message}`);
+        } else if (businessData && businessData.email) {
+          businessEmail = businessData.email;
+          console.log(`✉️ Correo del negocio obtenido: ${businessEmail} (${businessData.name})`);
+        } else {
+          console.warn(`⚠️ No se encontró correo para el negocio con ID: ${businessId}`);
+        }
+      } catch (businessDbError) {
+        console.error(`❌ Error consultando información del negocio: ${businessDbError.message}`);
+      }
+    } else {
+      console.warn(`⚠️ No se encontró ID de negocio para la conversación: ${conversationId}`);
+    }
+    
     // Enviar notificación por correo
     const notificationSent = await sendBusinessNotification(
       message,
       conversationId,
-      clientPhone
+      clientPhone,
+      businessEmail,
+      businessId
     );
     
     return {
       requiresNotification: true,
-      notificationSent
+      notificationSent,
+      businessEmail
     };
   } catch (error) {
     console.error(`❌ Error en processMessageForNotification: ${error.message}`);
@@ -127,9 +159,11 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
  * @param {string} message - El mensaje del bot
  * @param {string} conversationId - ID de la conversación
  * @param {string} phoneNumber - Número de teléfono del cliente
+ * @param {string} emailTo - Correo electrónico de destino
+ * @param {string} businessId - ID del negocio
  * @returns {boolean} - True si la notificación se envió correctamente
  */
-async function sendBusinessNotification(message, conversationId, phoneNumber) {
+async function sendBusinessNotification(message, conversationId, phoneNumber, emailTo, businessId) {
   try {
     if (!EMAIL_APP_PASSWORD) {
       console.error('❌ No se puede enviar notificación: falta configurar EMAIL_APP_PASSWORD');
@@ -150,6 +184,7 @@ async function sendBusinessNotification(message, conversationId, phoneNumber) {
       <hr>
       <p><strong>📱 Número de teléfono:</strong> ${formattedPhone}</p>
       <p><strong>🆔 ID de conversación:</strong> ${conversationId}</p>
+      <p><strong>🏢 ID de negocio:</strong> ${businessId || 'No disponible'}</p>
       <p><strong>⏰ Fecha y hora:</strong> ${timestamp}</p>
       <p><strong>💬 Mensaje del bot:</strong></p>
       <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 10px 0;">
@@ -162,13 +197,13 @@ async function sendBusinessNotification(message, conversationId, phoneNumber) {
     // Configurar opciones del correo
     const mailOptions = {
       from: EMAIL_USER,
-      to: EMAIL_TO,
+      to: emailTo,
       subject: emailSubject,
       html: emailHtml
     };
     
     // Enviar el correo
-    console.log(`📧 Enviando notificación por correo a ${EMAIL_TO}...`);
+    console.log(`📧 Enviando notificación por correo a ${emailTo}...`);
     const info = await mailTransport.sendMail(mailOptions);
     
     console.log(`✅ Notificación enviada: ${info.messageId}`);
