@@ -87,14 +87,14 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
         // Obtener información de la conversación desde Supabase
         const { data, error } = await supabase
           .from('conversations')
-          .select('phone_number, user_id, business_id')
+          .select('user_id, business_id')
           .eq('id', conversationId)
           .single();
         
         if (error) {
           console.error(`❌ Error obteniendo datos de conversación: ${error.message}`);
         } else if (data) {
-          clientPhone = data.phone_number || data.user_id;
+          clientPhone = data.user_id;
           businessId = data.business_id;
           console.log(`📱 Datos obtenidos de la base de datos: teléfono=${clientPhone}, negocioId=${businessId}`);
         }
@@ -166,7 +166,14 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
 async function sendBusinessNotification(message, conversationId, phoneNumber, emailTo, businessId) {
   try {
     if (!EMAIL_APP_PASSWORD) {
-      console.error('❌ No se puede enviar notificación: falta configurar EMAIL_APP_PASSWORD');
+      console.error('⚠️ IMPORTANTE: No se puede enviar notificación por correo: falta configurar EMAIL_APP_PASSWORD');
+      console.error('⚠️ Agrega la variable EMAIL_APP_PASSWORD a las variables de entorno en Render');
+      console.error('⚠️ Mensaje que requiere atención: ' + message.substring(0, 100));
+      console.error('⚠️ Teléfono del cliente: ' + phoneNumber);
+      console.error('⚠️ ID del negocio: ' + businessId);
+      console.error('⚠️ Correo de destino: ' + emailTo);
+      
+      // Registrar la falta de configuración pero no fallar
       return false;
     }
     
