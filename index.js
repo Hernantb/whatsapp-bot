@@ -238,62 +238,16 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 // Configuración express
 const app = express();
 
-// Configuración de middleware para Express
+// Configuración básica de middleware
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Middleware especial para capturar el cuerpo bruto de solicitudes POST
-// DEBE ESTAR ANTES DE express.json() y express.urlencoded()
+// Middleware para logs simples
 app.use((req, res, next) => {
-  if (req.method === 'POST') {
-    const chunks = [];
-    
-    req.on('data', chunk => {
-      chunks.push(chunk);
-      console.log(`⚡ CHUNK RECIBIDO (${chunk.length} bytes): Total ${chunks.reduce((acc, c) => acc + c.length, 0)} bytes acumulados`);
-    });
-    
-    req.on('end', () => {
-      // Crear el rawBody sin consumir el stream
-      const rawBody = Buffer.concat(chunks);
-      req.rawBody = rawBody.toString();
-      
-      if (req.rawBody) {
-        console.log(`⚡ DATOS RAW COMPLETOS (${req.rawBody.length} bytes):`);
-        console.log(req.rawBody);
-        
-        try {
-          // Si parece JSON, intentar parsearlo
-          if (req.rawBody.trim().startsWith('{') && req.rawBody.trim().endsWith('}')) {
-            req.parsedRawBody = JSON.parse(req.rawBody);
-            console.log('⚡ Datos parseados como JSON');
-          }
-        } catch (err) {
-          console.log('⚡ No se pudo parsear como JSON:', err.message);
-        }
-      } else {
-        console.log('⚡ No se recibieron datos en el cuerpo');
-      }
-      
-      // MUY IMPORTANTE: Recrear el body stream para que body-parser pueda usarlo
-      req.body = req.parsedRawBody;
-      next();
-    });
-  } else {
-    next();
-  }
+  console.log("Request: " + req.method + " " + req.url);
+  next();
 });
-
-// Después procesamos con los middleware estándar
-app.use(express.json({ limit: '50mb', verify: (req, res, buf) => {
-  // Si ya tenemos el cuerpo parseado, no hacer nada
-  if (req.parsedRawBody) return;
-  
-  // Si no tenemos rawBody, guardarlo aquí como fallback
-  if (!req.rawBody && buf) {
-    req.rawBody = buf.toString();
-  }
-}}));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Variable global para activar modo debug
 const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || process.env.NODE_ENV === 'development';
@@ -311,12 +265,6 @@ app.use((req, res, next) => {
 
 // Middleware para opciones preflight - CORREGIDO
 app.options('*', cors());
-
-// Middleware para logs detallados
-app.use((req, res, next) => {
-  console.log("Request: " + req.method + " " + req.url);
-  next();
-});
 
 // 🔃 Control de mensajes procesados para evitar duplicados
 const MESSAGE_EXPIRE_TIME = 60000; // 60 segundos para expirar mensajes procesados
@@ -1583,70 +1531,84 @@ app.use((req, res, next) => {
 
 // Ruta del webhook para WhatsApp
 app.post('/webhook', async (req, res) => {
-  console.log('📨 Webhook recibido - Headers:', JSON.stringify(req.headers));
-  
-  let webhookBody;
-  
-  // Intenta usar el cuerpo ya analizado
-  if (req.parsedRawBody) {
-    console.log('✅ Usando cuerpo pre-analizado como JSON');
-    webhookBody = req.parsedRawBody;
-  } 
-  // De lo contrario, usa req.body si está disponible
-  else if (req.body && Object.keys(req.body).length > 0) {
-    console.log('✅ Usando req.body ya procesado por express');
-    webhookBody = req.body;
-  }
-  // Como último recurso, analiza manualmente el rawBody
-  else if (req.rawBody) {
-    console.log('🔍 Analizando rawBody manualmente');
-    webhookBody = procesarCuerpoWebhook(req.rawBody);
-  } 
-  // Sin datos para procesar
-  else {
-    console.log('❌ No hay datos disponibles para procesar este webhook');
-    return res.status(200).send('OK');
-  }
-  
-  // Guardar última solicitud de webhook para depuración
-  global.lastWebhookData = {
-    timestamp: new Date(),
-    headers: req.headers,
-    rawBody: req.rawBody,
-    body: webhookBody,
-    processed: false
-  };
-  
-  // Log del webhook recibido
-  console.log('📝 Webhook a procesar:', typeof webhookBody === 'object' 
-    ? JSON.stringify(webhookBody).substring(0, 300) + '...' 
-    : webhookBody.substring(0, 300) + '...');
-  
   try {
-    // Extraer datos del mensaje
+    console.log('📨 Webhook recibido:', JSON.stringify(req.headers));
+    
+    const webhookBody = req.body;
+    console.log('📝 Cuerpo del webhook:', JSON.stringify(webhookBody).substring(0, 300));
+    
+    // Guardar el webhook para depuración
+    global.lastWebhookData = {
+      timestamp: new Date(),
+      headers: req.headers,
+      body: webhookBody,
+      processed: false
+    };
+    
+    // Verificar formato WhatsApp Business API
+    if (webhookBody?.object === 'whatsapp_business_account') {
+      console.log('✅ Formato WhatsApp Business API detectado');
+      
+      const entries = webhookBody.entry || [];
+      
+      for (const entry of entries) {
+        const changes = entry.changes || [];
+        
+        for (const change of changes) {
+          if (change.field === 'messages') {
+            const value = change.value || {};
+            const messages = value.messages || [];
+            
+            for (const message of messages) {
+              if (message.type === 'text' && message.text) {
+                const sender = message.from;
+                const messageText = message.text.body;
+                const messageId = message.id;
+                
+                console.log(`👤 Mensaje de WhatsApp Business API: ${sender} - "${messageText}"`);
+                
+                // Extraer datos básicos y procesar
+                const messageData = {
+                  sender: sender,
+                  message: messageText,
+                  messageId: messageId,
+                  timestamp: new Date()
+                };
+                
+                // Procesar mensaje
+                await handleIncomingMessage(messageData, res);
+                global.lastWebhookData.processed = true;
+              } else {
+                console.log(`⚠️ Mensaje de tipo no soportado: ${message.type}`);
+              }
+            }
+          }
+        }
+      }
+      
+      return res.status(200).send('EVENT_RECEIVED');
+    } 
+    
+    // Extraer datos del webhook usando la función existente
     const messageData = extractMessageData(webhookBody);
     
     if (!messageData) {
       console.log('⚠️ No se pudieron extraer datos del mensaje');
-      global.lastWebhookData.error = 'No se pudieron extraer datos';
       return res.status(200).send('OK');
     }
     
-    console.log('📱 Datos extraídos del webhook:', JSON.stringify(messageData));
+    console.log('📱 Datos extraídos:', JSON.stringify(messageData));
     global.lastWebhookData.extracted = messageData;
     
     // Procesar el mensaje
     await handleIncomingMessage(messageData, res);
-    
-    // Marcar como procesado
     global.lastWebhookData.processed = true;
     
     return res.status(200).send('OK');
   } catch (error) {
     console.error('❌ Error al procesar webhook:', error.message);
     console.error(error.stack);
-    global.lastWebhookData.error = error.message;
-    return res.status(200).send('OK');
+    return res.status(200).send('OK'); // Responder 200 siempre para que GupShup no reintente
   }
 });
 
