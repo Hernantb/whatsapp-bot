@@ -1314,6 +1314,9 @@ module.exports = {
 // Iniciar el servidor en el puerto especificado
 // COMENTADO PARA EVITAR EADDRINUSE
 // app.listen(PORT, async () => {
+  
+// Encapsular el código que contiene await en una función async auto-ejecutable
+(async function initializeBot() {
   console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
   console.log(`🤖 Bot conectado al panel: ${CONTROL_PANEL_URL}`);
   
@@ -1369,6 +1372,9 @@ module.exports = {
   } catch (e) {
     console.error('❌ Error en inicialización de mapeos:', e.message);
   }
+})().catch(err => {
+  console.error("❌ Error en inicialización del bot:", err);
+});
 // });
 
 // Webhook para recibir mensajes de WhatsApp
