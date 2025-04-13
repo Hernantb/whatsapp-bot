@@ -1,6 +1,6 @@
 // Importar librerías
 // Fix para Supabase en Render
-require('./supabase-render-helper');
+require('./supabase-render-helper.cjs');
 
 // Configuración específica para Render
 if (process.env.RENDER === 'true') {
@@ -28,7 +28,7 @@ const bodyParser = require('body-parser');
 const session = require('express-session');
 const nodemailer = require('nodemailer');
 const MessageMedia = require('whatsapp-web.js').MessageMedia;
-const { sendTextMessageGupShup } = require('./sendTextMessageGupShup');
+const { sendTextMessageGupShup } = require('./sendTextMessageGupShup.cjs');
 const crypto = require('crypto');
 
 // Función para sanitizar cabeceras HTTP para Supabase
@@ -83,7 +83,7 @@ if (RENDER_ENV || PROD_ENV) {
 }
 
 // Cargar el parche global que define registerBotResponse
-require('./global-patch');
+require('./global-patch.cjs');
 
 // Inicializar OpenAI
 const openai = new OpenAI({
@@ -644,7 +644,7 @@ async function registerBotResponse(conversationId, botMessage) {
     
     // Depuración: Verificar cuáles son las implementaciones de detección activas
     console.log(`🔧 DIAGNÓSTICO: checkForNotificationPhrases es de tipo: ${typeof checkForNotificationPhrases}`);
-    console.log(`🔧 DIAGNÓSTICO: ¿Existe función en helpers? ${typeof require('./helpers/notificationHelpers').checkForNotificationPhrases === 'function' ? 'SÍ' : 'NO'}`);
+    console.log(`🔧 DIAGNÓSTICO: ¿Existe función en helpers? ${typeof require('./helpers/notificationHelpers.cjs').checkForNotificationPhrases === 'function' ? 'SÍ' : 'NO'}`);
     
     // Detección básica de texto crítico para depuración
     console.log(`🔧 VERIFICACIÓN MANUAL: ¿Contiene "Perfecto"? ${botMessage.includes("Perfecto") ? 'SÍ' : 'NO'}`);
@@ -1770,7 +1770,7 @@ app.get('/api/conversations/business/:businessId', async (req, res) => {
     console.log(`🔍 Buscando conversaciones para el negocio: ${businessId}`);
     
     // Cargar directamente la configuración de Supabase para asegurar que siempre use valores correctos
-    const supabaseConfig = require('./supabase-config');
+    const supabaseConfig = require('./supabase-config.cjs');
     const supabaseUrl = process.env.SUPABASE_URL || supabaseConfig.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_KEY || supabaseConfig.SUPABASE_KEY;
     
@@ -1817,10 +1817,10 @@ app.get('/api/messages/:conversationId', async (req, res) => {
     console.log(`🔍 Tipo de ID proporcionado: ${isUUID ? 'UUID' : isPhoneNumber ? 'Número de teléfono' : 'Desconocido'}`);
     
     // Cargar directamente la configuración de Supabase para asegurar que siempre use valores correctos
-    const supabaseConfig = require('./supabase-config');
+    const supabaseConfig = require('./supabase-config.cjs');
 
 // Importar sistema de notificaciones - agregado para el deployment en Render
-global.notificationModule = require('./notification-patch');
+global.notificationModule = require('./notification-patch.cjs');
 // Exponer funciones del módulo de notificaciones a variables globales
 global.processMessageForNotification = global.notificationModule.processMessageForNotification;
 global.sendWhatsAppResponseWithNotification = global.notificationModule.sendWhatsAppResponseWithNotification;
@@ -3220,4 +3220,33 @@ if (process.env.RENDER === 'true') {
 } else {
   // En desarrollo, iniciar normalmente
   startServerSafely(PORT);
+}
+
+try {
+  // Diagnóstico: Verificar acceso a helpers
+  if (fs.existsSync('./helpers/notificationHelpers.cjs')) {
+    console.log(`🔧 DIAGNÓSTICO: ¿Existe función en helpers? ${typeof require('./helpers/notificationHelpers.cjs').checkForNotificationPhrases === 'function' ? 'SÍ' : 'NO'}`);
+  } else {
+    console.log('❌ DIAGNÓSTICO: Archivo helpers/notificationHelpers.cjs no existe');
+  }
+} catch (diagError) {
+  console.error('❌ Error en diagnóstico de helpers:', diagError.message);
+}
+
+try {
+  const supabaseConfig = require('./supabase-config.cjs');
+  console.log('✅ Configuración de Supabase cargada correctamente');
+} catch (configError) {
+  console.error(`❌ Error al cargar configuración de Supabase: ${configError.message}`);
+}
+
+try {
+  const supabaseConfig = require('./supabase-config.cjs');
+  console.log('✅ Configuración de Supabase cargada correctamente:', supabaseConfig);
+  
+  // Inicializar el módulo de notificaciones
+  global.notificationModule = require('./notification-patch.cjs');
+  console.log('✅ Módulo de notificaciones cargado correctamente');
+} catch (initError) {
+  console.error(`❌ Error al inicializar módulos auxiliares: ${initError.message}`);
 }

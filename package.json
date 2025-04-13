@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Bot de WhatsApp con integración de OpenAI y notificaciones",
   "main": "render-start.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node render-start.js",
     "dev": "node index.js",
