@@ -1540,84 +1540,30 @@ app.use((req, res, next) => {
 
 // Endpoint /webhook principal
 app.post('/webhook', async (req, res) => {
-  console.log('📲 Webhook recibido - Headers:', JSON.stringify(req.headers));
-  
-  // Verificar si el cuerpo está vacío o undefined
-  if (!req.body || Object.keys(req.body).length === 0) {
-    console.error('❌ Cuerpo del webhook vacío o no analizado correctamente');
-    console.log('📋 Headers de la solicitud:', req.headers);
+  try {
+    console.log('[WEBHOOK] Procesando webhook POST...');
     
-    // Si existe req.rawBody (del middleware), usarlo directamente
-    if (req.rawBody) {
-      console.log('🔄 Usando rawBody del middleware:', req.rawBody.substring(0, 200));
-      let parsedBody = { rawContent: req.rawBody };
-      
-      // Intentar extraer información útil del texto raw
-      try {
-        if (req.rawBody.includes('"type":"message"')) {
-          console.log('✅ Detectado mensaje en contenido raw');
-          // Manejar formato JSON incrustado en el texto
-          parsedBody = JSON.parse(req.rawBody);
-        } 
-      } catch (parseError) {
-        console.error('⚠️ No se pudo analizar el contenido raw como JSON:', parseError.message);
-      }
-      
-      processWebhook(parsedBody, res);
-      return;
+    // Si el cuerpo ya ha sido procesado por el middleware, usarlo
+    const webhookBody = req.body;
+    
+    if (!webhookBody || Object.keys(webhookBody).length === 0) {
+      console.error('❌ [WEBHOOK] Cuerpo vacío después del middleware');
+      return res.status(200).send('OK');
     }
     
-    // Intentar leer el cuerpo raw nuevamente
-    let rawData = '';
-    req.on('data', chunk => {
-      rawData += chunk;
-    });
+    console.log('[WEBHOOK] Tipo de cuerpo:', typeof webhookBody);
+    console.log('[WEBHOOK] Extracto del cuerpo:', 
+      typeof webhookBody === 'object' 
+        ? JSON.stringify(webhookBody).substring(0, 200) 
+        : webhookBody.substring(0, 200)
+    );
     
-    req.on('end', () => {
-      console.log('📋 Datos raw del webhook:', rawData);
-      
-      // Intento de parseo manual
-      try {
-        let parsedBody;
-        const contentType = req.headers['content-type'] || '';
-        
-        if (contentType.includes('application/json')) {
-          parsedBody = JSON.parse(rawData);
-        } else if (contentType.includes('application/x-www-form-urlencoded')) {
-          parsedBody = {};
-          const params = new URLSearchParams(rawData);
-          for (const [key, value] of params) {
-            parsedBody[key] = value;
-          }
-        } else {
-          parsedBody = { rawContent: rawData };
-        }
-        
-        console.log('📋 Cuerpo parseado manualmente:', JSON.stringify(parsedBody).substring(0, 200));
-        
-        // Procesar el webhook con los datos parseados manualmente
-        processWebhook(parsedBody, res);
-      } catch (parseError) {
-        console.error('❌ Error al parsear manualmente:', parseError.message);
-        
-        // Último intento: pasar el cuerpo raw directamente
-        if (rawData && rawData.length > 0) {
-          processWebhook({ rawContent: rawData }, res);
-        } else {
-          res.status(200).send('OK'); // Responder OK para que GupShup no reintente
-        }
-      }
-    });
-    
-    return;
+    // Procesar el webhook
+    processWebhook(webhookBody, res);
+  } catch (error) {
+    console.error('❌ [WEBHOOK] Error en endpoint principal:', error.message);
+    res.status(200).send('OK'); // Responder OK para que GupShup no reintente
   }
-  
-  // Log del tipo de cuerpo para debug
-  console.log('📊 Tipo de cuerpo del webhook:', typeof req.body);
-  console.log('📊 Cuerpo del webhook:', JSON.stringify(req.body).substring(0, 200));
-  
-  // Procesar el webhook normalmente si el cuerpo existe
-  processWebhook(req.body, res);
 });
 
 // Función para procesar webhooks después de asegurar que el cuerpo esté correctamente parseado
@@ -3662,5 +3608,136 @@ app.get('/setup-webhook', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// Almacenar el último webhook recibido para depuración
+let lastWebhookData = {
+  headers: null,
+  body: null,
+  rawBody: null,
+  timestamp: null,
+  processed: false
+};
+
+// Endpoint para ver el último webhook recibido
+app.get('/debug-last-webhook', (req, res) => {
+  res.json({
+    success: true,
+    lastWebhook: lastWebhookData,
+    hasData: lastWebhookData.timestamp !== null,
+    tip: "Use este endpoint después de enviar un mensaje a WhatsApp para ver los datos recibidos"
+  });
+});
+
+// Middleware especial para webhooks que captura el cuerpo crudo
+app.use('/webhook', (req, res, next) => {
+  // Guardar la res original para usarla después
+  const originalSend = res.send;
+  const chunks = [];
+  
+  console.log(`📝 [WEBHOOK] Solicitud ${req.method} recibida`);
+  console.log(`📝 [WEBHOOK] Headers:`, JSON.stringify(req.headers, null, 2));
+  
+  // Capturar el cuerpo de la solicitud directamente
+  req.on('data', chunk => {
+    console.log(`📝 [WEBHOOK] Chunk recibido: ${chunk.toString()}`);
+    chunks.push(chunk);
+  });
+  
+  req.on('end', () => {
+    const rawBody = Buffer.concat(chunks).toString();
+    console.log(`📝 [WEBHOOK] Cuerpo raw completo: ${rawBody}`);
+    
+    // Guardar el último webhook para depuración
+    lastWebhookData = {
+      headers: req.headers,
+      rawBody: rawBody,
+      timestamp: new Date(),
+      processed: false
+    };
+    
+    // Parsear el cuerpo según el tipo de contenido
+    try {
+      if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+        req.body = JSON.parse(rawBody);
+        lastWebhookData.body = req.body;
+        console.log(`✅ [WEBHOOK] Cuerpo parseado como JSON:`, JSON.stringify(req.body, null, 2));
+      } else if (req.headers['content-type'] && req.headers['content-type'].includes('application/x-www-form-urlencoded')) {
+        req.body = {};
+        const params = new URLSearchParams(rawBody);
+        for (const [key, value] of params) {
+          req.body[key] = value;
+        }
+        lastWebhookData.body = req.body;
+        console.log(`✅ [WEBHOOK] Cuerpo parseado como form-urlencoded:`, JSON.stringify(req.body, null, 2));
+      } else {
+        // Si no es un tipo reconocido, intentar determinar y parsear de todas formas
+        try {
+          if (rawBody.trim().startsWith('{') && rawBody.trim().endsWith('}')) {
+            req.body = JSON.parse(rawBody);
+            lastWebhookData.body = req.body;
+            console.log(`✅ [WEBHOOK] Cuerpo detectado como JSON:`, JSON.stringify(req.body, null, 2));
+          } else if (rawBody.includes('=')) {
+            req.body = {};
+            const params = new URLSearchParams(rawBody);
+            for (const [key, value] of params) {
+              req.body[key] = value;
+            }
+            lastWebhookData.body = req.body;
+            console.log(`✅ [WEBHOOK] Cuerpo detectado como form-urlencoded:`, JSON.stringify(req.body, null, 2));
+          } else {
+            console.log(`⚠️ [WEBHOOK] No se pudo determinar formato, usando rawBody como alternativa`);
+            req.body = { rawContent: rawBody };
+            lastWebhookData.body = req.body;
+          }
+        } catch (parseError) {
+          console.error(`❌ [WEBHOOK] Error al parsear contenido:`, parseError.message);
+          req.body = { rawContent: rawBody };
+          lastWebhookData.body = req.body;
+        }
+      }
+    } catch (error) {
+      console.error(`❌ [WEBHOOK] Error al procesar cuerpo:`, error.message);
+      req.body = { rawContent: rawBody };
+      lastWebhookData.body = req.body;
+    }
+    
+    // Sobreescribir res.send para marcar el webhook como procesado
+    res.send = function(body) {
+      lastWebhookData.processed = true;
+      lastWebhookData.response = body;
+      return originalSend.apply(this, arguments);
+    };
+    
+    next();
+  });
+});
+
+// Endpoint /webhook principal
+app.post('/webhook', async (req, res) => {
+  try {
+    console.log('[WEBHOOK] Procesando webhook POST...');
+    
+    // Si el cuerpo ya ha sido procesado por el middleware, usarlo
+    const webhookBody = req.body;
+    
+    if (!webhookBody || Object.keys(webhookBody).length === 0) {
+      console.error('❌ [WEBHOOK] Cuerpo vacío después del middleware');
+      return res.status(200).send('OK');
+    }
+    
+    console.log('[WEBHOOK] Tipo de cuerpo:', typeof webhookBody);
+    console.log('[WEBHOOK] Extracto del cuerpo:', 
+      typeof webhookBody === 'object' 
+        ? JSON.stringify(webhookBody).substring(0, 200) 
+        : webhookBody.substring(0, 200)
+    );
+    
+    // Procesar el webhook
+    processWebhook(webhookBody, res);
+  } catch (error) {
+    console.error('❌ [WEBHOOK] Error en endpoint principal:', error.message);
+    res.status(200).send('OK'); // Responder OK para que GupShup no reintente
   }
 });
