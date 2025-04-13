@@ -1097,298 +1097,166 @@ async function sendWhatsAppResponse(recipient, message) {
 // Función para extraer datos del mensaje de la solicitud de webhook
 function extractMessageData(body) {
   try {
-    console.log(`🔍 Extrayendo datos de mensaje de webhook: ${JSON.stringify(body).substring(0, 200)}...`);
+    console.log('🔍 ANALIZANDO WEBHOOK para extraer datos del mensaje');
+    console.log('📝 Tipo de body:', typeof body);
     
-    // Valores por defecto
-    const result = {
-      isStatusUpdate: false,
-      sender: null,
-      message: null,
-      messageId: null,
-      timestamp: null
-    };
+    // Si no hay datos, retornar error
+    if (!body) {
+      console.log('⚠️ Body vacío o undefined');
+      return null;
+    }
     
-    // Imprimir la estructura completa para depuración
-    console.log('📝 Estructura completa del webhook:');
-    console.log(JSON.stringify(body, null, 2).substring(0, 500) + "...");
-    
-    // MÉTODO 0: Contenido raw del middleware
-    if (body && body.rawContent) {
-      console.log('🔍 Detectado contenido raw del middleware, intentando extraer datos');
+    // Verificar si tiene estructura de WhatsApp Cloud API
+    if (body.object === 'whatsapp_business_account') {
+      console.log('✅ Formato WhatsApp Cloud API detectado');
       
-      let rawContent = body.rawContent;
-      
-      // Intentar buscar patrones comunes en el texto raw
       try {
-        // Buscar un posible número de teléfono
-        const phoneMatch = rawContent.match(/(?:"phone"|sender|from|number)["\s:]+["']?(\+?\d{10,15})["']?/i);
-        if (phoneMatch && phoneMatch[1]) {
-          result.sender = phoneMatch[1];
-          console.log(`🔍 Encontrado número de teléfono en contenido raw: ${result.sender}`);
-        }
+        const entry = body.entry && body.entry[0];
+        if (!entry) return null;
         
-        // Buscar un posible texto de mensaje
-        const messageMatch = rawContent.match(/(?:"text"|"body"|message|content)["\s:]+["']?([^"'\n,}{]+)["']?/i);
-        if (messageMatch && messageMatch[1]) {
-          result.message = messageMatch[1].trim();
-          console.log(`🔍 Encontrado mensaje en contenido raw: "${result.message}"`);
-        }
+        const change = entry.changes && entry.changes[0];
+        if (!change || change.field !== 'messages') return null;
         
-        // Buscar posible ID de mensaje
-        const idMatch = rawContent.match(/(?:"id"|messageId)["\s:]+["']?([^"'\n,}{]+)["']?/i);
-        if (idMatch && idMatch[1]) {
-          result.messageId = idMatch[1].trim();
-          console.log(`🔍 Encontrado ID en contenido raw: ${result.messageId}`);
-        }
+        const value = change.value;
+        if (!value || !value.messages || !value.messages.length) return null;
         
-        // Si encontramos al menos el remitente o el mensaje, considerar éxito
-        if (result.sender || result.message) {
-          console.log('✅ Datos extraídos del contenido raw');
-          result.timestamp = new Date();
-          return result;
-        }
+        const message = value.messages[0];
+        if (!message || message.type !== 'text' || !message.text) return null;
         
-        // Intentar como última opción analizar como JSON (por si acaso)
-        try {
-          const jsonData = JSON.parse(rawContent);
-          console.log('🔍 Pude analizar el contenido raw como JSON, procesándolo normalmente');
-          // Llamar recursivamente con el objeto JSON
-          return extractMessageData(jsonData);
-        } catch (jsonError) {
-          // No es JSON, continuar con otros métodos
-          console.log('⚠️ El contenido raw no es JSON válido, continuando con otros métodos');
-        }
-      } catch (rawError) {
-        console.error('❌ Error al procesar contenido raw:', rawError.message);
+        return {
+          sender: message.from,
+          message: message.text.body,
+          messageId: message.id,
+          timestamp: new Date()
+        };
+      } catch (cloudApiError) {
+        console.error('❌ Error extrayendo datos de WhatsApp Cloud API:', cloudApiError.message);
+        return null;
       }
     }
     
-    // MÉTODO 1: Formato estándar de Meta/WhatsApp Business API
-    if (body && body.entry && body.entry.length > 0) {
-      console.log('🔍 Detectado formato estándar de WhatsApp Business API');
-      const entry = body.entry[0];
+    // Formato GupShup estándar - tipo "message"
+    if (body.type === 'message' && body.payload) {
+      console.log('✅ Formato GupShup estándar (tipo message) detectado');
+      const payload = body.payload;
       
-      if (entry.changes && entry.changes.length > 0) {
-        const change = entry.changes[0];
-        
-        // Para mensajes entrantes normales
-        if (change.value && change.value.messages && change.value.messages.length > 0) {
-          const messageData = change.value.messages[0];
-          const contact = change.value.contacts && change.value.contacts.length > 0 
-            ? change.value.contacts[0] 
-            : null;
-          
-          result.sender = contact && contact.wa_id ? contact.wa_id : null;
-          result.messageId = messageData.id || null;
-          
-          console.log(`📨 Datos del mensaje: ${JSON.stringify(messageData)}`);
-          
-          // Extraer contenido según el tipo de mensaje
-          if (messageData.text && messageData.text.body) {
-            result.message = messageData.text.body;
-            console.log(`💬 Mensaje de texto encontrado: "${result.message}"`);
-          } else if (messageData.type === 'text' && messageData.text) {
-            result.message = messageData.text.body;
-            console.log(`💬 Mensaje de texto (tipo): "${result.message}"`);
-          } else if (messageData.type === 'button' && messageData.button) {
-            result.message = messageData.button.text;
-            console.log(`🔘 Mensaje de botón: "${result.message}"`);
-          } else if (messageData.type === 'interactive' && messageData.interactive) {
-            // Manejar mensajes interactivos (botones, listas, etc.)
-            if (messageData.interactive.button_reply) {
-              result.message = messageData.interactive.button_reply.title;
-              console.log(`🔘 Respuesta interactiva (botón): "${result.message}"`);
-            } else if (messageData.interactive.list_reply) {
-              result.message = messageData.interactive.list_reply.title;
-              console.log(`📋 Respuesta interactiva (lista): "${result.message}"`);
-            }
-          }
-          
-          // Capturar timestamp si está disponible
-          result.timestamp = messageData.timestamp
-            ? new Date(parseInt(messageData.timestamp) * 1000) 
-            : new Date();
-          
-          console.log(`⏰ Timestamp: ${result.timestamp}`);
-        } 
-        // Para actualizaciones de estado de mensajes
-        else if (change.value && change.value.statuses && change.value.statuses.length > 0) {
-          result.isStatusUpdate = true;
-          const status = change.value.statuses[0];
-          result.messageId = status.id;
-          result.status = status.status;
-          result.timestamp = status.timestamp 
-            ? new Date(parseInt(status.timestamp) * 1000) 
-            : new Date();
-          result.recipient = status.recipient_id;
-          console.log(`📊 Actualización de estado: ${result.status} para mensaje ${result.messageId}`);
-        }
+      // Verificar campos necesarios
+      if (payload.sender && payload.sender.phone && (payload.payload?.text || payload.text)) {
+        return {
+          sender: payload.sender.phone,
+          message: payload.payload?.text || payload.text,
+          messageId: payload.messageId || payload.id,
+          timestamp: new Date()
+        };
       }
-    }
-    // MÉTODO 2: Formato directo de GupShup
-    else if (body && body.app === 'WhatsApp' && body.payload && body.type) {
-      console.log('🔍 Detectado formato directo de GupShup');
-      
-      if (body.type === 'message') {
-        // Obtener el número del remitente
-        if (body.payload.sender && body.payload.sender.phone) {
-          result.sender = body.payload.sender.phone;
-        }
-        
-        // Obtener el ID del mensaje
-        result.messageId = body.payload.id || null;
-        
-        // Obtener el mensaje según el tipo
-        if (body.payload.type === 'text' && body.payload.payload && body.payload.payload.text) {
-          result.message = body.payload.payload.text;
-          console.log(`💬 Mensaje de texto GupShup: "${result.message}"`);
-        }
-        // Para mensajes de tipo button
-        else if (body.payload.type === 'button' && body.payload.payload) {
-          result.message = body.payload.payload.title || body.payload.payload.text || JSON.stringify(body.payload.payload);
-          console.log(`🔘 Mensaje de botón GupShup: "${result.message}"`);
-        }
-        // Para mensajes interactivos
-        else if (body.payload.type === 'interactive' && body.payload.payload) {
-          const interactivePayload = body.payload.payload;
-          if (interactivePayload.selected_button_id) {
-            result.message = interactivePayload.selected_button_id;
-          } else if (interactivePayload.selected_item) {
-            result.message = interactivePayload.selected_item;
-          } else {
-            result.message = JSON.stringify(interactivePayload);
-          }
-          console.log(`🔄 Mensaje interactivo GupShup: "${result.message}"`);
-        }
-        // Para otros tipos de mensajes
-        else if (body.payload.payload) {
-          // Intentar extraer texto de cualquier propiedad
-          if (typeof body.payload.payload === 'string') {
-            result.message = body.payload.payload;
-          } else if (body.payload.payload.text) {
-            result.message = body.payload.payload.text;
-          } else if (body.payload.text) {
-            result.message = body.payload.text;
-          } else {
-            // Último recurso: convertir todo el payload a texto
-            result.message = JSON.stringify(body.payload.payload);
-          }
-          console.log(`📄 Otro tipo de mensaje GupShup: "${result.message}"`);
-        }
-        
-        // Capturar timestamp si está disponible
-        result.timestamp = body.timestamp 
-          ? new Date(parseInt(body.timestamp)) 
-          : new Date();
-      }
-      // Para actualizaciones de estado
-      else if (body.type === 'message-event') {
-        result.isStatusUpdate = true;
-        result.messageId = body.payload.messageId;
-        result.status = body.payload.type || body.payload.status;
-        result.timestamp = new Date();
-        console.log(`📊 Actualización de estado GupShup: ${result.status} para mensaje ${result.messageId}`);
-      }
-    }
-    // MÉTODO 3: Formato simple de form-urlencoded (común en algunos webhooks)
-    else if (body && (body.text || body.message || body.body)) {
-      console.log('🔍 Detectado formato simple tipo formulario');
-      
-      // Intentar obtener el remitente
-      if (body.sender || body.from || body.source_phone || body.source) {
-        result.sender = body.sender || body.from || body.source_phone || body.source;
-        // Limpiar el número si es necesario (quitar prefijos como "whatsapp:")
-        if (typeof result.sender === 'string') {
-          result.sender = result.sender.replace(/^whatsapp:/, '');
-        }
-      }
-      
-      // Intentar obtener el ID del mensaje
-      result.messageId = body.message_id || body.messageId || body.id || null;
-      
-      // Intentar obtener el mensaje
-      result.message = body.text || body.message || body.body || body.content || null;
-      
-      // Timestamp actual
-      result.timestamp = new Date();
-      
-      console.log(`📩 Mensaje simple de formulario: "${result.message}" de ${result.sender}`);
-    }
-    // MÉTODO 4: Para cualquier otro formato no reconocido, intentar extraer información
-    else {
-      console.log('⚠️ Formato de webhook no reconocido, intentando extraer datos de forma genérica');
-      
-      // Buscar en todas las propiedades del objeto body
-      for (const key in body) {
-        // Buscar posibles números de teléfono (remitentes)
-        if ((key.includes('phone') || key.includes('sender') || key.includes('from') || key.includes('user')) && 
-            !result.sender && body[key]) {
-          if (typeof body[key] === 'string' && (body[key].match(/^\+?\d+$/) || body[key].match(/^whatsapp:/))) {
-            result.sender = body[key].replace(/^whatsapp:/, '');
-            console.log(`🔍 Posible remitente encontrado en ${key}: ${result.sender}`);
-          } else if (typeof body[key] === 'object' && body[key] !== null) {
-            // Buscar en subobjetos
-            for (const subKey in body[key]) {
-              if ((subKey.includes('phone') || subKey.includes('id') || subKey.includes('number')) && 
-                  typeof body[key][subKey] === 'string' && body[key][subKey].match(/^\+?\d+$/)) {
-                result.sender = body[key][subKey];
-                console.log(`🔍 Posible remitente encontrado en ${key}.${subKey}: ${result.sender}`);
-                break;
-              }
-            }
-          }
-        }
-        
-        // Buscar posibles mensajes
-        if ((key.includes('text') || key.includes('message') || key.includes('body') || key.includes('content')) && 
-            !result.message && body[key]) {
-          if (typeof body[key] === 'string') {
-            result.message = body[key];
-            console.log(`🔍 Posible mensaje encontrado en ${key}: "${result.message}"`);
-          } else if (typeof body[key] === 'object' && body[key] !== null) {
-            // Buscar en subobjetos
-            for (const subKey in body[key]) {
-              if ((subKey.includes('text') || subKey.includes('body') || subKey.includes('content')) && 
-                  typeof body[key][subKey] === 'string') {
-                result.message = body[key][subKey];
-                console.log(`🔍 Posible mensaje encontrado en ${key}.${subKey}: "${result.message}"`);
-                break;
-              }
-            }
-          }
-        }
-        
-        // Buscar posibles IDs de mensaje
-        if ((key.includes('id') || key.includes('messageId')) && !result.messageId && body[key]) {
-          if (typeof body[key] === 'string' || typeof body[key] === 'number') {
-            result.messageId = body[key];
-            console.log(`🔍 Posible ID de mensaje encontrado en ${key}: ${result.messageId}`);
-          }
-        }
-      }
-      
-      // Timestamp actual
-      result.timestamp = new Date();
     }
     
-    // Verificar si pudimos extraer los datos necesarios
-    if (!result.isStatusUpdate && (!result.sender || !result.message)) {
-      console.log(`⚠️ No se pudieron extraer datos completos del mensaje:`, result);
-    } else {
-      console.log(`✅ Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}: "${result.message}"`}`);
+    // Formato GupShup antiguo
+    if (body.app === 'DefaultApp' && body.payload && body.payload.payload) {
+      console.log('✅ Formato GupShup antiguo detectado');
+      
+      // Extraer datos relevantes
+      const { payload } = body;
+      const sender = payload.sender || '';
+      const text = payload.payload || '';
+      const messageId = payload.messageId || '';
+      
+      return {
+        sender: sender,
+        message: text,
+        messageId: messageId,
+        timestamp: new Date()
+      };
     }
     
-    return result;
+    // Formato GupShup directo (sin anidación)
+    if (body.app === 'DefaultApp' && body.messageId && body.payload) {
+      console.log('✅ Formato GupShup directo detectado');
+      
+      return {
+        sender: body.sender,
+        message: body.payload,
+        messageId: body.messageId,
+        timestamp: new Date()
+      };
+    }
+    
+    // Formato GupShup antiguo (variante 2)
+    if (body.waNumber) {
+      console.log('✅ Formato GupShup con waNumber detectado');
+      
+      return {
+        sender: body.waNumber,
+        message: body.text || '',
+        messageId: body.messageId || '',
+        timestamp: new Date()
+      };
+    }
+    
+    // Formato GupShup de usuario
+    if (body.user && body.user.phoneCode && body.user.phoneNumber && body.message) {
+      console.log('✅ Formato GupShup de usuario detectado');
+      
+      // Construir número de teléfono completo
+      const phoneNumber = body.user.phoneCode + body.user.phoneNumber;
+      
+      return {
+        sender: phoneNumber,
+        message: body.message,
+        messageId: body.id || '',
+        timestamp: new Date()
+      };
+    }
+    
+    // Último intento: buscar patrones comunes recursivamente
+    console.log('⚠️ Buscando patrones comunes en estructura desconocida');
+    
+    // Función para buscar recursivamente
+    function searchForMessageData(obj, path = '') {
+      // Si es un objeto
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        // Buscar patrones conocidos
+        if (obj.sender && obj.text) {
+          console.log(`✅ Patrón encontrado en: ${path}.sender + ${path}.text`);
+          return {
+            sender: obj.sender,
+            message: obj.text,
+            messageId: obj.messageId || '',
+            timestamp: new Date()
+          };
+        }
+        
+        // Buscar en propiedades
+        for (const key in obj) {
+          const result = searchForMessageData(obj[key], `${path}.${key}`);
+          if (result) return result;
+        }
+      }
+      
+      // Si es un array
+      if (Array.isArray(obj)) {
+        for (let i = 0; i < obj.length; i++) {
+          const result = searchForMessageData(obj[i], `${path}[${i}]`);
+          if (result) return result;
+        }
+      }
+      
+      return null;
+    }
+    
+    const searchResult = searchForMessageData(body);
+    if (searchResult) {
+      console.log('✅ Se encontraron datos mediante búsqueda recursiva');
+      return searchResult;
+    }
+    
+    console.log('❌ No se pudo extraer datos del mensaje con ningún formato conocido');
+    console.log('📝 Estructura de body recibida:', JSON.stringify(body).substring(0, 300) + '...');
+    return null;
   } catch (error) {
-    console.log(`❌ Error extrayendo datos del mensaje: ${error.message}`);
-    console.log(`❌ Stack: ${error.stack}`);
-    return {
-      isStatusUpdate: false,
-      sender: null,
-      message: null,
-      messageId: null,
-      timestamp: new Date()
-    };
+    console.error('❌ Error en extractMessageData:', error.message);
+    console.error(error.stack);
+    return null;
   }
 }
 
@@ -1578,36 +1446,48 @@ async function handleIncomingTextMessage(sender, message, messageId) {
 // Ruta del webhook para WhatsApp
 app.post('/webhook', async (req, res) => {
   try {
-    console.log('📨 Webhook recibido:', req.headers);
-    console.log('📝 Datos del webhook:', JSON.stringify(req.body));
+    console.log('📨 Webhook recibido - detalles completos:');
+    console.log('- Headers:', JSON.stringify(req.headers));
+    console.log('- Body:', JSON.stringify(req.body));
+    console.log('- ContentType:', req.headers['content-type']);
     
     // Verificar formato de WhatsApp Business API
     if (req.body && req.body.object === 'whatsapp_business_account') {
-      console.log('✅ Detectado formato WhatsApp Business API');
+      console.log('✅ DETECTADO formato WhatsApp Business API');
       
       try {
         const entries = req.body.entry || [];
+        console.log(`Procesando ${entries.length} entradas de webhook`);
         
         for (const entry of entries) {
           const changes = entry.changes || [];
+          console.log(`Procesando ${changes.length} cambios`);
           
           for (const change of changes) {
             if (change.field === 'messages') {
               const value = change.value || {};
               const messages = value.messages || [];
+              console.log(`Procesando ${messages.length} mensajes`);
               
               for (const message of messages) {
+                console.log(`Tipo de mensaje: ${message.type}`);
+                
                 if (message.type === 'text' && message.text) {
                   const sender = message.from;
                   const messageText = message.text.body;
                   const messageId = message.id;
                   
-                  console.log(`✅ Mensaje de WhatsApp: ${sender} - "${messageText}"`);
+                  console.log(`✅ MENSAJE RECIBIDO: Remitente=${sender}, Texto=${messageText}`);
                   
                   // Procesar el mensaje directamente
-                  await handleIncomingTextMessage(sender, messageText, messageId);
+                  const processingResult = await handleIncomingTextMessage(sender, messageText, messageId);
+                  console.log(`Resultado del procesamiento: ${processingResult ? 'ÉXITO' : 'FALLO'}`);
+                } else {
+                  console.log(`⚠️ Tipo de mensaje no soportado: ${message.type}`);
                 }
               }
+            } else {
+              console.log(`⚠️ Campo no reconocido: ${change.field}`);
             }
           }
         }
@@ -1615,12 +1495,34 @@ app.post('/webhook', async (req, res) => {
         return res.status(200).send('EVENT_RECEIVED');
       } catch (processError) {
         console.error('❌ Error al procesar webhook de WhatsApp:', processError.message);
+        console.error(processError.stack);
         return res.status(200).send('OK');
       }
     }
     
-    // Proceso antiguo para compatibilidad con GupShup
-    console.log('⚠️ Formato no reconocido, intentando extractMessageData');
+    // Formato GupShup
+    console.log('⚠️ Formato no reconocido como WhatsApp Business API, probando GupShup');
+    
+    // Verificar cuerpo de payload directo de GupShup
+    if (req.body && req.body.type === 'message' && req.body.payload) {
+      console.log('✅ DETECTADO formato GupShup directo');
+      const payload = req.body.payload;
+      const sender = payload.sender?.phone;
+      const messageText = payload.payload?.text || payload.text;
+      const messageId = payload.messageId || payload.id;
+      
+      if (sender && messageText) {
+        console.log(`✅ MENSAJE GUPSHUP: Remitente=${sender}, Texto=${messageText}`);
+        
+        // Procesar el mensaje directamente
+        const processingResult = await handleIncomingTextMessage(sender, messageText, messageId);
+        console.log(`Resultado del procesamiento GupShup: ${processingResult ? 'ÉXITO' : 'FALLO'}`);
+        return res.status(200).send('OK');
+      }
+    }
+    
+    // Proceso antiguo para compatibilidad
+    console.log('⚠️ Intentando extractMessageData como último recurso');
     const messageData = extractMessageData(req.body);
     
     if (!messageData) {
@@ -1637,12 +1539,13 @@ app.post('/webhook', async (req, res) => {
     }
     
     // Procesar directamente con nuestra función auxiliar
-    await handleIncomingTextMessage(
+    const finalResult = await handleIncomingTextMessage(
       messageData.sender,
       messageData.message,
       messageData.messageId
     );
     
+    console.log(`Resultado final del procesamiento extractMessageData: ${finalResult ? 'ÉXITO' : 'FALLO'}`);
     return res.status(200).send('OK');
   } catch (error) {
     console.error('❌ Error general en webhook:', error.message);
