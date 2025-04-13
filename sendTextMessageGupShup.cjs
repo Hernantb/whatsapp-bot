@@ -4,17 +4,45 @@ require('dotenv').config();
 
 async function sendTextMessageGupShup(phoneNumber, message) {
   try {
-    // Obtener credenciales de variables de entorno
+    // Obtener credenciales de variables de entorno con fallbacks
     const apiKey = process.env.GUPSHUP_API_KEY;
-    const source = process.env.GUPSHUP_SOURCE_PHONE;
-    const userid = process.env.GUPSHUP_USERID;
     
-    if (!apiKey || !source || !userid) {
-      throw new Error('Faltan credenciales de GupShup en variables de entorno');
+    // Soportar diferentes nombres de variables para el número de origen
+    const source = process.env.GUPSHUP_SOURCE_PHONE || 
+                  process.env.GUPSHUP_NUMBER || 
+                  process.env.GUPSHUP_SOURCE || 
+                  process.env.GUPSHUP_PHONE_NUMBER;
+    
+    // Soportar diferentes nombres para userid
+    const userid = process.env.GUPSHUP_USERID || 
+                  process.env.GUPSHUP_USER_ID;
+    
+    // Validar que tenemos las credenciales mínimas
+    if (!apiKey) {
+      console.error('❌ ERROR CRÍTICO: Falta GUPSHUP_API_KEY en variables de entorno');
+      throw new Error('Falta la API KEY de GupShup');
     }
+    
+    if (!source) {
+      console.error('❌ ERROR CRÍTICO: Falta número de origen (GUPSHUP_NUMBER/GUPSHUP_SOURCE_PHONE) en variables de entorno');
+      throw new Error('Falta el número de origen de GupShup');
+    }
+    
+    if (!userid) {
+      console.error('❌ ERROR CRÍTICO: Falta GUPSHUP_USERID en variables de entorno');
+      throw new Error('Falta el USER ID de GupShup');
+    }
+    
+    // Mostrar datos disponibles para depuración
+    console.log('🔍 Datos de GupShup disponibles:');
+    console.log(`- API Key: ${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 5)}`);
+    console.log(`- Source Phone: ${source}`);
+    console.log(`- User ID: ${userid.substring(0, 8)}...`);
     
     // Normalizar número de teléfono (asegurarse que tiene formato correcto)
     let normalizedPhone = phoneNumber;
+    
+    // Si empieza con +, dejarlo así; si no, añadirlo
     if (!normalizedPhone.startsWith('+')) {
       normalizedPhone = `+${normalizedPhone}`;
     }
@@ -34,6 +62,14 @@ async function sendTextMessageGupShup(phoneNumber, message) {
     }));
     data.append('src.name', process.env.GUPSHUP_APP_NAME || 'BEXOR_WhatsApp');
     
+    // Log de datos a enviar para depuración
+    console.log('📝 Datos enviados a GupShup:');
+    console.log('- channel: whatsapp');
+    console.log(`- source: ${source}`);
+    console.log(`- destination: ${normalizedPhone}`);
+    console.log(`- message: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
+    console.log(`- src.name: ${process.env.GUPSHUP_APP_NAME || 'BEXOR_WhatsApp'}`);
+    
     // Configuración con headers correctos incluyendo userid
     const config = {
       headers: {
@@ -45,9 +81,6 @@ async function sendTextMessageGupShup(phoneNumber, message) {
     };
     
     console.log('🔄 Enviando solicitud a API de GupShup...');
-    console.log(`📝 URL: ${url}`);
-    console.log(`📝 Headers: apikey: ${apiKey.substring(0, 5)}..., userid: ${userid}`);
-    console.log(`📝 Destino: ${normalizedPhone}`);
     
     const response = await axios.post(url, data, config);
     

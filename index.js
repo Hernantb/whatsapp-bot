@@ -1063,71 +1063,15 @@ async function sendWhatsAppResponse(recipient, message) {
             console.error(notifError.stack);
         }
         
-        // Continuar con el envío del mensaje independientemente
-        // Formato del número telefónico - quitar el + si existe
-        let formattedNumber = recipient.replace(/^\+/, '');
-        
-        // Verificar credenciales
-        const apiKey = GUPSHUP_API_KEY;
-        if (!apiKey) {
-            console.error('Error: API Key de GupShup no configurada');
-            return false;
-        }
-        
-        // Verificar que el número contenga solo dígitos
-        if (!/^\d+$/.test(formattedNumber)) {
-            console.log("Número inválido: " + formattedNumber);
-            return false;
-        }
-        
-        // Enviar mensaje a través de Gupshup
-        const source = GUPSHUP_NUMBER;
-        
-        console.log('Variables de entorno para GupShup:');
-        console.log("- GUPSHUP_API_KEY: " + (GUPSHUP_API_KEY ? 'DEFINIDA' : 'NO DEFINIDA'));
-        console.log("- GUPSHUP_NUMBER: " + (GUPSHUP_NUMBER ? GUPSHUP_NUMBER : 'NO DEFINIDA'));
-        console.log("- GUPSHUP_USERID: " + (GUPSHUP_USERID ? 'DEFINIDA' : 'NO DEFINIDA'));
-        
-        if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER) {
-            console.error('Error: credenciales de GupShup faltantes');
-            return false;
-        }
-        
-        const apiUrl = 'https://api.gupshup.io/sm/api/v1/msg';
-        
-        console.log("URL de API: " + apiUrl);
-        console.log("Número de origen: " + GUPSHUP_NUMBER);
-        console.log("Número de destino: " + formattedNumber);
-        
-        const formData = new URLSearchParams();
-        formData.append('channel', 'whatsapp');
-        formData.append('source', source);
-        formData.append('destination', formattedNumber);
-        formData.append('message', message);
-        formData.append('src.name', source);
-        
-        const headers = {
-            'Cache-Control': 'no-cache',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Bearer ' + apiKey
-        , 'Content-Type': 'application/json'};
-        
-        if (GUPSHUP_USERID) {
-            headers['userid'] = GUPSHUP_USERID;
-            console.log("Añadiendo userid: " + GUPSHUP_USERID);
-        }
-        
-        console.log('Enviando mensaje a WhatsApp...');
-        console.log('Formulario:', Object.fromEntries(formData));
-        console.log('Headers:', headers);
-        
+        // UTILIZAR LA FUNCIÓN sendTextMessageGupShup QUE YA ESTÁ CORRECTAMENTE IMPLEMENTADA
+        console.log('⚙️ Utilizando sendTextMessageGupShup para enviar mensaje a WhatsApp');
         try {
-            const response = await axios.post(apiUrl, formData, { headers });
+            // Usar la función probada que funciona correctamente
+            const result = await sendTextMessageGupShup(recipient, message);
             
-            console.log('Respuesta de GupShup:', JSON.stringify(response.data));
-            
-            if (response.status >= 200 && response.status < 300) {
-                console.log('Mensaje enviado exitosamente a WhatsApp');
+            if (result && result.success) {
+                console.log('✅ Mensaje enviado exitosamente a WhatsApp con sendTextMessageGupShup');
+                console.log(`📊 Detalles: messageId=${result.messageId}, status=${result.status}`);
                 
                 // Guardar mensaje en la base de datos
                 try {
@@ -1137,33 +1081,23 @@ async function sendWhatsAppResponse(recipient, message) {
                         BUSINESS_ID, 
                         'bot'
                     );
-                    console.log('Mensaje del bot guardado en Supabase');
+                    console.log('✅ Mensaje del bot guardado en Supabase');
                 } catch (dbError) {
-                    console.log("Error guardando mensaje en Supabase: " + dbError.message);
+                    console.log("❌ Error guardando mensaje en Supabase: " + dbError.message);
                 }
                 
                 return true;
             } else {
-                console.error("Error: Código de respuesta " + response.status);
+                console.error("❌ Error: sendTextMessageGupShup no retornó resultado exitoso");
                 return false;
             }
-        } catch (apiError) {
-            console.error("Error en solicitud a GupShup:", apiError.message);
-            
-            if (apiError.response) {
-                console.error("- Status: " + apiError.response.status);
-                console.error("- Datos: ", JSON.stringify(apiError.response.data, null, 2));
-                console.error("- Headers: ", JSON.stringify(apiError.response.headers, null, 2));
-            } else if (apiError.request) {
-                console.error("- No hubo respuesta del servidor");
-            } else {
-                console.error("- Error al configurar la solicitud:", apiError.message);
-            }
-            
+        } catch (gupshupError) {
+            console.error("❌ Error enviando mensaje con sendTextMessageGupShup:", gupshupError.message);
+            console.error(gupshupError.stack);
             return false;
         }
     } catch (error) {
-        console.error("Error general en sendWhatsAppResponse:", error.message);
+        console.error("❌ Error general en sendWhatsAppResponse:", error.message);
         console.error(error.stack);
         return false;
     }
@@ -1188,8 +1122,9 @@ function extractMessageData(body) {
     console.log('📝 Estructura completa del webhook:');
     console.log(JSON.stringify(body, null, 2));
     
-    // Verificar si es un mensaje o una actualización de estado
+    // MÉTODO 1: Formato estándar de Meta/WhatsApp Business API
     if (body && body.entry && body.entry.length > 0) {
+      console.log('🔍 Detectado formato estándar de WhatsApp Business API');
       const entry = body.entry[0];
       
       if (entry.changes && entry.changes.length > 0) {
@@ -1228,35 +1163,6 @@ function extractMessageData(body) {
             }
           }
           
-          // Si no pudimos extraer el mensaje, intentar con la estructura completa
-          if (!result.message && messageData) {
-            console.log('⚠️ No se pudo extraer mensaje con métodos conocidos, intentando alternativas...');
-            // Intentar extraer de cualquier propiedad que tenga "body" o "text"
-            if (messageData.body) {
-              result.message = messageData.body;
-              console.log(`🔄 Mensaje alternativo (body): "${result.message}"`);
-            } else {
-              // Buscar en todas las propiedades de primer nivel
-              for (const key in messageData) {
-                if (typeof messageData[key] === 'object' && messageData[key] !== null) {
-                  if (messageData[key].body) {
-                    result.message = messageData[key].body;
-                    console.log(`🔄 Mensaje alternativo (${key}.body): "${result.message}"`);
-                    break;
-                  } else if (messageData[key].text) {
-                    result.message = messageData[key].text;
-                    console.log(`🔄 Mensaje alternativo (${key}.text): "${result.message}"`);
-                    break;
-                  }
-                } else if (key === 'text' || key === 'body') {
-                  result.message = messageData[key];
-                  console.log(`🔄 Mensaje alternativo (${key}): "${result.message}"`);
-                  break;
-                }
-              }
-            }
-          }
-          
           // Capturar timestamp si está disponible
           result.timestamp = messageData.timestamp
             ? new Date(parseInt(messageData.timestamp) * 1000) 
@@ -1278,13 +1184,158 @@ function extractMessageData(body) {
         }
       }
     }
+    // MÉTODO 2: Formato directo de GupShup
+    else if (body && body.app === 'WhatsApp' && body.payload && body.type) {
+      console.log('🔍 Detectado formato directo de GupShup');
+      
+      if (body.type === 'message') {
+        // Obtener el número del remitente
+        if (body.payload.sender && body.payload.sender.phone) {
+          result.sender = body.payload.sender.phone;
+        }
+        
+        // Obtener el ID del mensaje
+        result.messageId = body.payload.id || null;
+        
+        // Obtener el mensaje según el tipo
+        if (body.payload.type === 'text' && body.payload.payload && body.payload.payload.text) {
+          result.message = body.payload.payload.text;
+          console.log(`💬 Mensaje de texto GupShup: "${result.message}"`);
+        }
+        // Para mensajes de tipo button
+        else if (body.payload.type === 'button' && body.payload.payload) {
+          result.message = body.payload.payload.title || body.payload.payload.text || JSON.stringify(body.payload.payload);
+          console.log(`🔘 Mensaje de botón GupShup: "${result.message}"`);
+        }
+        // Para mensajes interactivos
+        else if (body.payload.type === 'interactive' && body.payload.payload) {
+          const interactivePayload = body.payload.payload;
+          if (interactivePayload.selected_button_id) {
+            result.message = interactivePayload.selected_button_id;
+          } else if (interactivePayload.selected_item) {
+            result.message = interactivePayload.selected_item;
+          } else {
+            result.message = JSON.stringify(interactivePayload);
+          }
+          console.log(`🔄 Mensaje interactivo GupShup: "${result.message}"`);
+        }
+        // Para otros tipos de mensajes
+        else if (body.payload.payload) {
+          // Intentar extraer texto de cualquier propiedad
+          if (typeof body.payload.payload === 'string') {
+            result.message = body.payload.payload;
+          } else if (body.payload.payload.text) {
+            result.message = body.payload.payload.text;
+          } else if (body.payload.text) {
+            result.message = body.payload.text;
+          } else {
+            // Último recurso: convertir todo el payload a texto
+            result.message = JSON.stringify(body.payload.payload);
+          }
+          console.log(`📄 Otro tipo de mensaje GupShup: "${result.message}"`);
+        }
+        
+        // Capturar timestamp si está disponible
+        result.timestamp = body.timestamp 
+          ? new Date(parseInt(body.timestamp)) 
+          : new Date();
+      }
+      // Para actualizaciones de estado
+      else if (body.type === 'message-event') {
+        result.isStatusUpdate = true;
+        result.messageId = body.payload.messageId;
+        result.status = body.payload.type || body.payload.status;
+        result.timestamp = new Date();
+        console.log(`📊 Actualización de estado GupShup: ${result.status} para mensaje ${result.messageId}`);
+      }
+    }
+    // MÉTODO 3: Formato simple de form-urlencoded (común en algunos webhooks)
+    else if (body && (body.text || body.message || body.body)) {
+      console.log('🔍 Detectado formato simple tipo formulario');
+      
+      // Intentar obtener el remitente
+      if (body.sender || body.from || body.source_phone || body.source) {
+        result.sender = body.sender || body.from || body.source_phone || body.source;
+        // Limpiar el número si es necesario (quitar prefijos como "whatsapp:")
+        if (typeof result.sender === 'string') {
+          result.sender = result.sender.replace(/^whatsapp:/, '');
+        }
+      }
+      
+      // Intentar obtener el ID del mensaje
+      result.messageId = body.message_id || body.messageId || body.id || null;
+      
+      // Intentar obtener el mensaje
+      result.message = body.text || body.message || body.body || body.content || null;
+      
+      // Timestamp actual
+      result.timestamp = new Date();
+      
+      console.log(`📩 Mensaje simple de formulario: "${result.message}" de ${result.sender}`);
+    }
+    // MÉTODO 4: Para cualquier otro formato no reconocido, intentar extraer información
+    else {
+      console.log('⚠️ Formato de webhook no reconocido, intentando extraer datos de forma genérica');
+      
+      // Buscar en todas las propiedades del objeto body
+      for (const key in body) {
+        // Buscar posibles números de teléfono (remitentes)
+        if ((key.includes('phone') || key.includes('sender') || key.includes('from') || key.includes('user')) && 
+            !result.sender && body[key]) {
+          if (typeof body[key] === 'string' && (body[key].match(/^\+?\d+$/) || body[key].match(/^whatsapp:/))) {
+            result.sender = body[key].replace(/^whatsapp:/, '');
+            console.log(`🔍 Posible remitente encontrado en ${key}: ${result.sender}`);
+          } else if (typeof body[key] === 'object' && body[key] !== null) {
+            // Buscar en subobjetos
+            for (const subKey in body[key]) {
+              if ((subKey.includes('phone') || subKey.includes('id') || subKey.includes('number')) && 
+                  typeof body[key][subKey] === 'string' && body[key][subKey].match(/^\+?\d+$/)) {
+                result.sender = body[key][subKey];
+                console.log(`🔍 Posible remitente encontrado en ${key}.${subKey}: ${result.sender}`);
+                break;
+              }
+            }
+          }
+        }
+        
+        // Buscar posibles mensajes
+        if ((key.includes('text') || key.includes('message') || key.includes('body') || key.includes('content')) && 
+            !result.message && body[key]) {
+          if (typeof body[key] === 'string') {
+            result.message = body[key];
+            console.log(`🔍 Posible mensaje encontrado en ${key}: "${result.message}"`);
+          } else if (typeof body[key] === 'object' && body[key] !== null) {
+            // Buscar en subobjetos
+            for (const subKey in body[key]) {
+              if ((subKey.includes('text') || subKey.includes('body') || subKey.includes('content')) && 
+                  typeof body[key][subKey] === 'string') {
+                result.message = body[key][subKey];
+                console.log(`🔍 Posible mensaje encontrado en ${key}.${subKey}: "${result.message}"`);
+                break;
+              }
+            }
+          }
+        }
+        
+        // Buscar posibles IDs de mensaje
+        if ((key.includes('id') || key.includes('messageId')) && !result.messageId && body[key]) {
+          if (typeof body[key] === 'string' || typeof body[key] === 'number') {
+            result.messageId = body[key];
+            console.log(`🔍 Posible ID de mensaje encontrado en ${key}: ${result.messageId}`);
+          }
+        }
+      }
+      
+      // Timestamp actual
+      result.timestamp = new Date();
+    }
     
     // Verificar si pudimos extraer los datos necesarios
     if (!result.isStatusUpdate && (!result.sender || !result.message)) {
-      console.log(`⚠️ No se pudieron extraer datos completos del mensaje: sender=${result.sender}, message=${result.message}`);
-      logDebug(`⚠️ No se pudieron extraer datos completos del mensaje: sender=${result.sender}, message=${result.message}`);
+      console.log(`⚠️ No se pudieron extraer datos completos del mensaje:`, result);
+      logDebug(`⚠️ No se pudieron extraer datos completos del mensaje:`, result);
     } else {
-      console.log(`Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}: "${result.message}"`}`);
+      console.log(`✅ Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}: "${result.message}"`}`);
       logDebug(`✅ Datos extraídos correctamente: ${result.isStatusUpdate ? 'actualización de estado' : `mensaje de ${result.sender}`}`);
     }
     
@@ -1377,26 +1428,134 @@ module.exports = {
 });
 // });
 
-// Webhook para recibir mensajes de WhatsApp
-app.post('/webhook', async (req, res) => {
-    console.log('📲 Webhook recibido:', req.body.type);
+// Configuración de middleware para Express
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Añadir middleware personalizado para depurar webhooks
+app.use((req, res, next) => {
+  if (req.path === '/webhook' || req.path === '/webhook-debug') {
+    console.log(`📝 Recibida solicitud ${req.method} en ${req.path}`);
+    console.log(`📝 Headers: ${JSON.stringify(req.headers)}`);
     
-    // Verificar el tipo de webhook
-    if (req.body.type === 'message' && req.body.payload) {
-        // Detectar si es un mensaje de imagen
-        if (req.body.payload.type === 'image') {
-            await handleMediaMessage(req, res);
-            return;
+    // Crear copia de la solicitud original para registro
+    const rawBody = [];
+    req.on('data', chunk => rawBody.push(chunk));
+    req.on('end', () => {
+      try {
+        const bodyBuffer = Buffer.concat(rawBody);
+        const bodyText = bodyBuffer.toString();
+        console.log(`📝 Cuerpo Raw: ${bodyText}`);
+
+        // Intentar analizar como JSON o form-urlencoded si no se ha analizado aún
+        if (!req.body || Object.keys(req.body).length === 0) {
+          try {
+            const contentType = req.headers['content-type'] || '';
+            
+            if (contentType.includes('application/json')) {
+              req.body = JSON.parse(bodyText);
+            } else if (contentType.includes('application/x-www-form-urlencoded')) {
+              req.body = {};
+              const params = new URLSearchParams(bodyText);
+              for (const [key, value] of params) {
+                req.body[key] = value;
+              }
+            }
+            
+            console.log(`📝 Cuerpo analizado: ${JSON.stringify(req.body)}`);
+          } catch (parseError) {
+            console.error(`❌ Error al analizar cuerpo: ${parseError.message}`);
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Error al procesar cuerpo de la solicitud: ${error.message}`);
+      }
+      next();
+    });
+  } else {
+    next();
+  }
+});
+
+// Endpoint /webhook principal
+app.post('/webhook', async (req, res) => {
+  console.log('📲 Webhook recibido - Headers:', JSON.stringify(req.headers));
+  
+  // Verificar si el cuerpo está vacío o undefined
+  if (!req.body || Object.keys(req.body).length === 0) {
+    console.error('❌ Cuerpo del webhook vacío o no analizado correctamente');
+    console.log('📋 Headers de la solicitud:', req.headers);
+    
+    // Intentar leer el cuerpo raw nuevamente
+    let rawData = '';
+    req.on('data', chunk => {
+      rawData += chunk;
+    });
+    
+    req.on('end', () => {
+      console.log('📋 Datos raw del webhook:', rawData);
+      
+      // Intento de parseo manual
+      try {
+        let parsedBody;
+        const contentType = req.headers['content-type'] || '';
+        
+        if (contentType.includes('application/json')) {
+          parsedBody = JSON.parse(rawData);
+        } else if (contentType.includes('application/x-www-form-urlencoded')) {
+          parsedBody = {};
+          const params = new URLSearchParams(rawData);
+          for (const [key, value] of params) {
+            parsedBody[key] = value;
+          }
+        } else {
+          parsedBody = { rawContent: rawData };
         }
         
-        // Proceso normal para mensajes de texto
-        await handleIncomingMessage(req, res);
-        return;
+        console.log('📋 Cuerpo parseado manualmente:', JSON.stringify(parsedBody));
+        
+        // Procesar el webhook con los datos parseados manualmente
+        processWebhook(parsedBody, res);
+      } catch (parseError) {
+        console.error('❌ Error al parsear manualmente:', parseError.message);
+        res.status(200).send('OK'); // Responder OK para que GupShup no reintente
+      }
+    });
+    
+    return;
+  }
+  
+  // Log del tipo de cuerpo para debug
+  console.log('📊 Tipo de cuerpo del webhook:', typeof req.body);
+  console.log('📊 Cuerpo del webhook:', JSON.stringify(req.body));
+  
+  // Procesar el webhook normalmente si el cuerpo existe
+  processWebhook(req.body, res);
+});
+
+// Función para procesar webhooks después de asegurar que el cuerpo esté correctamente parseado
+function processWebhook(webhookBody, res) {
+  try {
+    console.log('🔍 Procesando webhook con datos:', JSON.stringify(webhookBody).substring(0, 200));
+    
+    // Extraer los datos del mensaje utilizando la función existente
+    const messageData = extractMessageData(webhookBody);
+    
+    if (!messageData) {
+      console.log('⚠️ No se pudieron extraer datos del mensaje');
+      return res.status(200).send('OK');
     }
     
-    // Para otros tipos de webhooks
-    res.status(200).json({ success: true, message: 'Webhook recibido' });
-});
+    console.log('📱 Datos extraídos del webhook:', JSON.stringify(messageData));
+    
+    // Continuar con el procesamiento del webhook como antes
+    handleIncomingMessage(messageData, res);
+  } catch (error) {
+    console.error('❌ Error al procesar webhook:', error.message);
+    res.status(200).send('OK'); // Siempre responder OK para que GupShup no reintente
+  }
+}
 
 // Endpoint para enviar un mensaje a WhatsApp
 app.post('/api/messages', async (req, res) => {
@@ -2517,27 +2676,23 @@ app.post('/api/send-manual-message', async (req, res) => {
 
 // Función para enviar mensajes de texto a WhatsApp
 async function sendWhatsAppTextMessage(phoneNumber, message) {
-  console.log(`Enviando mensaje de texto a ${phoneNumber}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
+  console.log(`📱 Enviando mensaje de texto a ${phoneNumber}: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
   
   try {
-    const response = await axios.post(
-      'https://api.gupshup.io/sm/api/v1/msg',
-      `channel=whatsapp&source=${GUPSHUP_NUMBER}&destination=${phoneNumber}&message=${encodeURIComponent(message)}&disablePreview=false&source=${GUPSHUP_NUMBER}`,
-      {
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': 'Bearer ' + GUPSHUP_API_KEY, 'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      }
-    );
+    // Utilizar la función sendTextMessageGupShup que funciona correctamente
+    const result = await sendTextMessageGupShup(phoneNumber, message);
     
-    console.log('✅ Respuesta de GupShup al enviar texto:', JSON.stringify(response.data));
-    return true;
+    if (result && result.success) {
+      console.log(`✅ Mensaje de texto enviado exitosamente a ${phoneNumber} (ID: ${result.messageId})`);
+      return true;
+    } else {
+      console.error(`❌ No se pudo enviar el mensaje de texto a ${phoneNumber}`);
+      return false;
+    }
   } catch (error) {
     console.error('❌ Error en sendWhatsAppTextMessage:', error.message);
-    throw error;
+    console.error(error.stack);
+    return false;
   }
 }
 
@@ -3256,3 +3411,170 @@ try {
 } catch (initError) {
   console.error(`❌ Error al inicializar módulos auxiliares: ${initError.message}`);
 }
+
+// ... existing code ...
+
+// Endpoint para verificar conexión a GupShup
+app.get('/test-gupshup', async (req, res) => {
+  try {
+    console.log('🔍 Iniciando prueba de conexión a GupShup...');
+    
+    // Mostrar variables de entorno relacionadas con GupShup (sin mostrar valores completos)
+    const gupshupVars = {
+      GUPSHUP_API_KEY: process.env.GUPSHUP_API_KEY ? `${process.env.GUPSHUP_API_KEY.substring(0, 8)}...` : 'NO CONFIGURADO',
+      GUPSHUP_NUMBER: process.env.GUPSHUP_NUMBER || 'NO CONFIGURADO',
+      GUPSHUP_SOURCE: process.env.GUPSHUP_SOURCE || 'NO CONFIGURADO',
+      GUPSHUP_SOURCE_PHONE: process.env.GUPSHUP_SOURCE_PHONE || 'NO CONFIGURADO',
+      GUPSHUP_PHONE_NUMBER: process.env.GUPSHUP_PHONE_NUMBER || 'NO CONFIGURADO',
+      GUPSHUP_USERID: process.env.GUPSHUP_USERID ? `${process.env.GUPSHUP_USERID.substring(0, 8)}...` : 'NO CONFIGURADO',
+      GUPSHUP_APP_NAME: process.env.GUPSHUP_APP_NAME || 'NO CONFIGURADO'
+    };
+    
+    console.log('📊 Variables de GupShup disponibles:', gupshupVars);
+    
+    // Intentar enviar un mensaje de prueba si se proporciona un número
+    let testResult = null;
+    const testPhone = req.query.phone;
+    
+    if (testPhone) {
+      console.log(`🔄 Enviando mensaje de prueba a ${testPhone}...`);
+      try {
+        const result = await sendTextMessageGupShup(testPhone, "Este es un mensaje de prueba del bot de WhatsApp.");
+        console.log(`✅ Mensaje de prueba enviado a ${testPhone}:`, result);
+        testResult = result;
+      } catch (sendError) {
+        console.error(`❌ Error en mensaje de prueba:`, sendError);
+        testResult = { error: sendError.message };
+      }
+    }
+    
+    // Responder con el estado de las variables y el resultado de la prueba
+    res.json({
+      success: true,
+      message: 'Diagnóstico de integración con GupShup',
+      gupshupVariables: gupshupVars,
+      testMessageSent: testPhone ? true : false,
+      testResult: testResult,
+      instructions: !testPhone ? 'Para enviar un mensaje de prueba, agrega ?phone=NÚMERO a la URL' : null
+    });
+  } catch (error) {
+    console.error('❌ Error en test-gupshup:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ... existing code ...
+
+// Endpoint para registrar y visualizar webhooks en crudo
+let lastReceivedWebhooks = [];
+const MAX_STORED_WEBHOOKS = 5;
+
+app.post('/webhook-debug', (req, res) => {
+  try {
+    const webhookData = {
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      body: req.body,
+      query: req.query,
+      method: req.method,
+      ip: req.ip
+    };
+    
+    console.log('📥 Webhook recibido (debug):', JSON.stringify(webhookData, null, 2));
+    
+    // Guardar en el historial
+    lastReceivedWebhooks.unshift(webhookData);
+    if (lastReceivedWebhooks.length > MAX_STORED_WEBHOOKS) {
+      lastReceivedWebhooks = lastReceivedWebhooks.slice(0, MAX_STORED_WEBHOOKS);
+    }
+    
+    // Responder con éxito
+    res.status(200).json({ 
+      success: true, 
+      message: 'Webhook registrado con éxito'
+    });
+  } catch (error) {
+    console.error('❌ Error en webhook-debug:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Endpoint para visualizar los últimos webhooks
+app.get('/webhook-debug', (req, res) => {
+  res.json({
+    success: true,
+    count: lastReceivedWebhooks.length,
+    webhooks: lastReceivedWebhooks
+  });
+});
+
+// Endpoint para configurar un webhook en GupShup
+app.get('/setup-webhook', async (req, res) => {
+  try {
+    console.log('🔧 Iniciando configuración de webhook en GupShup...');
+    
+    // Obtener la URL base desde los parámetros de consulta o usar la URL de solicitud actual
+    const baseUrl = req.query.baseUrl || `${req.protocol}://${req.get('host')}`;
+    
+    // URL del webhook a configurar (puede ser el normal o el de debug)
+    const useDebugEndpoint = req.query.debug === 'true';
+    const webhookUrl = useDebugEndpoint 
+      ? `${baseUrl}/webhook-debug` 
+      : `${baseUrl}/webhook`;
+    
+    console.log(`📝 URL del webhook a configurar: ${webhookUrl}`);
+    
+    // Obtener credenciales de GupShup
+    const apiKey = process.env.GUPSHUP_API_KEY || process.env.GS_API_KEY;
+    const userId = process.env.GUPSHUP_USERID || process.env.GS_USERID;
+    const appName = process.env.GUPSHUP_APP_NAME || 'DefaultApp';
+    
+    if (!apiKey || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Faltan credenciales de GupShup (GUPSHUP_API_KEY y/o GUPSHUP_USERID)'
+      });
+    }
+    
+    // NOTA: La configuración de webhooks requiere hacerse manualmente desde la interfaz de GupShup
+    // Este endpoint ahora solo mostrará la información necesaria para configurar manualmente
+    
+    res.json({
+      success: true,
+      message: 'Información para configurar webhook en GupShup',
+      instructions: 'Debes configurar el webhook manualmente en la interfaz de GupShup:',
+      steps: [
+        '1. Inicia sesión en https://www.gupshup.io/',
+        '2. Ve a la sección de WhatsApp -> Settings -> Callbacks',
+        '3. Configura la siguiente URL como tu webhook:'
+      ],
+      webhookUrl: webhookUrl,
+      requiredCredentials: {
+        apiKey: apiKey ? `${apiKey.substring(0, 8)}...` : 'NO CONFIGURADO',
+        userId: userId ? `${userId.substring(0, 8)}...` : 'NO CONFIGURADO',
+        appName: appName
+      },
+      manualTestInstructions: `Para probar, visita: ${baseUrl}/test-gupshup?phone=NÚMERO_DE_TELÉFONO`
+    });
+    
+    // Registrar la información del webhook para debug
+    console.log(`🔍 Información de webhook para configuración manual:`);
+    console.log(`- URL del webhook: ${webhookUrl}`);
+    console.log(`- API Key: ${apiKey.substring(0, 8)}...`);
+    console.log(`- User ID: ${userId.substring(0, 8)}...`);
+    console.log(`- App Name: ${appName}`);
+    
+  } catch (error) {
+    console.error('❌ Error al procesar información de webhook:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
