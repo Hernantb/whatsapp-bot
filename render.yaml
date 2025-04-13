@@ -5,7 +5,7 @@ services:
     region: singapore # Choose the region closest to your users
     plan: starter # Adjust based on your needs
     buildCommand: npm install
-    startCommand: node index.js
+    startCommand: node render-start.js
     healthCheckPath: /status
     autoDeploy: true
     envVars:
