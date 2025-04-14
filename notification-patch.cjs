@@ -350,17 +350,75 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
         <div style="background-color: #f9f9f9; padding: 10px; border-radius: 5px; margin: 10px 0; max-height: 400px; overflow-y: auto;">
       `;
       
+      // Obtener número o ID de negocio para verificar el remitente
+      const businessIdOrPhone = businessId || 'business';
+      
+      // Imprimir para depuración
+      console.log('📊 Datos de remitentes para clasificación de mensajes:');
+      console.log(`📱 Teléfono del cliente: ${phoneNumber}`);
+      console.log(`🏢 ID del negocio: ${businessId}`);
+      
       lastMessages.forEach(msg => {
-        // Determinar si el mensaje es del bot o del cliente
-        // Un mensaje es del bot si:
-        // 1. El campo is_from_business es true, O
-        // 2. El campo source_type es 'bot', O 
-        // 3. El campo sender_id no coincide con el número de teléfono del cliente
-        const isFromBot = msg.is_from_business === true || 
-                          msg.source_type === 'bot' || 
-                          (msg.sender_id && msg.sender_id !== phoneNumber);
+        // Depuración - Imprimir información de cada mensaje
+        console.log(`📝 Mensaje: ${msg.content.substring(0, 30)}...`);
+        console.log(`   - is_from_business: ${msg.is_from_business}`);
+        console.log(`   - source_type: ${msg.source_type}`);
+        console.log(`   - sender_id: ${msg.sender_id}`);
         
-        const isTriggerMessage = isFromBot && msg.content === message;
+        // LÓGICA MEJORADA para identificar mensajes del bot vs cliente
+        // Un mensaje es del bot si cumple CUALQUIERA de estas condiciones:
+        // 1. El campo 'is_from_business' es explícitamente true
+        // 2. El campo 'source_type' es 'bot', 'ai', 'openai' o similares
+        // 3. El campo 'content' contiene el texto exacto que activó la notificación
+        // 4. El remitente NO es el número de teléfono del cliente (cuando sender_id está disponible)
+        // 5. El campo 'role' es 'assistant' (formato API OpenAI)
+        
+        let isFromBot = false;
+        
+        // Verificar por is_from_business
+        if (msg.is_from_business === true) {
+          isFromBot = true;
+          console.log(`   ✓ Detectado como BOT por is_from_business`);
+        }
+        // Verificar por source_type
+        else if (msg.source_type && ['bot', 'ai', 'openai', 'assistant'].includes(msg.source_type.toLowerCase())) {
+          isFromBot = true;
+          console.log(`   ✓ Detectado como BOT por source_type: ${msg.source_type}`);
+        }
+        // Verificar si el contenido coincide con el mensaje que activó la notificación
+        else if (msg.content === message) {
+          isFromBot = true;
+          console.log(`   ✓ Detectado como BOT por coincidencia exacta con mensaje trigger`);
+        }
+        // Verificar por sender_id (si está disponible)
+        else if (msg.sender_id) {
+          // Si el sender_id NO es el número del cliente, es del bot/negocio
+          if (msg.sender_id !== phoneNumber && (msg.sender_id === businessIdOrPhone || msg.sender_id.includes('business'))) {
+            isFromBot = true;
+            console.log(`   ✓ Detectado como BOT por sender_id: ${msg.sender_id}`);
+          } else {
+            console.log(`   ✗ Detectado como CLIENTE por sender_id: ${msg.sender_id}`);
+          }
+        }
+        // Verificar por role
+        else if (msg.role === 'assistant') {
+          isFromBot = true;
+          console.log(`   ✓ Detectado como BOT por role: ${msg.role}`);
+        }
+        // Verificar por contenido típico del bot (frases específicas)
+        else if (msg.content && (
+          msg.content.startsWith('¡Perfecto!') ||
+          msg.content.includes('tu cita ha sido confirmada') ||
+          msg.content.includes('un asesor te contactará') ||
+          msg.content.includes('un asesor te llamará') ||
+          msg.content.includes('una persona te contactará')
+        )) {
+          isFromBot = true;
+          console.log(`   ✓ Detectado como BOT por contenido típico`);
+        }
+        
+        // Marcar específicamente si es el mensaje que activó la notificación
+        const isTriggerMessage = msg.content === message;
         
         // Estilos para mensajes del bot (verde claro) y cliente (blanco)
         const msgStyle = isFromBot 
