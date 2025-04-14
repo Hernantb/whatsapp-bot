@@ -279,6 +279,36 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
 }
 
 /**
+ * Obtiene los últimos mensajes de una conversación
+ * @param {string} conversationId - ID de la conversación
+ * @param {number} limit - Número máximo de mensajes a obtener
+ * @returns {Array} - Lista de mensajes ordenados cronológicamente
+ */
+async function getLastMessages(conversationId, limit = 20) {
+  try {
+    console.log(`🔍 Obteniendo últimos ${limit} mensajes de conversación: ${conversationId}`);
+    
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    
+    if (error) {
+      console.error(`❌ Error obteniendo mensajes: ${error.message}`);
+      return [];
+    }
+    
+    // Invertir para tener orden cronológico (más antiguos primero)
+    return data.reverse();
+  } catch (error) {
+    console.error(`❌ Error consultando mensajes: ${error.message}`);
+    return [];
+  }
+}
+
+/**
  * Envía una notificación por correo electrónico
  * @param {string} message - El mensaje del bot
  * @param {string} conversationId - ID de la conversación
@@ -302,11 +332,55 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
       return false;
     }
     
+    // Obtener los últimos 20 mensajes de la conversación
+    const lastMessages = await getLastMessages(conversationId, 20);
+    console.log(`✅ Obtenidos ${lastMessages.length} mensajes para incluir en la notificación`);
+    
     // Formatear el mensaje para el correo
     const formattedPhone = phoneNumber ? phoneNumber : 'No disponible';
     const timestamp = new Date().toLocaleString('es-ES', { 
       timeZone: 'America/Mexico_City'
     });
+    
+    // Generar HTML con el historial de mensajes
+    let messagesHtml = '';
+    if (lastMessages && lastMessages.length > 0) {
+      messagesHtml = `
+        <h3>📝 Historial de mensajes recientes:</h3>
+        <div style="background-color: #f9f9f9; padding: 10px; border-radius: 5px; margin: 10px 0; max-height: 400px; overflow-y: auto;">
+      `;
+      
+      lastMessages.forEach(msg => {
+        const isFromBot = msg.is_from_business === true;
+        const isTriggerMessage = isFromBot && msg.content === message;
+        const msgStyle = isFromBot 
+          ? 'background-color: #DCF8C6; padding: 8px; border-radius: 5px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: right; float: right; clear: both;' 
+          : 'background-color: #FFFFFF; padding: 8px; border-radius: 5px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: left; float: left; clear: both;';
+        
+        const highlightStyle = isTriggerMessage 
+          ? 'border: 2px solid #FF0000; box-shadow: 0 0 5px rgba(255, 0, 0, 0.5);' 
+          : '';
+        
+        const msgTime = new Date(msg.created_at).toLocaleTimeString('es-ES', {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        messagesHtml += `
+          <div style="overflow: hidden; margin-bottom: 10px;">
+            <div style="${msgStyle} ${highlightStyle}">
+              <div style="font-size: 0.8em; color: #777;">${isFromBot ? 'Bot' : 'Cliente'} - ${msgTime}</div>
+              <div>${msg.content.replace(/\n/g, '<br>')}</div>
+              ${isTriggerMessage ? '<div style="color: #FF0000; font-weight: bold; margin-top: 5px;">⚠️ MENSAJE QUE ACTIVÓ LA NOTIFICACIÓN</div>' : ''}
+            </div>
+          </div>
+        `;
+      });
+      
+      messagesHtml += `
+        </div>
+      `;
+    }
     
     // Crear contenido del correo
     const emailSubject = `🔔 Atención requerida: Cliente en WhatsApp (${formattedPhone})`;
@@ -318,10 +392,11 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
       <p><strong>🆔 ID de conversación:</strong> ${conversationId}</p>
       <p><strong>🏢 ID de negocio:</strong> ${businessId || 'No disponible'}</p>
       <p><strong>⏰ Fecha y hora:</strong> ${timestamp}</p>
-      <p><strong>💬 Mensaje del bot:</strong></p>
-      <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 10px 0;">
+      <p><strong>💬 Mensaje del bot que generó la alerta:</strong></p>
+      <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #FF0000;">
         ${message.replace(/\n/g, '<br>')}
       </div>
+      ${messagesHtml}
       <hr>
       <p>Por favor, continúe la conversación con el cliente lo antes posible.</p>
     `;
