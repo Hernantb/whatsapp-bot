@@ -435,6 +435,11 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         
         // Añadir explícitamente el atributo user_id para la detección en transformMessage
         (optimisticMessage as any).user_id = 'agent';
+        // Añadir metadata para mejorar la detección del lado del servidor
+        (optimisticMessage as any).metadata = {
+          source: 'dashboard',
+          sender_type: 'agent'
+        };
         
         console.log(`💾 Creado mensaje optimista temporal con ID: ${tempId}`);
               
@@ -484,6 +489,25 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
             
             // Enviar el mensaje al servidor
             const response = await sendMessage(conversationId, content, undefined, 'agent');
+            
+            // Marcar el mensaje como enviado desde el dashboard en la respuesta
+            if (response && response.id) {
+              // Intentar actualizar los metadatos en Supabase si es posible
+              try {
+                const { error: metadataError } = await supabase
+                  .from('messages')
+                  .update({
+                    metadata: { source: 'dashboard', sender_type: 'agent' }
+                  })
+                  .eq('id', response.id);
+                
+                if (metadataError) {
+                  console.warn('No se pudieron actualizar los metadatos del mensaje:', metadataError);
+                }
+              } catch (metadataErr) {
+                console.warn('Error al intentar actualizar metadatos:', metadataErr);
+              }
+            }
             
             if (!response || !response.id) {
               console.warn(`⚠️ Intento ${attempts}/${maxAttempts}: No se recibió una respuesta válida del servidor`);
