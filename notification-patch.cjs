@@ -106,9 +106,78 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     // Por defecto, usar el correo definido en las variables de entorno
     let businessEmail = EMAIL_TO_DEFAULT;
     let businessName = "Negocio";
+    let foundValidEmail = false;  // Para rastrear si ya encontramos un correo válido
     
-    // ESTRATEGIA 1: Obtener datos del negocio para encontrar el owner_id
-    if (businessId) {
+    // ESTRATEGIA 1: Buscar directamente el negocio por nombre
+    try {
+      console.log(`🔍 Buscando negocio específico: "Hernán Tenorio"`);
+      
+      // Intentar encontrar primero por nombre exacto
+      const { data: specificBusiness, error: specificError } = await supabase
+        .from('businesses')
+        .select('*')
+        .ilike('name', '%hernán tenorio%')
+        .single();
+      
+      if (specificError) {
+        console.error(`❌ Error buscando negocio específico: ${specificError.message}`);
+      } else if (specificBusiness) {
+        console.log(`✅ Negocio específico encontrado:`, specificBusiness);
+        
+        // Obtener nombre del negocio
+        businessName = specificBusiness.name || "Hernán Tenorio";
+        
+        // Verificar si hay un correo directo en el negocio
+        const businessEmailFields = ['email', 'contact_email', 'notification_email', 'business_email', 'admin_email'];
+        for (const field of businessEmailFields) {
+          if (specificBusiness[field] && specificBusiness[field].includes('@')) {
+            businessEmail = specificBusiness[field];
+            foundValidEmail = true;
+            console.log(`✉️ Correo encontrado en el negocio específico (campo '${field}'): ${businessEmail}`);
+            break;
+          }
+        }
+        
+        // Si no encontramos correo en el negocio, pero tenemos owner_id, buscar su perfil
+        if (!foundValidEmail && specificBusiness.owner_id) {
+          console.log(`🔍 Buscando perfil del propietario del negocio específico: ${specificBusiness.owner_id}`);
+          
+          const { data: ownerProfile, error: ownerError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', specificBusiness.owner_id)
+            .single();
+            
+          if (ownerError) {
+            console.error(`❌ Error obteniendo perfil del propietario: ${ownerError.message}`);
+          } else if (ownerProfile) {
+            console.log(`✅ Perfil del propietario encontrado:`, ownerProfile);
+            
+            // Si el perfil tiene email, usarlo para la notificación
+            if (ownerProfile.email && ownerProfile.email.includes('@')) {
+              businessEmail = ownerProfile.email;
+              foundValidEmail = true;
+              console.log(`✉️ Correo encontrado en perfil del propietario: ${businessEmail}`);
+            }
+            
+            // Si el perfil tiene nombre, usarlo como nombre del negocio si no tenemos uno
+            if (!businessName && ownerProfile.full_name) {
+              businessName = ownerProfile.full_name;
+            } else if (!businessName && ownerProfile.name) {
+              businessName = ownerProfile.name;
+            }
+          }
+        }
+        
+        // Usar el ID de negocio encontrado
+        businessId = specificBusiness.id;
+      }
+    } catch (specificSearchError) {
+      console.error(`❌ Error en búsqueda específica de negocio: ${specificSearchError.message}`);
+    }
+    
+    // ESTRATEGIA 2: Si no encontramos el correo, probar con el businessId de la conversación
+    if (!foundValidEmail && businessId) {
       try {
         console.log(`🔍 Buscando información del negocio con ID: ${businessId}`);
         
@@ -134,13 +203,14 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
           for (const field of businessEmailFields) {
             if (businessData[field] && businessData[field].includes('@')) {
               businessEmail = businessData[field];
+              foundValidEmail = true;
               console.log(`✉️ Correo encontrado en el negocio (campo '${field}'): ${businessEmail}`);
               break;
             }
           }
           
           // Si no encontramos correo y tenemos owner_id, buscar el perfil asociado
-          if (businessEmail === EMAIL_TO_DEFAULT && businessData.owner_id) {
+          if (!foundValidEmail && businessData.owner_id) {
             console.log(`🔍 Buscando perfil del propietario: ${businessData.owner_id}`);
             
             // Buscar directamente en la tabla profiles
@@ -158,6 +228,7 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
               // Si el perfil tiene email, usarlo para la notificación
               if (profileData.email && profileData.email.includes('@')) {
                 businessEmail = profileData.email;
+                foundValidEmail = true;
                 console.log(`✉️ Correo encontrado en perfil: ${businessEmail}`);
               }
               
@@ -175,8 +246,8 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
       }
     }
     
-    // ESTRATEGIA 2: Si aún no tenemos correo, buscar usuarios relacionados
-    if (businessEmail === EMAIL_TO_DEFAULT && businessId) {
+    // ESTRATEGIA 3: Si aún no tenemos correo, buscar usuarios relacionados
+    if (!foundValidEmail && businessId) {
       const users = await findBusinessUsers(businessId);
       
       if (users && users.length > 0) {
@@ -186,6 +257,7 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
         for (const user of users) {
           if (user.email && user.email.includes('@')) {
             businessEmail = user.email;
+            foundValidEmail = true;
             console.log(`✉️ Correo encontrado en tabla auth.users: ${businessEmail}`);
             break;
           }
@@ -195,10 +267,14 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
       }
     }
     
-    // Si no se encontró un correo válido, usar el predeterminado
-    if (businessEmail === EMAIL_TO_DEFAULT) {
-      console.warn(`⚠️ No se encontró correo válido para la conversación: ${conversationId}`);
-      console.log(`⚠️ Usando correo predeterminado: ${EMAIL_TO_DEFAULT}`);
+    // SÓLO SI NO ENCONTRAMOS NINGÚN CORREO VÁLIDO: usar correo predeterminado de Hernán Tenorio
+    if (!foundValidEmail) {
+      const hernanEmail = process.env.HERNAN_EMAIL || 'contacto@hernantenorio.com';
+      console.log(`⚠️ No se encontró correo válido en la base de datos, usando correo de Hernán Tenorio: ${hernanEmail}`);
+      businessEmail = hernanEmail;
+      businessName = "Hernán Tenorio";
+    } else {
+      console.log(`✅ Se utilizará el correo encontrado en la base de datos: ${businessEmail}`);
     }
     
     // Enviar notificación por correo
