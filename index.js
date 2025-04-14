@@ -1836,6 +1836,184 @@ app.get('/', (req, res) => {
     });
 });
 
+// Endpoint para enviar manualmente mensajes (usado por el dashboard)
+app.post('/api/send-manual-message', async (req, res) => {
+  try {
+    console.log('📩 Mensaje manual recibido del dashboard (send-manual-message):', JSON.stringify(req.body));
+    
+    const { phoneNumber, message, conversationId, businessId = BUSINESS_ID } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: 'Se requiere el contenido del mensaje' });
+    }
+    
+    if (!phoneNumber && !conversationId) {
+      return res.status(400).json({ error: 'Se requiere phoneNumber o conversationId' });
+    }
+    
+    // Determinar el ID a usar
+    let targetId;
+    let targetPhone;
+    
+    if (phoneNumber) {
+      // Usar el número de teléfono directamente
+      targetPhone = phoneNumber.toString().replace(/^\+/, '');
+      targetId = targetPhone;
+      
+      // Intentar obtener el conversationId si está disponible
+      if (phoneToConversationMap[targetPhone]) {
+        console.log(`🔄 Encontrado conversationId en caché para ${targetPhone}: ${phoneToConversationMap[targetPhone]}`);
+      }
+    } else {
+      // Usar el conversationId y buscar el número de teléfono
+      targetId = conversationId;
+      
+      // Buscar el número de teléfono si tenemos un UUID
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId)) {
+        if (conversationIdToPhoneMap[conversationId]) {
+          targetPhone = conversationIdToPhoneMap[conversationId];
+          console.log(`🔄 Encontrado número de teléfono en caché para ${conversationId}: ${targetPhone}`);
+        } else {
+          // Buscar en base de datos
+          try {
+            const { data, error } = await supabase
+              .from('conversations')
+              .select('user_id')
+              .eq('id', conversationId)
+              .single();
+            
+            if (error) {
+              console.error(`❌ Error buscando número para conversación: ${error.message}`);
+            } else if (data && data.user_id) {
+              targetPhone = data.user_id;
+              console.log(`🔄 Encontrado número de teléfono en DB para ${conversationId}: ${targetPhone}`);
+              
+              // Actualizar caché
+              conversationIdToPhoneMap[conversationId] = targetPhone;
+              phoneToConversationMap[targetPhone] = conversationId;
+            }
+          } catch (dbError) {
+            console.error(`❌ Error consultando DB: ${dbError.message}`);
+          }
+        }
+      } else {
+        // El conversationId parece ser un número de teléfono
+        targetPhone = conversationId.toString().replace(/^\+/, '');
+      }
+    }
+    
+    console.log(`📱 Enviando mensaje a: ${targetPhone || 'No disponible'}`);
+    console.log(`🆔 ID de conversación: ${targetId}`);
+    console.log(`💬 Mensaje: ${message}`);
+    
+    let whatsappSuccess = false;
+    let whatsappError = null;
+    
+    // Enviar mensaje a WhatsApp
+    if (targetPhone) {
+      try {
+        // Enviar mensaje a WhatsApp directamente
+        const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
+        const formattedNumber = targetPhone.toString().replace(/^\+/, '');
+        
+        const formData = new URLSearchParams();
+        formData.append('channel', 'whatsapp');
+        formData.append('source', GUPSHUP_NUMBER);
+        formData.append('destination', formattedNumber);
+        formData.append('src.name', GUPSHUP_NUMBER);
+        formData.append('message', JSON.stringify({
+            type: 'text',
+            text: message
+        }));
+        
+        const headers = {
+          'Cache-Control': 'no-cache',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'apikey': GUPSHUP_API_KEY,
+          'userid': GUPSHUP_USERID
+        };
+        
+        console.log('🔄 Enviando mensaje directamente a la API de GupShup...');
+        
+        const response = await axios.post(apiUrl, formData, { headers });
+        
+        if (response.status >= 200 && response.status < 300) {
+          console.log('✅ Mensaje enviado exitosamente a WhatsApp');
+          console.log('📊 Respuesta de GupShup:', JSON.stringify(response.data));
+          whatsappSuccess = true;
+        } else {
+          console.error(`❌ Error en la respuesta de GupShup: ${response.status}`);
+          whatsappError = `Error HTTP: ${response.status}`;
+        }
+      } catch (apiError) {
+        console.error('❌ Error en la llamada a la API de GupShup:', apiError.message);
+        
+        if (apiError.response) {
+          console.error('📊 Detalles del error:', apiError.response.status, JSON.stringify(apiError.response.data || {}));
+          whatsappError = `Error HTTP ${apiError.response.status}: ${JSON.stringify(apiError.response.data || {})}`;
+        } else if (apiError.request) {
+          console.error('📊 No se recibió respuesta:', apiError.request);
+          whatsappError = 'No se recibió respuesta del servidor de GupShup';
+        } else {
+          console.error('📊 Error en la configuración:', apiError.message);
+          whatsappError = apiError.message;
+        }
+      }
+    } else {
+      whatsappError = "No se pudo determinar el número de teléfono para enviar el mensaje";
+      console.error(`❌ ${whatsappError}`);
+    }
+    
+    // Guardar el mensaje en la base de datos si se proporciona un ID de conversación
+    let messageId = null;
+    let dbSuccess = false;
+    let dbError = null;
+    
+    if (targetId) {
+      try {
+        // Usar registerBotResponse para guardar el mensaje
+        const result = await global.registerBotResponse(
+          targetId,
+          message,
+          businessId,
+          'bot'
+        );
+        
+        if (result && result.success) {
+          messageId = result.id;
+          dbSuccess = true;
+          console.log(`✅ Mensaje guardado en base de datos con ID: ${messageId}`);
+        } else {
+          dbError = result?.error || "Error desconocido al guardar mensaje";
+          console.error(`❌ Error al guardar mensaje: ${dbError}`);
+        }
+      } catch (saveError) {
+        dbError = saveError.message;
+        console.error(`❌ Error al guardar mensaje: ${dbError}`);
+      }
+    }
+    
+    return res.status(200).json({
+      success: whatsappSuccess || dbSuccess,
+      whatsapp: {
+        success: whatsappSuccess,
+        error: whatsappError
+      },
+      database: {
+        success: dbSuccess,
+        error: dbError,
+        messageId: messageId
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error general al procesar solicitud:', error.message);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 // Endpoint de prueba para simular un mensaje
 app.post('/test-message', async (req, res) => {
   try {
