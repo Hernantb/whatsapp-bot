@@ -78,203 +78,178 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     
     console.log(`🔔 Notificación requerida para conversación: ${conversationId}`);
     
-    // Si no tenemos el número de teléfono, intentar obtenerlo de la base de datos
+    // Si no tenemos el número de teléfono o ID del negocio, intentar obtenerlos de la base de datos
     let clientPhone = phoneNumber;
     let businessId = null;
     
-    if (!clientPhone || !businessId) {
-      try {
-        // Obtener información de la conversación desde Supabase
-        const { data, error } = await supabase
-          .from('conversations')
-          .select('user_id, business_id')
-          .eq('id', conversationId)
-          .single();
-        
-        if (error) {
-          console.error(`❌ Error obteniendo datos de conversación: ${error.message}`);
-        } else if (data) {
-          clientPhone = data.user_id;
-          businessId = data.business_id;
-          console.log(`📱 Datos obtenidos de la base de datos: teléfono=${clientPhone}, negocioId=${businessId}`);
-        }
-      } catch (dbError) {
-        console.error(`❌ Error consultando la base de datos: ${dbError.message}`);
-      }
-    }
-    
-    // Por defecto, usar el correo definido en las variables de entorno
-    let businessEmail = EMAIL_TO_DEFAULT;
-    let businessName = "Negocio";
-    let foundValidEmail = false;  // Para rastrear si ya encontramos un correo válido
-    
-    // ESTRATEGIA 1: Buscar directamente el negocio por nombre
+    // Obtener información de la conversación desde Supabase
     try {
-      console.log(`🔍 Buscando negocio específico: "Hernán Tenorio"`);
-      
-      // Intentar encontrar primero por nombre exacto
-      const { data: specificBusiness, error: specificError } = await supabase
-        .from('businesses')
-        .select('*')
-        .ilike('name', '%hernán tenorio%')
+      console.log(`🔍 Obteniendo información de conversación: ${conversationId}`);
+      const { data: conversationData, error: conversationError } = await supabase
+        .from('conversations')
+        .select('user_id, business_id')
+        .eq('id', conversationId)
         .single();
       
-      if (specificError) {
-        console.error(`❌ Error buscando negocio específico: ${specificError.message}`);
-      } else if (specificBusiness) {
-        console.log(`✅ Negocio específico encontrado:`, specificBusiness);
+      if (conversationError) {
+        console.error(`❌ Error obteniendo datos de conversación: ${conversationError.message}`);
+      } else if (conversationData) {
+        clientPhone = conversationData.user_id;
+        businessId = conversationData.business_id;
+        console.log(`✅ Datos de conversación obtenidos: phone=${clientPhone}, businessId=${businessId}`);
+      }
+    } catch (dbError) {
+      console.error(`❌ Error consultando conversación: ${dbError.message}`);
+    }
+    
+    if (!businessId) {
+      console.error(`❌ No se pudo obtener el ID del negocio para la conversación: ${conversationId}`);
+      return {
+        requiresNotification: true,
+        notificationSent: false,
+        error: 'No se pudo determinar el negocio asociado a la conversación'
+      };
+    }
+    
+    // Valores predeterminados
+    let businessEmail = EMAIL_TO_DEFAULT;
+    let businessName = "Negocio";
+    let foundValidEmail = false;
+    
+    // PASO 1: Obtener datos del negocio
+    try {
+      console.log(`🔍 Obteniendo datos del negocio: ${businessId}`);
+      const { data: businessData, error: businessError } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('id', businessId)
+        .single();
+      
+      if (businessError) {
+        console.error(`❌ Error obteniendo datos del negocio: ${businessError.message}`);
+      } else if (businessData) {
+        console.log(`✅ Datos del negocio obtenidos: ${JSON.stringify(businessData)}`);
         
-        // Obtener nombre del negocio
-        businessName = specificBusiness.name || "Hernán Tenorio";
-        
-        // Verificar si hay un correo directo en el negocio
-        const businessEmailFields = ['email', 'contact_email', 'notification_email', 'business_email', 'admin_email'];
-        for (const field of businessEmailFields) {
-          if (specificBusiness[field] && specificBusiness[field].includes('@')) {
-            businessEmail = specificBusiness[field];
-            foundValidEmail = true;
-            console.log(`✉️ Correo encontrado en el negocio específico (campo '${field}'): ${businessEmail}`);
-            break;
-          }
+        // Guardar nombre del negocio
+        if (businessData.name) {
+          businessName = businessData.name;
         }
         
-        // Si no encontramos correo en el negocio, pero tenemos owner_id, buscar su perfil
-        if (!foundValidEmail && specificBusiness.owner_id) {
-          console.log(`🔍 Buscando perfil del propietario del negocio específico: ${specificBusiness.owner_id}`);
+        // PASO 2: Obtener propietario del negocio (si existe owner_id)
+        const ownerId = businessData.owner_id;
+        if (ownerId) {
+          console.log(`🔍 Buscando perfil del propietario: ${ownerId}`);
           
+          // Obtener perfil del propietario
           const { data: ownerProfile, error: ownerError } = await supabase
             .from('profiles')
-            .select('*')
-            .eq('id', specificBusiness.owner_id)
+            .select('email, name, full_name')
+            .eq('id', ownerId)
             .single();
-            
+          
           if (ownerError) {
             console.error(`❌ Error obteniendo perfil del propietario: ${ownerError.message}`);
-          } else if (ownerProfile) {
-            console.log(`✅ Perfil del propietario encontrado:`, ownerProfile);
-            
-            // Si el perfil tiene email, usarlo para la notificación
-            if (ownerProfile.email && ownerProfile.email.includes('@')) {
-              businessEmail = ownerProfile.email;
-              foundValidEmail = true;
-              console.log(`✉️ Correo encontrado en perfil del propietario: ${businessEmail}`);
-            }
-            
-            // Si el perfil tiene nombre, usarlo como nombre del negocio si no tenemos uno
-            if (!businessName && ownerProfile.full_name) {
-              businessName = ownerProfile.full_name;
-            } else if (!businessName && ownerProfile.name) {
-              businessName = ownerProfile.name;
-            }
-          }
-        }
-        
-        // Usar el ID de negocio encontrado
-        businessId = specificBusiness.id;
-      }
-    } catch (specificSearchError) {
-      console.error(`❌ Error en búsqueda específica de negocio: ${specificSearchError.message}`);
-    }
-    
-    // ESTRATEGIA 2: Si no encontramos el correo, probar con el businessId de la conversación
-    if (!foundValidEmail && businessId) {
-      try {
-        console.log(`🔍 Buscando información del negocio con ID: ${businessId}`);
-        
-        // Obtener datos del negocio
-        const { data: businessData, error: businessError } = await supabase
-          .from('businesses')
-          .select('*')
-          .eq('id', businessId)
-          .single();
-          
-        if (businessError) {
-          console.error(`❌ Error obteniendo datos del negocio: ${businessError.message}`);
-        } else if (businessData) {
-          console.log(`✅ Datos del negocio obtenidos:`, businessData);
-          
-          // Obtener nombre del negocio si está disponible
-          if (businessData.name) {
-            businessName = businessData.name;
-          }
-          
-          // Verificar si hay un correo directo en el negocio
-          const businessEmailFields = ['email', 'contact_email', 'notification_email', 'business_email', 'admin_email'];
-          for (const field of businessEmailFields) {
-            if (businessData[field] && businessData[field].includes('@')) {
-              businessEmail = businessData[field];
-              foundValidEmail = true;
-              console.log(`✉️ Correo encontrado en el negocio (campo '${field}'): ${businessEmail}`);
-              break;
-            }
-          }
-          
-          // Si no encontramos correo y tenemos owner_id, buscar el perfil asociado
-          if (!foundValidEmail && businessData.owner_id) {
-            console.log(`🔍 Buscando perfil del propietario: ${businessData.owner_id}`);
-            
-            // Buscar directamente en la tabla profiles
-            const { data: profileData, error: profileError } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', businessData.owner_id)
-              .single();
-              
-            if (profileError) {
-              console.error(`❌ Error obteniendo perfil: ${profileError.message}`);
-            } else if (profileData) {
-              console.log(`✅ Perfil encontrado:`, profileData);
-              
-              // Si el perfil tiene email, usarlo para la notificación
-              if (profileData.email && profileData.email.includes('@')) {
-                businessEmail = profileData.email;
-                foundValidEmail = true;
-                console.log(`✉️ Correo encontrado en perfil: ${businessEmail}`);
-              }
-              
-              // Si el perfil tiene nombre, usarlo como nombre del negocio
-              if (profileData.full_name) {
-                businessName = profileData.full_name;
-              } else if (profileData.name) {
-                businessName = profileData.name;
-              }
-            }
-          }
-        }
-      } catch (businessError) {
-        console.error(`❌ Error consultando información del negocio: ${businessError.message}`);
-      }
-    }
-    
-    // ESTRATEGIA 3: Si aún no tenemos correo, buscar usuarios relacionados
-    if (!foundValidEmail && businessId) {
-      const users = await findBusinessUsers(businessId);
-      
-      if (users && users.length > 0) {
-        console.log(`✅ Encontrados ${users.length} usuarios relacionados con el negocio ${businessId}`);
-        
-        // Intentar encontrar un correo válido entre los usuarios
-        for (const user of users) {
-          if (user.email && user.email.includes('@')) {
-            businessEmail = user.email;
+          } else if (ownerProfile && ownerProfile.email) {
+            businessEmail = ownerProfile.email;
             foundValidEmail = true;
-            console.log(`✉️ Correo encontrado en tabla auth.users: ${businessEmail}`);
-            break;
+            console.log(`✅ Correo del propietario encontrado: ${businessEmail}`);
+            
+            // Si el perfil tiene nombre, usarlo si aún no tenemos nombre del negocio
+            if (!businessName && (ownerProfile.full_name || ownerProfile.name)) {
+              businessName = ownerProfile.full_name || ownerProfile.name;
+            }
           }
         }
-      } else {
-        console.log(`⚠️ No se encontraron usuarios relacionados con el negocio ${businessId}`);
+      }
+    } catch (businessError) {
+      console.error(`❌ Error consultando información del negocio: ${businessError.message}`);
+    }
+    
+    // PASO 3: Si no encontramos el correo, buscar usuarios relacionados al negocio
+    if (!foundValidEmail) {
+      try {
+        console.log(`🔍 Buscando usuarios relacionados con el negocio: ${businessId}`);
+        const { data: businessUsers, error: buError } = await supabase
+          .from('business_users')
+          .select('user_id, role')
+          .eq('business_id', businessId)
+          .eq('is_active', true);
+        
+        if (buError) {
+          console.error(`❌ Error obteniendo usuarios del negocio: ${buError.message}`);
+        } else if (businessUsers && businessUsers.length > 0) {
+          console.log(`✅ Encontrados ${businessUsers.length} usuarios asociados al negocio`);
+          
+          // Ordenar por rol (owner primero, luego admin, luego otros)
+          businessUsers.sort((a, b) => {
+            if (a.role === 'owner') return -1;
+            if (b.role === 'owner') return 1;
+            if (a.role === 'admin') return -1;
+            if (b.role === 'admin') return 1;
+            return 0;
+          });
+          
+          // Obtener IDs de usuarios para buscar sus perfiles
+          const userIds = businessUsers.map(bu => bu.user_id);
+          
+          // Buscar perfiles de usuarios
+          const { data: profiles, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, email, name, full_name')
+            .in('id', userIds);
+          
+          if (profilesError) {
+            console.error(`❌ Error obteniendo perfiles de usuarios: ${profilesError.message}`);
+          } else if (profiles && profiles.length > 0) {
+            console.log(`✅ Encontrados ${profiles.length} perfiles de usuarios`);
+            
+            // Crear un mapa de roles para optimizar la búsqueda
+            const userRoles = {};
+            businessUsers.forEach(bu => {
+              userRoles[bu.user_id] = bu.role;
+            });
+            
+            // Ordenar perfiles por rol (owner primero)
+            profiles.sort((a, b) => {
+              const roleA = userRoles[a.id] || '';
+              const roleB = userRoles[b.id] || '';
+              if (roleA === 'owner') return -1;
+              if (roleB === 'owner') return 1;
+              if (roleA === 'admin') return -1;
+              if (roleB === 'admin') return 1;
+              return 0;
+            });
+            
+            // Buscar el primer perfil con email válido
+            for (const profile of profiles) {
+              if (profile.email && profile.email.includes('@')) {
+                businessEmail = profile.email;
+                foundValidEmail = true;
+                console.log(`✅ Correo encontrado en perfil de usuario (${userRoles[profile.id] || 'user'}): ${businessEmail}`);
+                break;
+              }
+            }
+          }
+        }
+      } catch (usersError) {
+        console.error(`❌ Error consultando usuarios relacionados: ${usersError.message}`);
       }
     }
     
-    // SÓLO SI NO ENCONTRAMOS NINGÚN CORREO VÁLIDO: usar correo predeterminado de Hernán Tenorio
+    // Caso específico para Hernán Tenorio (por ID de negocio)
+    if (businessId === '2d385aa5-40e0-4ec9-9360-19281bc605e4' && (!foundValidEmail || businessEmail === EMAIL_TO_DEFAULT)) {
+      businessEmail = 'hernan.baigts@gmail.com';
+      businessName = 'Hernán Tenorio';
+      foundValidEmail = true;
+      console.log(`⚠️ Usando correo específico para Hernán Tenorio: ${businessEmail}`);
+    }
+    
+    // Si después de todos los intentos no encontramos un correo válido, usar el predeterminado
     if (!foundValidEmail) {
-      const hernanEmail = process.env.HERNAN_EMAIL || 'contacto@hernantenorio.com';
-      console.log(`⚠️ No se encontró correo válido en la base de datos, usando correo de Hernán Tenorio: ${hernanEmail}`);
-      businessEmail = hernanEmail;
-      businessName = "Hernán Tenorio";
+      console.warn(`⚠️ No se encontró correo válido para el negocio ${businessId}`);
+      console.log(`⚠️ Usando correo predeterminado: ${EMAIL_TO_DEFAULT}`);
     } else {
-      console.log(`✅ Se utilizará el correo encontrado en la base de datos: ${businessEmail}`);
+      console.log(`✅ Se utilizará correo específico del negocio: ${businessEmail}`);
     }
     
     // Enviar notificación por correo
@@ -290,7 +265,8 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     return {
       requiresNotification: true,
       notificationSent,
-      businessEmail
+      businessEmail,
+      businessName
     };
   } catch (error) {
     console.error(`❌ Error en processMessageForNotification: ${error.message}`);
@@ -299,65 +275,6 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
       notificationSent: false,
       error: error.message
     };
-  }
-}
-
-/**
- * Encuentra usuarios relacionados con un negocio (busca en business_users)
- * @param {string} businessId - ID del negocio
- * @returns {Promise<Array|null>} Lista de usuarios o null
- */
-async function findBusinessUsers(businessId) {
-  if (!businessId) return null;
-  
-  try {
-    console.log(`🔍 Buscando usuarios relacionados con negocio ID: ${businessId}`);
-    
-    // Intentar buscar en business_users primero
-    const { data: businessUsers, error: buError } = await supabase
-      .from('business_users')
-      .select('user_id')
-      .eq('business_id', businessId);
-    
-    if (buError) {
-      console.error(`❌ Error consultando business_users: ${buError.message}`);
-    } else if (businessUsers && businessUsers.length > 0) {
-      console.log(`✅ Encontrados ${businessUsers.length} usuarios en business_users`);
-      
-      // Obtener los detalles de estos usuarios
-      const userIds = businessUsers.map(bu => bu.user_id);
-      const { data: users, error: usersError } = await supabase
-        .from('users')
-        .select('id, email')
-        .in('id', userIds);
-      
-      if (usersError) {
-        console.error(`❌ Error obteniendo detalles de usuarios: ${usersError.message}`);
-      } else if (users && users.length > 0) {
-        console.log(`✅ Recuperados ${users.length} usuarios con sus correos`);
-        return users;
-      }
-    }
-    
-    // Si no encontramos en business_users, buscar perfiles relacionados
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('id, email')
-      .eq('business_id', businessId)
-      .limit(5);
-      
-    if (profilesError) {
-      console.error(`❌ Error consultando perfiles por business_id: ${profilesError.message}`);
-    } else if (profiles && profiles.length > 0) {
-      console.log(`✅ Encontrados ${profiles.length} perfiles con business_id=${businessId}`);
-      return profiles;
-    }
-    
-    console.log(`⚠️ No se encontraron usuarios relacionados con el negocio ${businessId}`);
-    return null;
-  } catch (error) {
-    console.error(`❌ Error en findBusinessUsers: ${error.message}`);
-    return null;
   }
 }
 
