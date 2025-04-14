@@ -81,14 +81,13 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     // Si no tenemos el número de teléfono, intentar obtenerlo de la base de datos
     let clientPhone = phoneNumber;
     let businessId = null;
-    let userId = null;
     
     if (!clientPhone || !businessId) {
       try {
         // Obtener información de la conversación desde Supabase
         const { data, error } = await supabase
           .from('conversations')
-          .select('user_id, business_id, created_by')
+          .select('user_id, business_id')
           .eq('id', conversationId)
           .single();
         
@@ -97,9 +96,7 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
         } else if (data) {
           clientPhone = data.user_id;
           businessId = data.business_id;
-          // El usuario que creó la conversación es probablemente el dueño
-          userId = data.created_by;
-          console.log(`📱 Datos obtenidos de la base de datos: teléfono=${clientPhone}, negocioId=${businessId}, userId=${userId}`);
+          console.log(`📱 Datos obtenidos de la base de datos: teléfono=${clientPhone}, negocioId=${businessId}`);
         }
       } catch (dbError) {
         console.error(`❌ Error consultando la base de datos: ${dbError.message}`);
@@ -110,59 +107,8 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     let businessEmail = EMAIL_TO_DEFAULT;
     let businessName = "Negocio";
     
-    // ESTRATEGIA 1: Buscar usuarios relacionados con este negocio
-    const users = await findBusinessUsers(businessId);
-    
-    if (users && users.length > 0) {
-      console.log(`✅ Encontrados ${users.length} usuarios relacionados con el negocio ${businessId}`);
-      
-      // Intentar encontrar un correo válido entre los usuarios
-      for (const user of users) {
-        if (user.email && user.email.includes('@')) {
-          businessEmail = user.email;
-          console.log(`✉️ Correo encontrado en tabla auth.users: ${businessEmail}`);
-          break;
-        }
-      }
-    } else {
-      console.log(`⚠️ No se encontraron usuarios relacionados con el negocio ${businessId}`);
-    }
-    
-    // ESTRATEGIA 2: Si no encontramos correo, buscar en profiles con el usuario creador
-    if (businessEmail === EMAIL_TO_DEFAULT && userId) {
-      try {
-        console.log(`🔍 Buscando perfil de usuario con ID: ${userId}`);
-        
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single();
-          
-        if (profileError) {
-          console.error(`❌ Error obteniendo perfil: ${profileError.message}`);
-        } else if (profileData) {
-          console.log(`✅ Perfil de usuario encontrado:`, profileData);
-          
-          if (profileData.email && profileData.email.includes('@')) {
-            businessEmail = profileData.email;
-            console.log(`✉️ Correo encontrado en perfil de usuario: ${businessEmail}`);
-            
-            // Si el perfil tiene un nombre, usarlo como nombre del negocio
-            if (profileData.full_name) {
-              businessName = profileData.full_name;
-            } else if (profileData.name) {
-              businessName = profileData.name;
-            }
-          }
-        }
-      } catch (profileError) {
-        console.error(`❌ Error consultando perfil: ${profileError.message}`);
-      }
-    }
-    
-    // ESTRATEGIA 3: Buscar en la tabla businesses y obtener el owner_id
-    if (businessEmail === EMAIL_TO_DEFAULT && businessId) {
+    // ESTRATEGIA 1: Obtener datos del negocio para encontrar el owner_id
+    if (businessId) {
       try {
         console.log(`🔍 Buscando información del negocio con ID: ${businessId}`);
         
@@ -193,34 +139,59 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
             }
           }
           
-          // Si aún no encontramos correo, intentar obtener el owner_id y buscar su perfil
+          // Si no encontramos correo y tenemos owner_id, buscar el perfil asociado
           if (businessEmail === EMAIL_TO_DEFAULT && businessData.owner_id) {
-            console.log(`🔍 Buscando perfil del propietario del negocio (${businessData.owner_id})`);
+            console.log(`🔍 Buscando perfil del propietario: ${businessData.owner_id}`);
             
-            // PRIMERO intentar en la tabla auth.users
-            const ownerEmail = await findUserEmailById(businessData.owner_id);
-            if (ownerEmail) {
-              businessEmail = ownerEmail;
-              console.log(`✉️ Correo del propietario encontrado en auth.users: ${businessEmail}`);
-            } else {
-              // Si no encontramos en auth.users, buscar en profiles
-              const { data: ownerData, error: ownerError } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', businessData.owner_id)
-                .single();
-                
-              if (ownerError) {
-                console.error(`❌ Error obteniendo perfil del propietario: ${ownerError.message}`);
-              } else if (ownerData && ownerData.email) {
-                businessEmail = ownerData.email;
-                console.log(`✉️ Correo encontrado en perfil del propietario: ${businessEmail}`);
+            // Buscar directamente en la tabla profiles
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', businessData.owner_id)
+              .single();
+              
+            if (profileError) {
+              console.error(`❌ Error obteniendo perfil: ${profileError.message}`);
+            } else if (profileData) {
+              console.log(`✅ Perfil encontrado:`, profileData);
+              
+              // Si el perfil tiene email, usarlo para la notificación
+              if (profileData.email && profileData.email.includes('@')) {
+                businessEmail = profileData.email;
+                console.log(`✉️ Correo encontrado en perfil: ${businessEmail}`);
+              }
+              
+              // Si el perfil tiene nombre, usarlo como nombre del negocio
+              if (profileData.full_name) {
+                businessName = profileData.full_name;
+              } else if (profileData.name) {
+                businessName = profileData.name;
               }
             }
           }
         }
       } catch (businessError) {
         console.error(`❌ Error consultando información del negocio: ${businessError.message}`);
+      }
+    }
+    
+    // ESTRATEGIA 2: Si aún no tenemos correo, buscar usuarios relacionados
+    if (businessEmail === EMAIL_TO_DEFAULT && businessId) {
+      const users = await findBusinessUsers(businessId);
+      
+      if (users && users.length > 0) {
+        console.log(`✅ Encontrados ${users.length} usuarios relacionados con el negocio ${businessId}`);
+        
+        // Intentar encontrar un correo válido entre los usuarios
+        for (const user of users) {
+          if (user.email && user.email.includes('@')) {
+            businessEmail = user.email;
+            console.log(`✉️ Correo encontrado en tabla auth.users: ${businessEmail}`);
+            break;
+          }
+        }
+      } else {
+        console.log(`⚠️ No se encontraron usuarios relacionados con el negocio ${businessId}`);
       }
     }
     
@@ -252,40 +223,6 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
       notificationSent: false,
       error: error.message
     };
-  }
-}
-
-/**
- * Encuentra el email de un usuario por su ID (busca en auth.users)
- * @param {string} userId - ID del usuario
- * @returns {Promise<string|null>} Correo electrónico o null
- */
-async function findUserEmailById(userId) {
-  try {
-    console.log(`🔍 Buscando correo para usuario con ID: ${userId} en auth.users`);
-    
-    // Intentar consultar directamente auth.users
-    const { data, error } = await supabase
-      .from('users')
-      .select('email')
-      .eq('id', userId)
-      .single();
-    
-    if (error) {
-      console.error(`❌ Error consultando auth.users: ${error.message}`);
-      return null;
-    }
-    
-    if (data && data.email) {
-      console.log(`✅ Correo encontrado en auth.users: ${data.email}`);
-      return data.email;
-    }
-    
-    console.log(`⚠️ No se encontró email en auth.users para usuario ${userId}`);
-    return null;
-  } catch (error) {
-    console.error(`❌ Error en findUserEmailById: ${error.message}`);
-    return null;
   }
 }
 
@@ -326,21 +263,18 @@ async function findBusinessUsers(businessId) {
       }
     }
     
-    // Si no encontramos en business_users, buscar directamente en auth.users
-    const { data: authUsers, error: authError } = await supabase
-      .from('users')
+    // Si no encontramos en business_users, buscar perfiles relacionados
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
       .select('id, email')
       .eq('business_id', businessId)
       .limit(5);
       
-    if (authError) {
-      console.error(`❌ Error consultando auth.users por business_id: ${authError.message}`);
-      return null;
-    }
-    
-    if (authUsers && authUsers.length > 0) {
-      console.log(`✅ Encontrados ${authUsers.length} usuarios en auth.users con business_id=${businessId}`);
-      return authUsers;
+    if (profilesError) {
+      console.error(`❌ Error consultando perfiles por business_id: ${profilesError.message}`);
+    } else if (profiles && profiles.length > 0) {
+      console.log(`✅ Encontrados ${profiles.length} perfiles con business_id=${businessId}`);
+      return profiles;
     }
     
     console.log(`⚠️ No se encontraron usuarios relacionados con el negocio ${businessId}`);
