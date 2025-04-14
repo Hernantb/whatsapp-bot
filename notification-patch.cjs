@@ -351,8 +351,18 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
       `;
       
       lastMessages.forEach(msg => {
-        const isFromBot = msg.is_from_business === true;
+        // Determinar si el mensaje es del bot o del cliente
+        // Un mensaje es del bot si:
+        // 1. El campo is_from_business es true, O
+        // 2. El campo source_type es 'bot', O 
+        // 3. El campo sender_id no coincide con el número de teléfono del cliente
+        const isFromBot = msg.is_from_business === true || 
+                          msg.source_type === 'bot' || 
+                          (msg.sender_id && msg.sender_id !== phoneNumber);
+        
         const isTriggerMessage = isFromBot && msg.content === message;
+        
+        // Estilos para mensajes del bot (verde claro) y cliente (blanco)
         const msgStyle = isFromBot 
           ? 'background-color: #DCF8C6; padding: 8px; border-radius: 5px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: right; float: right; clear: both;' 
           : 'background-color: #FFFFFF; padding: 8px; border-radius: 5px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: left; float: left; clear: both;';
@@ -361,11 +371,13 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
           ? 'border: 2px solid #FF0000; box-shadow: 0 0 5px rgba(255, 0, 0, 0.5);' 
           : '';
         
+        // Formatear la hora del mensaje
         const msgTime = new Date(msg.created_at).toLocaleTimeString('es-ES', {
           hour: '2-digit',
           minute: '2-digit'
         });
         
+        // Generar el HTML para cada mensaje
         messagesHtml += `
           <div style="overflow: hidden; margin-bottom: 10px;">
             <div style="${msgStyle} ${highlightStyle}">
