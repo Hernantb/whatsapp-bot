@@ -2734,7 +2734,7 @@ const MAX_WAIT_TIME = 60000; // 60 segundos
 const pendingMessageGroups = new Map();
 
 // Tiempo de espera para agrupar mensajes sucesivos (en ms)
-const MESSAGE_GROUPING_DELAY = 3000; // 3 segundos
+const MESSAGE_GROUPING_DELAY = 4500; // 4.5 segundos
 
 /**
  * Agrega un mensaje a un grupo pendiente y devuelve true si el mensaje debe esperar
