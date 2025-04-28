@@ -482,8 +482,106 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
   }
 }
 
+/**
+ * Repara los mensajes en la base de datos corrigiendo los sender_type incorrectos.
+ * Esta función analiza el contenido para detectar mensajes que probablemente sean del bot/dashboard pero tienen sender_type='user'.
+ * @returns {Promise<Object>} Resultado de la operación con estadísticas
+ */
+async function fixMessagesInDatabase() {
+  if (!supabase) {
+    console.error('❌ No hay conexión a Supabase, no se pueden reparar los mensajes');
+    return { success: false, error: 'No hay conexión a Supabase' };
+  }
+
+  try {
+    console.log('🔧 Iniciando reparación de mensajes en la base de datos...');
+    
+    // 1. Obtener mensajes que tienen sender_type='user' pero podrían ser del bot
+    const { data: suspectMessages, error: selectError } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('sender_type', 'user');
+    
+    if (selectError) {
+      console.error(`❌ Error al consultar mensajes: ${selectError.message}`);
+      return { success: false, error: selectError.message };
+    }
+    
+    console.log(`ℹ️ Encontrados ${suspectMessages.length} mensajes con sender_type='user' para analizar`);
+    
+    // Contador de mensajes corregidos
+    let correctedCount = 0;
+    
+    // 2. Patrones que indican que un mensaje es probablemente del bot/dashboard
+    const botPatterns = [
+      "¡Perfecto!", 
+      "Perfecto!", 
+      "CUPRA Master",
+      "CUPRA",
+      "un asesor te llamará",
+      "un asesor te contactará", 
+      "una persona te contactará",
+      "cita ha sido confirmada",
+      "Hola soy Hernán"
+    ];
+    
+    // 3. Analizar y corregir mensajes sospechosos
+    for (const msg of suspectMessages) {
+      // Verificar si el contenido coincide con alguno de los patrones
+      const isBotMessage = botPatterns.some(pattern => 
+        msg.content && msg.content.includes(pattern)
+      );
+      
+      if (isBotMessage) {
+        console.log(`🔄 Corrigiendo mensaje: "${msg.content.substring(0, 40)}..."`);
+        
+        // Actualizar el mensaje
+        const { error: updateError } = await supabase
+          .from('messages')
+          .update({ 
+            sender_type: 'bot',
+            is_from_business: true 
+          })
+          .eq('id', msg.id);
+        
+        if (updateError) {
+          console.error(`❌ Error al actualizar mensaje ${msg.id}: ${updateError.message}`);
+        } else {
+          correctedCount++;
+          console.log(`✅ Mensaje corregido: ${msg.id.substring(0, 8)}`);
+        }
+      }
+    }
+    
+    console.log(`✅ Reparación completada. Se corrigieron ${correctedCount} mensajes.`);
+    return { 
+      success: true, 
+      total: suspectMessages.length,
+      corrected: correctedCount 
+    };
+  } catch (error) {
+    console.error(`❌ Error en la reparación de mensajes: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
+// Si este archivo se ejecuta directamente, reparar los mensajes
+if (require.main === module) {
+  console.log('🔧 Ejecutando script de reparación de mensajes...');
+  fixMessagesInDatabase()
+    .then(result => {
+      console.log('Resultado de la reparación:', result);
+      process.exit(result.success ? 0 : 1);
+    })
+    .catch(error => {
+      console.error('Error en el script de reparación:', error);
+      process.exit(1);
+    });
+}
+
 module.exports = {
   checkForNotificationPhrases,
   processMessageForNotification,
-  sendBusinessNotification
+  sendBusinessNotification,
+  fixMessagesInDatabase
 }; 
