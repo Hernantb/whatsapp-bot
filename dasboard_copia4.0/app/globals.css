@@ -1,0 +1,527 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .text-foreground {
+    color: hsl(var(--foreground));
+  }
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d1d1;
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a0a0a0;
+}
+
+/* Mensajes y fondos para que coincidan con el diseño v0 */
+.message-sent {
+  @apply bg-[#332c40] text-white rounded-lg rounded-tr-none shadow-sm;
+}
+
+.message-received {
+  @apply bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg rounded-tl-none shadow-sm;
+}
+
+/* Chat background */
+.chat-background {
+  background-color: #f0f2f5;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e2e8f0' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.dark .chat-background {
+  background-color: #1e1e2d;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23332c40' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Color de botones para enviar - usando el color morado principal del tema */
+.bg-whatsapp {
+  background-color: #332c40;
+}
+
+.text-whatsapp {
+  color: #332c40;
+}
+
+.hover\:bg-whatsapp\/90:hover {
+  background-color: rgba(51, 44, 64, 0.9);
+}
+
+/* Colores para el sidebar y áreas de la aplicación */
+.bg-dashboard-sidebar {
+  background-color: #f5f5f5;
+}
+
+.dark .bg-dashboard-sidebar {
+  background-color: #1e1e2d;
+}
+
+.bg-dashboard-bg {
+  background-color: #f0f2f5;
+}
+
+.dark .bg-dashboard-bg {
+  background-color: #151521;
+}
+
+.bg-dashboard-active {
+  background-color: #e5e7eb;
+}
+
+.dark .bg-dashboard-active {
+  background-color: #252836;
+}
+
+/* Reemplazar el patrón de fondo actual con un patrón geométrico más sutil */
+
+/* Reemplazar la definición actual de .bg-sand-pattern con esta nueva versión */
+
+.bg-sand-pattern {
+  background-color: #f5f0e5; /* Color arena ligeramente más oscuro que el anterior #f9f5eb */
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.3'%3E%3Cpath d='M0 0h4v4H0V0zm8 0h4v4H8V0zm8 0h4v4h-4V0zM4 4h4v4H4V4zm8 0h4v4h-4V4zm-4 4h4v4H8V8zm8 0h4v4h-4V8zm-8 4h4v4H8v-4zm8 0h4v4h-4v-4z'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Modificar solo la parte del modo oscuro de .bg-sand-pattern */
+.dark .bg-sand-pattern {
+  background-color: #13151f; /* Color oscuro ligeramente más oscuro que el anterior #171923 */
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23332c40' fill-opacity='0.1'%3E%3Cpath d='M0 0h4v4H0V0zm8 0h4v4H8V0zm8 0h4v4h-4V0zM4 4h4v4H4V4zm8 0h4v4h-4V4zm-4 4h4v4H8V8zm8 0h4v4h-4V8zm-8 4h4v4H8v-4zm8 0h4v4h-4v-4z'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* También actualizar los colores del robot para mantener la coherencia */
+.cartoon-robot {
+  position: relative;
+  width: 80px;
+  height: 120px;
+}
+
+.robot-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Dirección del robot */
+.robot-container.left {
+  transform: scaleX(-1);
+}
+
+/* Antena del robot */
+.antenna {
+  width: 2px;
+  height: 12px;
+  background-color: transparent;
+  border: 1px solid #332c40;
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.antenna::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  border: 1px solid #332c40;
+}
+
+/* Orejas del robot */
+.ear {
+  width: 6px;
+  height: 10px;
+  background-color: transparent;
+  border: 1px solid #332c40;
+  position: absolute;
+  top: 10px;
+  border-radius: 3px;
+}
+
+.ear.left-ear {
+  left: -6px;
+}
+
+.ear.right-ear {
+  right: -6px;
+}
+
+/* Cabeza del robot - Solo bordes */
+.head {
+  width: 40px;
+  height: 40px;
+  background-color: transparent;
+  border: 2px solid #332c40;
+  border-radius: 3px;
+  position: relative;
+  z-index: 2;
+}
+
+/* Ojos - Simples puntos */
+.eyes {
+  display: flex;
+  justify-content: space-around;
+  padding-top: 12px;
+}
+
+.eye {
+  width: 6px;
+  height: 6px;
+  background-color: #332c40;
+  border-radius: 50%;
+}
+
+/* Cuerpo - Solo bordes */
+.body {
+  width: 30px;
+  height: 45px;
+  background-color: transparent;
+  border: 2px solid #332c40;
+  border-radius: 2px;
+  margin-top: 5px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Brazos - Solo bordes */
+.arm {
+  width: 8px;
+  height: 35px;
+  background-color: transparent;
+  border: 2px solid #332c40;
+  position: absolute;
+  border-radius: 1px;
+}
+
+.left-arm {
+  left: -8px;
+  top: 5px;
+  transform-origin: top center;
+}
+
+.right-arm {
+  right: -8px;
+  top: 5px;
+  transform-origin: top center;
+}
+
+/* Piernas - Solo bordes */
+.leg {
+  width: 8px;
+  height: 25px;
+  background-color: transparent;
+  border: 2px solid #332c40;
+  position: absolute;
+  bottom: -25px;
+  border-radius: 1px;
+}
+
+.left-leg {
+  left: 5px;
+  transform-origin: top center;
+}
+
+.right-leg {
+  right: 5px;
+  transform-origin: top center;
+}
+
+/* Animaciones para el robot */
+
+/* Caminando */
+.cartoon-robot.walking .left-arm {
+  animation: swingArm 0.5s infinite alternate;
+}
+
+.cartoon-robot.walking .right-arm {
+  animation: swingArm 0.5s infinite alternate-reverse;
+}
+
+.cartoon-robot.walking .left-leg {
+  animation: swingLeg 0.5s infinite alternate;
+}
+
+.cartoon-robot.walking .right-leg {
+  animation: swingLeg 0.5s infinite alternate-reverse;
+}
+
+.cartoon-robot.walking .head {
+  animation: bobHead 0.5s infinite alternate;
+}
+
+/* Saludando */
+.cartoon-robot.waving .right-arm {
+  animation: wave 0.5s infinite;
+}
+
+.cartoon-robot.waving .head {
+  animation: nod 1s infinite;
+}
+
+/* Trabajando/Mensajes */
+.cartoon-robot.messaging .left-arm {
+  animation: typing 0.3s infinite alternate;
+}
+
+.cartoon-robot.messaging .right-arm {
+  animation: typing 0.3s infinite alternate-reverse;
+}
+
+.cartoon-robot.messaging .head {
+  animation: lookDown 1s infinite;
+}
+
+/* Ejercicio */
+.cartoon-robot.exercising .left-arm {
+  animation: exercise 0.4s infinite;
+}
+
+.cartoon-robot.exercising .right-arm {
+  animation: exercise 0.4s infinite;
+}
+
+.cartoon-robot.exercising .left-leg {
+  animation: jumpLeg 0.4s infinite alternate;
+}
+
+.cartoon-robot.exercising .right-leg {
+  animation: jumpLeg 0.4s infinite alternate-reverse;
+}
+
+.cartoon-robot.exercising .head {
+  animation: breathe 0.4s infinite alternate;
+}
+
+/* Cansado */
+.cartoon-robot.tired .head {
+  animation: tired 2s infinite;
+}
+
+.cartoon-robot.tired .body {
+  animation: breatheHeavy 1s infinite alternate;
+}
+
+.cartoon-robot.tired .left-arm,
+.cartoon-robot.tired .right-arm {
+  animation: droopArm 1s infinite alternate;
+}
+
+/* Definición de animaciones */
+@keyframes swingArm {
+  0% {
+    transform: rotate(-20deg);
+  }
+  100% {
+    transform: rotate(20deg);
+  }
+}
+
+@keyframes swingLeg {
+  0% {
+    transform: rotate(-15deg);
+  }
+  100% {
+    transform: rotate(15deg);
+  }
+}
+
+@keyframes bobHead {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes wave {
+  0% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(30deg);
+  }
+  50% {
+    transform: rotate(0deg);
+  }
+  75% {
+    transform: rotate(30deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes nod {
+  0% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(5deg);
+  }
+  75% {
+    transform: rotate(-5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes typing {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(5px);
+  }
+}
+
+@keyframes lookDown {
+  0% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes exercise {
+  0% {
+    transform: rotate(-45deg);
+  }
+  50% {
+    transform: rotate(45deg);
+  }
+  100% {
+    transform: rotate(-45deg);
+  }
+}
+
+@keyframes jumpLeg {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes breathe {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes tired {
+  0% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(5deg);
+  }
+  75% {
+    transform: rotate(-5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes breatheHeavy {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes droopArm {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(10deg);
+  }
+}
+

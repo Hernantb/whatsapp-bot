@@ -1,0 +1,227 @@
+✅ Ruta /uploads configurada para servir archivos estáticos como respaldo
+🔄 Conexiones a Supabase inicializadas:
+  URL: https://wscijkxwevgxbgwhbqtm.supabase.co
+  ANON Key: eyJhbGciOi...
+  SERVICE Key: ...
+🚀 Servidor ejecutándose en el puerto 7777
+📝 POST /api/messages
+📨 Solicitud para guardar mensaje en conversación 4a42aa05-2ffd-418b-aa52-29e7c571eee8: "¡Perfecto! Un asesor te llamará pronto para confirmar los detalles."
+📨 Mensaje ya enviado a WhatsApp: No
+🔍 Buscando business con número +15557033313...
+✅ Business encontrado: {
+  id: '2d385aa5-40e0-4ec9-9360-19281bc605e4',
+  name: 'Hernán Tenorio',
+  gupshup_api_key: 'sk_8def1775845143bc8da6fbcfedb285c2',
+  whatsapp_number: '+15557033313',
+  plan_type: 'basic',
+  max_concurrent_chats: null,
+  created_at: '2025-03-15T06:09:12.885428+00:00',
+  updated_at: '2025-03-15T06:09:12.885428+00:00'
+}
+👤 Usando sender_type: bot
+🔍 Verificando si el mensaje '¡Perfecto! Un asesor te llamará pronto para confirmar los detalles.' requiere notificación...
+🔍 === VERIFICANDO FRASES PARA NOTIFICACIÓN ===
+🔍 Mensaje a verificar: "¡Perfecto! Un asesor te llamará pronto para confirmar los detalles."
+✅ COINCIDENCIA EXACTA detectada con frase: "perfecto! un asesor te llamara"
+🔔 ¡Mensaje requiere notificación! Obteniendo número de teléfono...
+📱 Número de teléfono obtenido: 5212221192568
+📧 Enviando notificación para mensaje "¡Perfecto! Un asesor te llamará pronto para confirmar los detalles."
+
+📧 === ENVIANDO NOTIFICACIÓN DE NEGOCIO ===
+📧 ID Conversación: 4a42aa05-2ffd-418b-aa52-29e7c571eee8
+📧 Mensaje Bot: "¡Perfecto! Un asesor te llamará pronto para confirmar los detalles."
+📧 Teléfono Cliente: 5212221192568
+📧 ID de Negocio: 2d385aa5-40e0-4ec9-9360-19281bc605e4
+🔍 Obteniendo detalles de la conversación...
+✅ Detalles de conversación obtenidos correctamente
+🔍 Obteniendo historial reciente de mensajes...
+✅ Se encontraron 10 mensajes recientes
+🔍 Obteniendo información del negocio...
+✅ Información de negocio obtenida: Hernán Tenorio
+📧 Configuración de correo:
+- Remitente (EMAIL_USER): "bexorai@gmail.com" (valor actual de la variable: "bexorai@gmail.com")
+- Contraseña (EMAIL_APP_PASSWORD): "gqwi...kylf" (longitud: 19)
+- Destinatario principal (NOTIFICATION_EMAIL): "nan_martinez@yahoo.com"
+- BCC (BCC_EMAIL): "copia@brexor.com"
+[2025-04-08 16:23:14] DEBUG Creating transport: nodemailer (6.10.0; +https://nodemailer.com/; SMTP/6.10.0[client:6.10.0])
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] Resolved smtp.gmail.com as 142.250.115.108 [cache miss]
+[2025-04-08 16:23:20] INFO  [KFD2UlzHNvo] Secure connection established to 142.250.115.108:465
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 220 smtp.gmail.com ESMTP 5614622812f47-40069345949sm507692b6e.21 - gsmtp
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] C: EHLO Hernans-MacBook-Air.local
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250-smtp.gmail.com at your service, [187.224.255.226]
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250-SIZE 35882577
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250-8BITMIME
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250-AUTH LOGIN PLAIN XOAUTH2 PLAIN-CLIENTTOKEN OAUTHBEARER XOAUTH
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250-ENHANCEDSTATUSCODES
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250-PIPELINING
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250-CHUNKING
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 250 SMTPUTF8
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] SMTP handshake finished
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] C: AUTH PLAIN AGJleG9yYWlAZ21haWwuY29tAC8qIHNlY3JldCAqLw==
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 235 2.7.0 Accepted
+[2025-04-08 16:23:20] INFO  [KFD2UlzHNvo] User "bexorai@gmail.com" authenticated
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] C: QUIT
+✅ Servidor de correo verificado correctamente
+📧 Tipo de notificación: assistance
+📧 Agregando BCC: copia@brexor.com
+📧 Enviando email a: nan_martinez@yahoo.com
+[2025-04-08 16:23:20] DEBUG Sending mail using SMTP/6.10.0[client:6.10.0]
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] Resolved smtp.gmail.com as 142.250.115.108 [cache hit]
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] S: 221 2.0.0 closing connection 5614622812f47-40069345949sm507692b6e.21 - gsmtp
+[2025-04-08 16:23:20] DEBUG [KFD2UlzHNvo] Closing connection to the server using "end"
+[2025-04-08 16:23:20] INFO  [KFD2UlzHNvo] Connection closed
+[2025-04-08 16:23:20] INFO  [FwAiz0oxboI] Secure connection established to 142.250.115.108:465
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 220 smtp.gmail.com ESMTP 5614622812f47-40069106571sm508111b6e.16 - gsmtp
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] C: EHLO Hernans-MacBook-Air.local
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250-smtp.gmail.com at your service, [187.224.255.226]
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250-SIZE 35882577
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250-8BITMIME
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250-AUTH LOGIN PLAIN XOAUTH2 PLAIN-CLIENTTOKEN OAUTHBEARER XOAUTH
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250-ENHANCEDSTATUSCODES
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250-PIPELINING
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250-CHUNKING
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250 SMTPUTF8
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] SMTP handshake finished
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] C: AUTH PLAIN AGJleG9yYWlAZ21haWwuY29tAC8qIHNlY3JldCAqLw==
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 235 2.7.0 Accepted
+[2025-04-08 16:23:20] INFO  [FwAiz0oxboI] User "bexorai@gmail.com" authenticated
+[2025-04-08 16:23:20] INFO  Sending message <5e68b4c7-b21b-4002-d632-3ccceeb9795e@gmail.com> to <nan_martinez@yahoo.com, copia@brexor.com>
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] C: MAIL FROM:<bexorai@gmail.com>
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250 2.1.0 OK 5614622812f47-40069106571sm508111b6e.16 - gsmtp
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] C: RCPT TO:<nan_martinez@yahoo.com>
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] C: RCPT TO:<copia@brexor.com>
+[2025-04-08 16:23:20] DEBUG [FwAiz0oxboI] S: 250 2.1.5 OK 5614622812f47-40069106571sm508111b6e.16 - gsmtp
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] S: 250 2.1.5 OK 5614622812f47-40069106571sm508111b6e.16 - gsmtp
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] C: DATA
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] S: 354 Go ahead 5614622812f47-40069106571sm508111b6e.16 - gsmtp
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] From: WhatsApp Bot <bexorai@gmail.com>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] To: nan_martinez@yahoo.com
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Subject: Cliente Requiere Asistencia por WhatsApp - Cliente 5212221192568
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Message-ID: <5e68b4c7-b21b-4002-d632-3ccceeb9795e@gmail.com>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Content-Transfer-Encoding: quoted-printable
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Date: Tue, 08 Apr 2025 16:23:20 +0000
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] MIME-Version: 1.0
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Content-Type: text/html; charset=utf-8
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] 
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] 
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       <div style=3D"font-family: Arial, sans-serif; max-width: 600px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] margin: 0 auto;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <h2 style=3D"color: #2c3e50; border-bottom: 1px =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] solid #eee; padding-bottom: 10px;">Cliente Requiere Asistencia por =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] WhatsApp</h2>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]        =20
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <div style=3D"background-color: #f8f9fa; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <h3 style=3D"margin-top: 0; color: #34495e;">Datos del =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Cliente</h3>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <p><strong>Tel=C3=A9fono:</strong> 5212221192568</p>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <p><strong>Fecha:</strong> 4/8/2025, 10:23:20 AM</p>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         </div>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]        =20
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <div style=3D"margin-bottom: 20px;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <h3 style=3D"color: #34495e;">Mensaje que Gener=C3=B3 la =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Notificaci=C3=B3n</h3>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <div style=3D"background-color: #e6f7ff; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] padding: 10px; border-radius: 5px;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]             =C2=A1Perfecto! Un asesor =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] te llamar=C3=A1 pronto para confirmar los detalles.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           </div>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         </div>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]        =20
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <div style=3D"margin-bottom: 20px;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <h3 style=3D"color: #34495e;">Historial Reciente de la =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Conversaci=C3=B3n</h3>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <div style=3D"margin-bottom: 10px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] padding: 8px; border-radius: 5px; background-color: #e6f7ff;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Bot (4/8/2025, 10:23:13 AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         =C2=A1Perfecto! Un asesor te llamar=C3=A1 pronto para confirmar los=
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]  detalles.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div style=3D"margin-bottom: 10px; padding: 8px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] border-radius: 5px; background-color: #e6f7ff;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Bot =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] (4/8/2025, 10:22:13 AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         =C2=A1Perfecto! Tu cita ha =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] sido confirmada para ma=C3=B1ana. Gracias.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] style=3D"margin-bottom: 10px; padding: 8px; border-radius: 5px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] background-color: #e6f7ff;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Bot (4/8/2025, 10:17:09 =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         =C2=A1Perfecto! un asesor te llamar=C3=A1 hoy a =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] la 13.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div style=3D"margin-bottom: 10px; padding: 8px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] border-radius: 5px; background-color: #f0f0f0;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Cliente =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] (4/8/2025, 10:17:04 AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         Si perd=C3=B3n mejor hoy a =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] la 13
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div style=3D"margin-bottom: 10px; padding: 8px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] border-radius: 5px; background-color: #e6f7ff;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Bot =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] (4/8/2025, 9:56:38 AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         =C2=A1Perfecto! tu cita ha =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] sido confirmada para hoy a las 6. Si necesitas algo m=C3=A1s, no dudes en =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] dec=C3=ADrmelo.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div style=3D"margin-bottom: 10px; padding: =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] 8px; border-radius: 5px; background-color: #f0f0f0;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Cliente (4/8/2025, 9:56:33 AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         Mejor quiero mi cita hoy q la 6
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] style=3D"margin-bottom: 10px; padding: 8px; border-radius: 5px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] background-color: #e6f7ff;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Bot (4/8/2025, 9:55:32 =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         =C2=A1Perfecto! tu cita ha sido confirmada para =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] hoy a las 6. Si necesitas algo m=C3=A1s, no dudes en decirme.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div style=3D"margin-bottom: 10px; padding: 8px; border-radius:=
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]  5px; background-color: #f0f0f0;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Cliente (4/8/2025, =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] 9:55:26 AM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         Mejor quiero mi cita hoy q la 6
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div style=3D"margin-bottom: 10px; padding: 8px; border-radius:=
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]  5px; background-color: #e6f7ff;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Bot (4/7/2025, 11:34:21 =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] PM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         =C2=A1Perfecto! Tu cita ha sido confirmada para =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] ma=C3=B1ana a la 13:00.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div><div style=3D"margin-bottom: 10px; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] padding: 8px; border-radius: 5px; background-color: #f0f0f0;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <strong>Cliente (4/7/2025, 11:34:16 PM):</strong><br/>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         Mejor a la 13
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         </div>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]        =20
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <div style=3D"text-align: center; margin-top: 30px;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           <a href=3D"http://localhost:3010/conversations/4a42aa05-2ffd-418b=
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] -aa52-29e7c571eee8"=20
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]              style=3D"background-color: #3498db; =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] color: white; padding: 10px 20px; text-decoration: none; border-radius: =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] 5px; font-weight: bold;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]             Ver Conversaci=C3=B3n Completa
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           </a>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         </div>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]        =20
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         <p style=3D"color: =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] #7f8c8d; font-size: 12px; margin-top: 30px; text-align: center;">
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]           Este es un mensaje autom=C3=A1tico de Hern=C3=A1n Tenorio. Por =
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] favor, no respondas directamente a este correo.
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]         </p>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]       </div>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI]    =20
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] .
+[2025-04-08 16:23:21] INFO  [FwAiz0oxboI] <4673 bytes encoded mime message (source size 4607 bytes)>
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] S: 250 2.0.0 OK  1744129401 5614622812f47-40069106571sm508111b6e.16 - gsmtp
+[2025-04-08 16:23:21] DEBUG [FwAiz0oxboI] Closing connection to the server using "end"
+✅ Email enviado: <5e68b4c7-b21b-4002-d632-3ccceeb9795e@gmail.com>
+[2025-04-08 16:23:21] INFO  [FwAiz0oxboI] Connection closed
+⚠️ Error al guardar registro de notificación: undefined
+📧 Resultado del envío de notificación: ÉXITO ✅
+⚠️ Error al actualizar estado de notificación: Could not find the 'notification_timestamp' column of 'conversations' in the schema cache
+📱 Enviando mensaje a WhatsApp para 5212221192568
+❌ Error al marcar mensaje como enviado: Could not find the 'sent_to_whatsapp' column of 'messages' in the schema cache
+📤 Intento 1/3 para enviar mensaje a WhatsApp
+✅ Mensaje enviado correctamente a WhatsApp: {"messageId":"07c12a3d-3f99-4495-bc16-d5707686e33f","phone":"5212221192568","message":"¡Perfecto! Un asesor te llamará pronto para confir...","status":"SENT","timestamp":"2025-04-08T16:23:23.252Z","provider":"gupshup","details":{"success":true,"messageId":"07c12a3d-3f99-4495-bc16-d5707686e33f","status":"submitted","responseData":{"status":"submitted","messageId":"07c12a3d-3f99-4495-bc16-d5707686e33f"}}}
+✅ Mensaje guardado exitosamente para conversación 4a42aa05-2ffd-418b-aa52-29e7c571eee8
+📝 GET /api/messages/4a42aa05-2ffd-418b-aa52-29e7c571eee8
+🔍 Buscando mensajes para la conversación: 4a42aa05-2ffd-418b-aa52-29e7c571eee8
+✅ Se encontraron 441 mensajes

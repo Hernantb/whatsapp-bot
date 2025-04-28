@@ -1,0 +1,153 @@
+✅ Ruta /uploads configurada para servir archivos estáticos como respaldo
+🔄 Conexiones a Supabase inicializadas:
+  URL: https://wscijkxwevgxbgwhbqtm.supabase.co
+  ANON Key: eyJhbGciOi...
+  SERVICE Key: ...
+🚀 Servidor ejecutándose en el puerto 9999
+📝 POST /webhook
+📩 Mensaje recibido completo: {
+  "type": "message",
+  "payload": {
+    "sender_type": "bot",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "source": "5213312801513"
+  }
+}
+
+🔍 === PROCESANDO MENSAJE ===
+📱 Número de teléfono: 5213312801513
+💬 Mensaje: "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud."
+🤖 Es del bot: Sí
+🔍 Verificando si el mensaje del bot requiere notificación...
+🔍 === VERIFICANDO FRASES PARA NOTIFICACIÓN ===
+🔍 Mensaje a verificar: "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud."
+✅ COINCIDENCIA EXACTA detectada con frase: "perfecto! un asesor te llamara"
+✅ SE DETECTÓ FRASE DE NOTIFICACIÓN
+🔍 === VERIFICANDO FRASES PARA NOTIFICACIÓN ===
+🔍 Mensaje a verificar: "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud."
+✅ COINCIDENCIA EXACTA detectada con frase: "perfecto! un asesor te llamara"
+📝 Datos procesados: {
+  eventType: 'message',
+  phoneNumber: '5213312801513',
+  messageText: '¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.',
+  senderName: 'Unknown',
+  isBotMessage: true,
+  requiresNotification: true
+}
+🔍 Obteniendo business_id...
+🔍 Buscando business con número +15557033313...
+✅ Business encontrado: {
+  id: '2d385aa5-40e0-4ec9-9360-19281bc605e4',
+  name: 'Hernán Tenorio',
+  gupshup_api_key: 'sk_8def1775845143bc8da6fbcfedb285c2',
+  whatsapp_number: '+15557033313',
+  plan_type: 'basic',
+  max_concurrent_chats: null,
+  created_at: '2025-03-15T06:09:12.885428+00:00',
+  updated_at: '2025-03-15T06:09:12.885428+00:00'
+}
+✅ Business ID obtenido: 2d385aa5-40e0-4ec9-9360-19281bc605e4
+🔍 Buscando conversación existente...
+✅ Conversación existente encontrada: [ { id: 'e60833d4-331f-4250-ab48-1efb2d69f878' } ]
+📝 Actualizando último mensaje de la conversación...
+✅ Conversación actualizada con timestamp: 2025-04-08T05:01:24.702Z
+📝 Guardando mensaje...
+✅ Mensaje guardado exitosamente: {
+  phoneNumber: '5213312801513',
+  messageText: '¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.',
+  timestamp: '2025-04-08T05:01:24.855Z',
+  isBotMessage: true
+}
+🔔 Mensaje del bot requiere notificación. Enviando email...
+
+📧 === ENVIANDO NOTIFICACIÓN DE NEGOCIO ===
+📧 ID Conversación: e60833d4-331f-4250-ab48-1efb2d69f878
+📧 Mensaje Bot: "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud."
+📧 Teléfono Cliente: 5213312801513
+📧 ID de Negocio: 2d385aa5-40e0-4ec9-9360-19281bc605e4
+🔍 Obteniendo detalles de la conversación...
+✅ Detalles de conversación obtenidos correctamente
+🔍 Obteniendo historial reciente de mensajes...
+✅ Se encontraron 8 mensajes recientes
+🔍 Obteniendo información del negocio...
+✅ Información de negocio obtenida: Hernán Tenorio
+📧 Configuración de correo:
+- Remitente (EMAIL_USER): "bexorai@gmail.com" (valor actual de la variable: "bexorai@gmail.com")
+- Contraseña (EMAIL_APP_PASSWORD): "gqwi...kylf" (longitud: 16)
+- Destinatario principal (NOTIFICATION_EMAIL): "joaquinisaza@hotmail.com"
+- BCC (BCC_EMAIL): "copia@brexor.com"
+✅ Servidor de correo verificado correctamente
+📧 Tipo de notificación: assistance
+📧 Agregando BCC: copia@brexor.com
+📧 Enviando email a: joaquinisaza@hotmail.com
+✅ Email enviado: <1a7131c2-60cf-9cbc-b570-06bbb2b58fdb@gmail.com>
+⚠️ Error al guardar registro de notificación: undefined
+📧 Resultado de notificación: ✅ Enviada
+✅ Registro de notificación actualizado en la base de datos
+📋 Verificando mensajes guardados...
+✅ Mensajes en la conversación: [
+  {
+    "id": "e78f7e3d-a040-42c1-88f3-da05a82431b3",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T04:55:22.202+00:00"
+  },
+  {
+    "id": "90460b31-5148-442f-8b10-9fadc126bcfa",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T04:56:08.223+00:00"
+  },
+  {
+    "id": "671a93af-50e2-4ab6-acbd-8bce53d4cba5",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T04:56:20.516+00:00"
+  },
+  {
+    "id": "ade0979f-ca66-4c3a-9e20-49c9e0556c8b",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T04:56:42.458+00:00"
+  },
+  {
+    "id": "95fb80cf-63a6-4880-9adb-ebb6997cb7a1",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T04:59:02.443+00:00"
+  },
+  {
+    "id": "32f32c67-b25f-4d2f-96ca-af4376e4b746",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T04:59:41.33+00:00"
+  },
+  {
+    "id": "935f2fbe-1ad9-493e-935c-78837d55d38c",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T05:00:02.916+00:00"
+  },
+  {
+    "id": "2910cc39-d1ce-4650-af01-df8bc3a4a138",
+    "conversation_id": "e60833d4-331f-4250-ab48-1efb2d69f878",
+    "content": "¡Perfecto! un asesor te llamará pronto para ayudarte con tu solicitud.",
+    "sender_type": "bot",
+    "read": false,
+    "created_at": "2025-04-08T05:01:24.855+00:00"
+  }
+]
