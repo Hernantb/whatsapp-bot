@@ -1412,26 +1412,38 @@ app.post('/webhook', async (req, res) => {
         
         try {
             // Obtener o crear conversación
-            const convResult = await saveMessageToSupabase({
+            const saveResult = await saveMessageToSupabase({
                 sender,
                 message,
                 messageId,
                 timestamp: messageData.timestamp
             });
             
-            conversationId = convResult.conversationId;
-            botActive = convResult.isBotActive;
-            
-            console.log(`✅ Mensaje guardado en conversación ${conversationId} (Bot activo: ${botActive})`);
-            
-            // Actualizar última actividad de la conversación
-            await updateConversationLastActivity(conversationId, message);
+            if (!saveResult || !saveResult.conversationId) {
+                console.error('❌ Error: No se pudo obtener ID de conversación válido');
+                // Si no tenemos conversationId, igual intentamos seguir procesando
+                // pero con el bot desactivado por seguridad
+                botActive = false;
+            } else {
+                conversationId = saveResult.conversationId;
+                botActive = saveResult.isBotActive === true;
+                
+                console.log(`✅ Mensaje guardado en conversación ${conversationId} (Bot activo: ${botActive ? 'SÍ' : 'NO'})`);
+                
+                // Solo actualizar la última actividad si tenemos un ID válido
+                if (conversationId) {
+                    // Actualizar última actividad de la conversación
+                    await updateConversationLastActivity(conversationId, message);
+                }
+            }
         } catch (dbError) {
             console.error(`❌ Error guardando mensaje: ${dbError.message}`);
+            // Por seguridad, desactivamos el bot si hay errores
+            botActive = false;
         }
         
         // Verificar si hay alguna promesa esperando respuesta para esta conversación
-        // Si la hay, resolverla y no continuar con el procesamiento normal
+        // Solo verificar si tenemos un ID de conversación válido
         if (conversationId && resolveWaitingPromise(conversationId, {
             sender,
             message,
@@ -1443,8 +1455,8 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO
-        if (botActive) {
+        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y tenemos un ID válido
+        if (botActive && conversationId) {
             console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
             
             try {
@@ -1469,7 +1481,7 @@ app.post('/webhook', async (req, res) => {
                 console.error(`❌ Error procesando con OpenAI: ${aiError.message}`);
             }
         } else {
-            console.log(`🛑 Bot INACTIVO: NO se procesa mensaje de ${sender} con OpenAI ni se envía respuesta automática`);
+            console.log(`🛑 Bot ${!botActive ? 'INACTIVO' : 'sin ID de conversación válido'}: NO se procesa mensaje de ${sender} con OpenAI ni se envía respuesta automática`);
         }
         
         // Responder inmediatamente al webhook
