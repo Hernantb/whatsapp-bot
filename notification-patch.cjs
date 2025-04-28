@@ -598,13 +598,212 @@ async function fixMessagesInDatabase() {
   }
 }
 
+/**
+ * Repara los mensajes en la base de datos a partir de una muestra de texto HTML.
+ * Esta función toma una muestra de mensajes y busca en la base de datos para corregirlos.
+ * @param {string} sampleMessages - Muestra de mensajes en texto plano con formato "Cliente - HH:MM\nContenido"
+ * @returns {Promise<Object>} Resultado de la operación con estadísticas
+ */
+async function fixMessagesFromSample(sampleMessages) {
+  if (!supabase) {
+    console.error('❌ No hay conexión a Supabase, no se pueden reparar los mensajes');
+    return { success: false, error: 'No hay conexión a Supabase' };
+  }
+
+  try {
+    console.log('🔧 Iniciando reparación de mensajes a partir de muestra...');
+    
+    // Parsear la muestra de mensajes
+    const messageLines = sampleMessages.split('\n');
+    const botMessages = [];
+    
+    // Patrones que indican que un mensaje es del bot
+    const botPatterns = [
+      "¡Perfecto!",
+      "Perfecto!",
+      "CUPRA Master",
+      "Hola soy Hernán",
+      "un asesor te llamará",
+      "asesor te llamará",
+      "te llamará a las"
+    ];
+    
+    // Analizar las líneas y extraer mensajes del bot
+    for (let i = 0; i < messageLines.length; i++) {
+      const line = messageLines[i];
+      // Si la línea comienza con "Cliente -" y la siguiente línea tiene contenido
+      if (line.startsWith("Cliente -") && i + 1 < messageLines.length) {
+        const content = messageLines[i + 1];
+        const shouldBeBot = botPatterns.some(pattern => content.includes(pattern));
+        
+        if (shouldBeBot) {
+          botMessages.push({
+            timestamp: line.split('-')[1].trim(),
+            content: content.trim()
+          });
+          console.log(`🔍 Detectado mensaje del bot: "${content.substring(0, 40)}..." (${line})`);
+        }
+      }
+    }
+    
+    console.log(`ℹ️ Encontrados ${botMessages.length} mensajes del bot en la muestra que están incorrectamente etiquetados como del cliente`);
+    
+    // Contador de mensajes
+    let correctedCount = 0;
+    
+    // Para cada mensaje del bot, buscar en la base de datos y corregir
+    for (const botMsg of botMessages) {
+      console.log(`🔍 Buscando mensaje: "${botMsg.content.substring(0, 40)}..."`);
+      
+      // Buscar el mensaje en la base de datos por contenido
+      const { data: matchingMessages, error: searchError } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('sender_type', 'user')  // Solo los que están incorrectamente como 'user'
+        .ilike('content', botMsg.content);  // Buscar por contenido
+      
+      if (searchError) {
+        console.error(`❌ Error al buscar mensaje: ${searchError.message}`);
+        continue;
+      }
+      
+      if (!matchingMessages || matchingMessages.length === 0) {
+        console.log(`⚠️ No se encontró coincidencia exacta para: "${botMsg.content.substring(0, 40)}..."`);
+        
+        // Si no hay coincidencia exacta, buscar mensajes similares
+        const { data: similarMessages, error: similarError } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('sender_type', 'user')
+          .filter('content', 'ilike', `%${botMsg.content.substring(0, 20)}%`);
+        
+        if (similarError) {
+          console.error(`❌ Error al buscar mensajes similares: ${similarError.message}`);
+          continue;
+        }
+        
+        if (similarMessages && similarMessages.length > 0) {
+          console.log(`ℹ️ Encontrados ${similarMessages.length} mensajes similares:`);
+          
+          for (const msg of similarMessages) {
+            console.log(`   - ID: ${msg.id.substring(0, 8)}, Contenido: "${msg.content.substring(0, 40)}..."`);
+            
+            // Corregir el mensaje
+            const { error: updateError } = await supabase
+              .from('messages')
+              .update({ 
+                sender_type: 'bot',
+                is_from_business: true 
+              })
+              .eq('id', msg.id);
+            
+            if (updateError) {
+              console.error(`❌ Error al actualizar mensaje ${msg.id}: ${updateError.message}`);
+            } else {
+              correctedCount++;
+              console.log(`✅ Mensaje corregido: ${msg.id.substring(0, 8)}`);
+            }
+          }
+        } else {
+          console.log(`⚠️ No se encontraron mensajes similares`);
+        }
+      } else {
+        console.log(`ℹ️ Encontrados ${matchingMessages.length} mensajes coincidentes:`);
+        
+        for (const msg of matchingMessages) {
+          console.log(`   - ID: ${msg.id.substring(0, 8)}, Contenido exacto: "${msg.content.substring(0, 40)}..."`);
+          
+          // Corregir el mensaje
+          const { error: updateError } = await supabase
+            .from('messages')
+            .update({ 
+              sender_type: 'bot',
+              is_from_business: true 
+            })
+            .eq('id', msg.id);
+          
+          if (updateError) {
+            console.error(`❌ Error al actualizar mensaje ${msg.id}: ${updateError.message}`);
+          } else {
+            correctedCount++;
+            console.log(`✅ Mensaje corregido: ${msg.id.substring(0, 8)}`);
+          }
+        }
+      }
+    }
+    
+    console.log(`
+✅ Reparación completada:
+   - Mensajes del bot detectados en muestra: ${botMessages.length}
+   - Mensajes corregidos en la base de datos: ${correctedCount}
+    `);
+    
+    return { 
+      success: true, 
+      sampleSize: botMessages.length,
+      corrected: correctedCount 
+    };
+  } catch (error) {
+    console.error(`❌ Error en la reparación de mensajes: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
+// Ejemplo de uso con la muestra proporcionada por el usuario
+const sampleData = `Cliente - 02:38
+Mejor a las 3
+Cliente - 02:38
+¡Perfecto! tu cita ha sido confirmada para hoy a las 3 para ver el CUPRA León. Si necesitas algo más, no dudes en decírmelo.
+Cliente - 03:57
+mejor a la 1
+Cliente - 03:57
+Hola soy Hernán CUPRA Master de San Ángel, ¿con quién tengo el gusto?
+Cliente - 03:58
+con graciela quiero que me marque un asesor a las 5
+Cliente - 03:58
+¡Perfecto! Un asesor te llamará a las 5.
+Cliente - 04:06
+mejor a las 11
+Cliente - 04:06
+¡Perfecto! Un asesor te llamará a las 11.
+Cliente - 04:10
+mejor a las 7
+Cliente - 04:10
+¡Perfecto! Un asesor te llamará a las 7.
+Cliente - 04:28
+mejor a las 6
+Cliente - 04:28
+¡Hola soy Hernán CUPRA Master de San Ángel, con quién tengo el gusto?
+Cliente - 04:28
+juna quiero que me llamen a las 7
+Cliente - 04:29
+¡Perfecto! un asesor te llamará a las 7.
+Cliente - 04:36
+mejor a las 6
+Cliente - 04:36
+¡Perfecto! un asesor te llamará a las 6.
+Cliente - 04:45
+mejor a las 4
+Cliente - 04:45
+¡Hola soy Hernán CUPRA Master de San Ángel, con quién tengo el gusto?
+Cliente - 04:45
+gracilea quiero que me llame un asseor a las 6`;
+
 // Si este archivo se ejecuta directamente, reparar los mensajes
 if (require.main === module) {
   console.log('🔧 Ejecutando script de reparación de mensajes...');
-  fixMessagesInDatabase()
+  
+  // Usar la muestra proporcionada por el usuario
+  fixMessagesFromSample(sampleData)
     .then(result => {
-      console.log('Resultado de la reparación:', result);
-      process.exit(result.success ? 0 : 1);
+      console.log('Resultado de la reparación desde muestra:', result);
+      
+      // Si aún quieres ejecutar el método general también
+      return fixMessagesInDatabase();
+    })
+    .then(result => {
+      console.log('Resultado de la reparación general:', result);
+      process.exit(0);
     })
     .catch(error => {
       console.error('Error en el script de reparación:', error);
@@ -616,5 +815,6 @@ module.exports = {
   checkForNotificationPhrases,
   processMessageForNotification,
   sendBusinessNotification,
-  fixMessagesInDatabase
+  fixMessagesInDatabase,
+  fixMessagesFromSample
 }; 
