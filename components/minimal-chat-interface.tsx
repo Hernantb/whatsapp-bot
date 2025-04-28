@@ -5,7 +5,8 @@ import MinimalConversationsList from "@/components/minimal-conversations-list"
 import MinimalChatView from "@/components/minimal-chat-view"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { cn } from "@/lib/utils"
-import { Home, Moon, Sun, LogOut, BarChart2 } from "lucide-react"
+import { Home, Moon, Sun, LogOut, BarChart2, Search, Menu, Check, Send, X, MessageCircle, Settings } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
 import { useRouter } from "next/navigation"
@@ -19,17 +20,21 @@ import {
 } from "@/components/ui/dialog"
 import { 
   fetchConversations, 
+  fetchMessages, 
   sendMessage, 
   toggleBot,
   sendDirectWhatsAppMessage
 } from "@/lib/api-client"
 import { getMessagesForConversation } from "@/services/messages"
+import { deleteConversation } from "@/services/conversations"
 import { supabase, subscribeToConversationMessages } from "@/lib/supabase"
 import { useToast } from "@/components/ui/use-toast"
 import type { Conversation, Message } from "@/lib/database"
 import ModeToggle from "@/components/mode-toggle"
 import { transformMessages, handleNewMessage, transformMessage, storeMessages } from "@/services/messages"
 import { UIMessage, UIConversation } from "@/types"
+import { invalidateMessagesCache } from '../services/messages'
+import { cache } from '../lib/cache'
 
 interface MinimalChatInterfaceProps {
   businessId?: string;
@@ -41,7 +46,8 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
   const [conversations, setConversations] = useState<any[]>([])
   const [messages, setMessages] = useState<UIMessage[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingConversations, setIsLoadingConversations] = useState(true)
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
@@ -51,9 +57,13 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
   const { toast } = useToast()
   const [isSending, setIsSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const conversationsRef = useRef<HTMLDivElement>(null)
+  
+  // Track de los mensajes enviados recientemente para evitar duplicados
+  const [recentlySentMessages, setRecentlySentMessages] = useState<UIMessage[]>([])
   
   // Referencia para la función de carga expuesta - movida al nivel del componente
-  const loadConversationsRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const loadConversationsRef = useRef<() => void>(() => {})
 
   // Estado para controlar el diálogo de confirmación
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -64,10 +74,12 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
   // Referencias para controlar el ciclo de vida de las solicitudes
   const lastProcessedIdRef = useRef<string | null>(null);
   const fetchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
   // Estado para almacenar mensajes por ID de conversación
   const [messagesByConversation, setMessagesByConversation] = useState<Record<string, any[]>>({});
+
+  // Estado para controlar la eliminación de conversación
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     setMounted(true)
@@ -77,7 +89,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
   // Cargar conversaciones al inicio
   useEffect(() => {
     const loadConversations = async () => {
-      setIsLoading(true);
+      setIsLoadingConversations(true);
       try {
         // Obtener el usuario actual desde el contexto de Supabase
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -85,7 +97,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         if (sessionError || !session?.user) {
           console.error('Error al obtener la sesión:', sessionError);
           setServerError("No se pudo obtener la sesión de usuario. Por favor, inicie sesión nuevamente.");
-          setIsLoading(false);
+          setIsLoadingConversations(false);
           return Promise.resolve();
         }
         
@@ -100,7 +112,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         if (businessUserError) {
           console.error('Error al obtener business_id:', businessUserError);
           setServerError("Error al obtener el negocio asociado a su cuenta.");
-          setIsLoading(false);
+          setIsLoadingConversations(false);
           return Promise.resolve();
         }
         
@@ -108,7 +120,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         if (!businessUserData?.business_id) {
           console.warn('Usuario no tiene un negocio asociado');
           setServerError("Su cuenta no tiene un negocio asociado. Contacte al administrador.");
-          setIsLoading(false);
+          setIsLoadingConversations(false);
           return Promise.resolve();
         }
         
@@ -125,7 +137,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         if (conversationsError) {
           console.error('Error al obtener conversaciones:', conversationsError);
           setServerError("Error al cargar las conversaciones. Intente nuevamente.");
-          setIsLoading(false);
+          setIsLoadingConversations(false);
           return Promise.resolve();
         }
         
@@ -148,6 +160,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
                 id: conv.id,
                 name: conv.sender_name || conv.user_id || 'Sin nombre',
                 phone: conv.user_id || '',
+                user_id: conv.user_id || '',
                 lastMessage: conv.last_message || "Nueva conversación",
                 timestamp: conv.last_message_time || conv.created_at,
                 unread: conv.unread_count || 0,
@@ -187,6 +200,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
                   id: conv.id,
                   name: conv.sender_name || conv.user_id || 'Sin nombre',
                   phone: conv.user_id || '',
+                  user_id: conv.user_id || '',
                   lastMessage: conv.last_message || "Nueva conversación",
                   timestamp: conv.last_message_time || conv.created_at,
                   unread: conv.unread_count || 0,
@@ -214,7 +228,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         console.error('Error al cargar conversaciones:', error);
         setServerError("Error al conectar con el servidor. Verifique que esté ejecutándose.");
       } finally {
-        setIsLoading(false);
+        setIsLoadingConversations(false);
       }
       
       // Retornar una promesa resuelta para poder encadenar con .then()
@@ -245,6 +259,108 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
     }
     
   }, [mounted])
+
+  // Función para forzar refresco completo de la UI (útil después de eliminaciones)
+  const forceUIRefresh = useCallback(async () => {
+    console.log('🔄 Iniciando refresco controlado de la UI');
+    
+    // Bandera para evitar múltiples actualizaciones
+    let refreshStarted = false;
+    
+    try {
+      if (refreshStarted) {
+        console.log('⚠️ Ya hay un refresco en proceso, ignorando solicitud');
+        return;
+      }
+      
+      refreshStarted = true;
+      
+      // 1. Primero limpiar estado local para evitar inconsistencias
+      setSelectedChat(null);
+      setMessages([]);
+      
+      // 2. Intentar recargar conversaciones sin limpiar caché primero
+      toast({
+        title: "Actualizando",
+        description: "Recargando conversaciones...",
+        duration: 2000,
+      });
+      
+      try {
+        console.log('🔄 Intentando recarga sin limpiar caché');
+        if (loadConversationsRef.current) {
+          await loadConversationsRef.current();
+          console.log('✅ Recarga completada exitosamente');
+          refreshStarted = false;
+          return;
+        }
+      } catch (initialError) {
+        console.warn('⚠️ Error en recarga inicial:', initialError);
+        // Continuar con enfoque más agresivo
+      }
+      
+      // 3. Si falló el enfoque sutil, hacer una limpieza más agresiva
+      console.log('🧹 Iniciando limpieza de caché y refresco completo');
+      
+      // Limpiar caché de conversaciones
+      cache.invalidate('conversations', 'all');
+      
+      // Limpiar localStorage relacionado con conversaciones
+      if (typeof window !== 'undefined') {
+        try {
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('conv_') || key.startsWith('conversation_') || key.startsWith('messages_'))) {
+              keysToRemove.push(key);
+            }
+          }
+          
+          // Eliminar claves en un segundo paso para evitar problemas con el índice
+          keysToRemove.forEach(key => {
+            try {
+              localStorage.removeItem(key);
+            } catch (e) {
+              console.warn(`⚠️ No se pudo eliminar ${key} de localStorage:`, e);
+            }
+          });
+        } catch (localStorageError) {
+          console.warn('⚠️ Error al limpiar localStorage:', localStorageError);
+        }
+      }
+      
+      // Recargar conversaciones con caché limpia
+      try {
+        if (loadConversationsRef.current) {
+          await loadConversationsRef.current();
+          console.log('✅ Recarga completa exitosa después de limpieza de caché');
+        }
+      } catch (finalError) {
+        console.error('❌ Error en recarga final:', finalError);
+        toast({
+          title: "Error de sincronización",
+          description: "No se pudieron recargar las conversaciones. Intente refrescar la página.",
+          variant: "destructive",
+          duration: 4000,
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error inesperado en forceUIRefresh:', error);
+      toast({
+        title: "Error inesperado",
+        description: "Hubo un problema al refrescar la interfaz. Intente recargar la página.",
+        variant: "destructive",
+        duration: 4000,
+      });
+    } finally {
+      refreshStarted = false;
+    }
+  }, [setSelectedChat, setMessages, toast]);
+
+  // Exponer la función de refresco para acceso global
+  if (typeof window !== 'undefined') {
+    (window as any).forceUIRefresh = forceUIRefresh;
+  }
 
   // Función más inteligente para desplazarse al último mensaje
   const scrollToBottom = useCallback((smooth = false) => {
@@ -306,9 +422,37 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         return;
       }
       
-      console.log("📩 Nuevo mensaje recibido en tiempo real:", payload.new.content?.substring(0, 20));
-      
+      // Obtener propiedades del nuevo mensaje
       const newMessage = payload.new;
+      const messageId = newMessage.id || '';
+      const messageContent = newMessage.content || '';
+      
+      console.log(`📩 Nuevo mensaje recibido en tiempo real: ${messageContent.substring(0, 20)}... [ID: ${messageId.substring(0, 8)}]`);
+      
+      // Verificar si este mensaje fue enviado por nosotros (optimistic UI)
+      // Esto es crítico para evitar duplicados al enviar mensajes
+      const isOurRecentlySentMessage = recentlySentMessages.some(sentMsg => {
+        // Verificar por ID si existe
+        if (sentMsg.id === messageId) {
+          console.log(`🔍 Este mensaje es uno enviado por nosotros con el mismo ID, ignorando`);
+          return true;
+        }
+        
+        // Verificar por contenido y tiempo si el ID es diferente (puede ser un tempId vs ID real)
+        if (sentMsg.content === messageContent && 
+            Math.abs(new Date(sentMsg.timestamp).getTime() - new Date(newMessage.created_at).getTime()) < 10000) {
+          console.log(`🔍 Este mensaje coincide con uno enviado por nosotros recientemente, ignorando`);
+          return true;
+        }
+        
+        return false;
+      });
+      
+      // Si es un mensaje que enviamos nosotros, ignorarlo para evitar duplicados
+      if (isOurRecentlySentMessage) {
+        console.log(`🔄 Ignorando mensaje recibido por realtime que acabamos de enviar nosotros`);
+        return;
+      }
       
       // Transformar el mensaje para la UI sin filtrar por remitente
       const transformedMessage = transformMessage(newMessage);
@@ -327,10 +471,11 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
           return prevMessages;
         }
         
-        // Verificar duplicados por contenido y timestamp cercano (dentro de 2 segundos)
+        // Verificar duplicados por contenido y timestamp cercano (dentro de 5 segundos)
         const isDuplicate = prevMessages.some(msg => 
           msg.content === transformedMessage.content && 
-          Math.abs(new Date(msg.timestamp).getTime() - new Date(transformedMessage.timestamp).getTime()) < 2000
+          msg.sender === transformedMessage.sender &&
+          Math.abs(new Date(msg.timestamp).getTime() - new Date(transformedMessage.timestamp).getTime()) < 5000
         );
         
         if (isDuplicate) {
@@ -376,6 +521,86 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
             : conv
         );
       });
+
+      // Verificar si el mensaje contiene alguna de las frases clave
+      const keyPhrases = [
+        "¡Perfecto! tu cita ha sido confirmada para",
+        "¡Perfecto! un asesor te llamará",
+        "¡Perfecto! un asesor te contactará",
+        "¡Perfecto! una persona te contactará"
+      ];
+      
+      const containsKeyPhrase = transformedMessage.content ? keyPhrases.some(phrase => 
+        transformedMessage.content.toLowerCase().includes(phrase.toLowerCase())
+      ) : false;
+      
+      // Si el mensaje contiene una frase clave, verificar y registrar explícitamente
+      if (containsKeyPhrase) {
+        console.log(`🌟 FRASE CLAVE DETECTADA en mensaje: "${transformedMessage.content.substring(0, 50)}..."`);
+        console.log(`🔍 Remitente: ${transformedMessage.sender}, conversación: ${chatId}`);
+        
+        // CAMBIO IMPORTANTE: SIEMPRE marcar como importante cuando el bot envía una frase clave
+        console.log(`🔄 Marcando conversación ${chatId} como importante automáticamente porque contiene frase clave del bot`);
+        
+        // Forzar la actualización de la conversación para marcarla como importante
+        try {
+          // Actualizar en la base de datos primero
+          console.log(`🔄 Marcando conversación ${chatId} como importante en la base de datos`);
+          supabase
+            .from('conversations')
+            .update({ 
+              user_category: "important", 
+              tag: "yellow",
+              colorLabel: "yellow",
+              manuallyMovedToAll: false,
+              manuallyMovedToAllTimestamp: null
+            })
+            .eq('id', chatId)
+            .then(({ error }) => {
+              if (error) {
+                console.error('Error al actualizar categoría en la base de datos:', error);
+              } else {
+                console.log(`✅ Conversación ${chatId} marcada como importante en la base de datos`);
+                
+                // Limpiar localStorage también
+                if (typeof window !== 'undefined') {
+                  try {
+                    console.log(`🧹 Eliminando estado "movido manualmente a Todos" para conversación ${chatId} de localStorage`);
+                    localStorage.removeItem(`manually_moved_${chatId}`);
+                    localStorage.removeItem(`manually_moved_time_${chatId}`);
+                  } catch (e) {
+                    console.error('Error removing from localStorage:', e);
+                  }
+                }
+                
+                // Actualizar también el objeto en memoria
+                setConversations(prevConversations => {
+                  return prevConversations.map(conv => {
+                    if (conv.id === chatId) {
+                      return {
+                        ...conv,
+                        userCategory: "important",
+                        tag: "yellow",
+                        colorLabel: "yellow",
+                        manuallyMovedToAll: false,
+                        manuallyMovedToAllTimestamp: null
+                      };
+                    }
+                    return conv;
+                  });
+                });
+                
+                // Cambia a la pestaña de importantes automáticamente
+                if (activeTab !== "important") {
+                  console.log('🔄 Cambiando automáticamente a la pestaña IMPORTANTES');
+                  setActiveTab("important");
+                }
+              }
+            });
+        } catch (dbError) {
+          console.error('Error al intentar actualizar la base de datos:', dbError);
+        }
+      }
     });
     
     return () => {
@@ -391,13 +616,98 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
   }, [selectedChat])
 
   // Confirmar eliminación de conversación
-  const confirmDeleteConversation = useCallback(() => {
-    if (!selectedChat) return
-    setConversations((prev) => prev.filter((conv) => conv.id !== selectedChat))
-    setMessages([])
-    setSelectedChat(null)
-    setDeleteDialogOpen(false)
-  }, [selectedChat])
+  const confirmDeleteConversation = useCallback(async () => {
+    if (!selectedChat) return;
+    
+    try {
+      const chatId = typeof selectedChat === 'string' ? selectedChat : selectedChat.id;
+      console.log(`🗑️ Iniciando eliminación de conversación: ${chatId}`);
+      
+      // 1. Inmediatamente cerrar el diálogo y actualizar la UI
+      setDeleteDialogOpen(false);
+      
+      // 2. Mostrar notificación de iniciando eliminación
+      toast({
+        title: "Eliminando conversación",
+        description: "Iniciando proceso de eliminación...",
+        duration: 2000
+      });
+      
+      // 3. Primero limpiar toda la UI para evitar congelamiento
+      setSelectedChat(null);
+      setMessages([]);
+      
+      // 4. Extraer la conversación que vamos a eliminar antes de actualizar el estado
+      const chatToDelete = conversations.find(conv => conv.id === chatId);
+      
+      // 5. Actualizar las conversaciones inmediatamente sin esperar la operación de DB
+      setConversations(prev => prev.filter(conv => conv.id !== chatId));
+      
+      // 6. Ejecutar la eliminación real completamente desacoplada de la UI
+      // Usamos un enfoque "fire and forget" con timeout
+      setTimeout(() => {
+        const deleteOperation = async () => {
+          setIsDeleting(true);
+          try {
+            console.log(`🔄 Eliminando conversación ${chatId} en segundo plano`);
+            const result = await deleteConversation(chatId);
+            
+            // Mostrar resultado silenciosamente sin bloquear
+            if (result.success) {
+              console.log(`✅ Conversación ${chatId} eliminada correctamente en la base de datos`);
+              toast({
+                title: "Conversación eliminada",
+                description: "La conversación ha sido eliminada del servidor",
+                duration: 3000
+              });
+              
+              // Recargar conversaciones después de eliminar
+              setTimeout(() => {
+                if (loadConversationsRef.current) {
+                  try {
+                    console.log('✅ Recargando lista de conversaciones');
+                    loadConversationsRef.current();
+                  } catch (err: unknown) {
+                    console.error('Error al recargar conversaciones:', err);
+                  }
+                }
+              }, 1000);
+            } else {
+              console.error('⚠️ Error durante la eliminación en el servidor:', result.error);
+              toast({
+                title: "Advertencia",
+                description: "La conversación fue eliminada de la interfaz pero puede haber un problema en el servidor",
+                variant: "destructive",
+                duration: 5000
+              });
+            }
+          } catch (error) {
+            console.error('⚠️ Error en eliminación en segundo plano:', error);
+          } finally {
+            setIsDeleting(false);
+          }
+        };
+        
+        // Ejecutar operación asincrónicamente
+        deleteOperation().catch(e => {
+          console.error('Error fatal en operación de eliminación:', e);
+          setIsDeleting(false);
+        });
+      }, 100);
+      
+    } catch (error) {
+      console.error('Error general en el proceso de eliminación:', error);
+      setDeleteDialogOpen(false);
+      setIsDeleting(false);
+      
+      toast({
+        title: "Error inesperado",
+        description: "Ocurrió un error al procesar la eliminación",
+        variant: "destructive",
+        duration: 5000
+      });
+    }
+  }, [selectedChat, conversations, toast]);
 
   // Función para manejar el envío de mensajes
   const handleSendMessage = async (content: string, conversationId: string) => {
@@ -442,7 +752,25 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         };
         
         console.log(`💾 Creado mensaje optimista temporal con ID: ${tempId}`);
-              
+        
+        // Añadir el mensaje a la lista de mensajes enviados recientemente
+        // para evitar duplicados al recibir eventos de Supabase Realtime
+        setRecentlySentMessages(prev => {
+          const updatedList = [...prev, optimisticMessage];
+          // Mantener solo los últimos 20 mensajes
+          if (updatedList.length > 20) {
+            updatedList.splice(0, updatedList.length - 20);
+          }
+          return updatedList;
+        });
+        
+        // Programar la limpieza del mensaje de la lista después de 10 segundos
+        setTimeout(() => {
+          setRecentlySentMessages(prev => 
+            prev.filter(msg => msg.id !== tempId && msg.content !== content)
+          );
+        }, 10000);
+        
         // Actualizar el estado con el mensaje optimista
         setMessages(prevMessages => {
           // Verificar si prevMessages es un array válido
@@ -474,138 +802,83 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
           return updatedMessages;
         });
         
-        // Variables para manejar reintentos
-        let attempts = 0;
-        const maxAttempts = 3;
-        let savedMessage = null;
+        // Verificar si el mensaje contiene alguna de las frases clave
+        const keyPhrases = [
+          "¡Perfecto! tu cita ha sido confirmada para",
+          "¡Perfecto! un asesor te llamará",
+          "¡Perfecto! un asesor te contactará",
+          "¡Perfecto! una persona te contactará"
+        ];
         
-        console.log(`🔄 Iniciando envío del mensaje a Supabase y WhatsApp`);
+        const containsKeyPhrase = content ? keyPhrases.some(phrase => 
+          content.toLowerCase().includes(phrase.toLowerCase())
+        ) : false;
         
-        while (attempts < maxAttempts && !savedMessage) {
-          attempts++;
+        // Si el mensaje contiene una frase clave, verificar y registrar explícitamente
+        if (containsKeyPhrase) {
+          console.log(`🌟 FRASE CLAVE DETECTADA en mensaje: "${content.substring(0, 50)}..."`);
+          console.log(`🔍 Remitente: me, conversación: ${conversationId}`);
           
+          // CAMBIO IMPORTANTE: SIEMPRE marcar como importante cuando hay una frase clave
+          console.log(`🔄 Marcando conversación ${conversationId} como importante automáticamente porque contiene frase clave`);
+          
+          // Forzar la actualización de la conversación para marcarla como importante
           try {
-            console.log(`🔄 Intento ${attempts}/${maxAttempts} de envío a Supabase`);
-            
-            // Enviar el mensaje al servidor
-            const response = await sendMessage(conversationId, content, undefined, 'agent');
-            
-            // Marcar el mensaje como enviado desde el dashboard en la respuesta
-            if (response && response.id) {
-              // Intentar actualizar los metadatos en Supabase si es posible
-              try {
-                const { error: metadataError } = await supabase
-                  .from('messages')
-                  .update({
-                    metadata: { source: 'dashboard', sender_type: 'agent' }
-                  })
-                  .eq('id', response.id);
-                
-                if (metadataError) {
-                  console.warn('No se pudieron actualizar los metadatos del mensaje:', metadataError);
+            // Actualizar en la base de datos primero
+            console.log(`🔄 Marcando conversación ${conversationId} como importante en la base de datos`);
+            supabase
+              .from('conversations')
+              .update({ 
+                user_category: "important", 
+                tag: "yellow",
+                colorLabel: "yellow",
+                manuallyMovedToAll: false,
+                manuallyMovedToAllTimestamp: null
+              })
+              .eq('id', conversationId)
+              .then(({ error }) => {
+                if (error) {
+                  console.error('Error al actualizar categoría en la base de datos:', error);
+                } else {
+                  console.log(`✅ Conversación ${conversationId} marcada como importante en la base de datos`);
+                  
+                  // Limpiar localStorage también
+                  if (typeof window !== 'undefined') {
+                    try {
+                      console.log(`🧹 Eliminando estado "movido manualmente a Todos" para conversación ${conversationId} de localStorage`);
+                      localStorage.removeItem(`manually_moved_${conversationId}`);
+                      localStorage.removeItem(`manually_moved_time_${conversationId}`);
+                    } catch (e) {
+                      console.error('Error removing from localStorage:', e);
+                    }
+                  }
+                  
+                  // Actualizar también el objeto en memoria
+                  setConversations(prevConversations => {
+                    return prevConversations.map(conv => {
+                      if (conv.id === conversationId) {
+                        return {
+                          ...conv,
+                          userCategory: "important",
+                          tag: "yellow",
+                          colorLabel: "yellow",
+                          manuallyMovedToAll: false,
+                          manuallyMovedToAllTimestamp: null
+                        };
+                      }
+                      return conv;
+                    });
+                  });
+                  
+                  // Cambia a la pestaña de importantes automáticamente
+                  if (activeTab !== "important") {
+                    console.log('🔄 Cambiando automáticamente a la pestaña IMPORTANTES');
+                    setActiveTab("important");
+                  }
                 }
-              } catch (metadataErr) {
-                console.warn('Error al intentar actualizar metadatos:', metadataErr);
-              }
-            }
-            
-            if (!response || !response.id) {
-              console.warn(`⚠️ Intento ${attempts}/${maxAttempts}: No se recibió una respuesta válida del servidor`);
-              
-              // Si no es el último intento, esperar antes de reintentar
-              if (attempts < maxAttempts) {
-                console.log(`⏳ Esperando ${1000 * attempts}ms antes de reintentar...`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * attempts)); // Espera incremental
-                continue;
-              } else {
-                throw new Error('No se recibió una respuesta válida del servidor después de varios intentos');
-              }
-            }
-            
-            // Comprobar si hubo error al enviar a WhatsApp desde sendMessage
-            if (response.whatsapp_status && !response.whatsapp_status.success) {
-              console.warn('⚠️ El mensaje se guardó pero hubo un problema al enviarlo a WhatsApp');
-              
-              toast({
-                title: "Advertencia",
-                description: "El mensaje se guardó pero puede que no se haya enviado a WhatsApp",
-                variant: "destructive",
-                duration: 5000,
               });
-            }
-            
-            // Mensaje guardado exitosamente
-            savedMessage = response;
-            console.log(`✅ Mensaje enviado correctamente a Supabase en el intento ${attempts}. ID: ${response.id}`);
-            console.log(`📦 Datos completos del mensaje guardado:`, response);
-            
-            // Mostrar toast de éxito
-            toast({
-              title: "Mensaje enviado",
-              description: "El mensaje se ha enviado correctamente",
-              duration: 3000,
-            });
-            
-            // Actualizar el mensaje optimista con el ID real y estado (manteniendo el estilo normal)
-            setMessages(prev => {
-              const updatedMessages = prev.map(msg => 
-                msg.id === tempId 
-                  ? { ...msg, id: response.id, status: 'sent' as 'sent' | 'delivered' | 'read' | 'pending' }
-                  : msg
-              );
-              
-              // Usar la función centralizada para guardar mensajes
-              storeMessages(conversationId, updatedMessages);
-              console.log(`💾 Mensajes actualizados en localStorage después de envío exitoso`);
-              
-              return updatedMessages;
-            });
-            
-            // Actualizar la última conversación sin recargar todas
-            setConversations(prevConvs => 
-              prevConvs.map(conv => 
-                conv.id === conversationId 
-                  ? { ...conv, lastMessage: content, timestamp }
-                  : conv
-              )
-            );
-            console.log(`🔄 Lista de conversaciones actualizada con último mensaje`);
-            
-            if (messagesEndRef.current) {
-              messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-            }
-            
-            break; // Salir del bucle si el mensaje se guardó correctamente
-          } catch (error) {
-            console.error(`❌ Error al enviar mensaje (intento ${attempts}/${maxAttempts}):`, error);
-            
-            // Si es el último intento, mostrar error al usuario
-            if (attempts >= maxAttempts) {
-              console.error(`🛑 Se alcanzó el número máximo de intentos. Marcando mensaje como fallido.`);
-              
-              // Marcar el mensaje como fallido pero manteniendo estilo normal
-              setMessages(prev => {
-                const updatedMessages = prev.map(msg => 
-                  msg.id === tempId 
-                    ? { ...msg, status: 'sent' as 'sent' | 'delivered' | 'read' | 'pending', error: true }
-                    : msg
-                );
-                
-                // Usar la función centralizada para guardar mensajes
-                storeMessages(conversationId, updatedMessages);
-                
-                return updatedMessages;
-              });
-              
-              toast({
-                title: "Error al enviar mensaje",
-                description: "No se pudo guardar el mensaje en el servidor después de varios intentos.",
-                variant: "destructive",
-              });
-            } else {
-              console.log(`🔄 Reintentando envío (${attempts+1}/${maxAttempts})...`);
-              await new Promise(resolve => setTimeout(resolve, 1000 * attempts)); // Espera incremental
-            }
+          } catch (dbError) {
+            console.error('Error al intentar actualizar la base de datos:', dbError);
           }
         }
         
@@ -625,29 +898,182 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
     }
   };
 
+  // Funciones para actualizar conversación
+  const handleUpdateConversation = async (id: string, updates: any) => {
+    try {
+      if (!id) return;
+      
+      console.log(`🔄 Iniciando actualización para conversación ${id}:`, updates);
+      
+      // Actualizar localmente primero para UI responsiva
+      setConversations(prevConvs => {
+        console.log(`🔄 Actualizando localmente...`);
+        return prevConvs.map(conv => 
+          conv.id === id ? { 
+            ...conv, 
+            ...updates,
+            userCategory: updates.user_category || conv.userCategory 
+          } : conv
+        );
+      });
+      
+      console.log(`🔄 Actualizando conversación ${id} directamente en Supabase:`, updates);
+      
+      // Usar Supabase directamente para evitar problemas de redirección
+      const { data, error } = await supabase
+        .from('conversations')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('❌ Error al actualizar conversación en Supabase:', error);
+        // Revertir cambios locales si hay error
+        toast({
+          title: "Error",
+          description: "No se pudo actualizar la conversación",
+          variant: "destructive"
+        });
+        
+        // Forzar refresco para restaurar el estado original
+        console.log(`🔄 Forzando refresco para restaurar estado original`);
+        loadConversationsRef.current();
+      } else {
+        console.log('✅ Conversación actualizada exitosamente en Supabase:', data);
+        
+        // Limpiar la caché de localStorage para esta conversación
+        if (typeof window !== 'undefined') {
+          try {
+            // Intentar limpiar caches que puedan estar causando problemas
+            console.log(`🧹 Limpiando caché local para id: ${id}`);
+            localStorage.removeItem(`conversation_${id}`);
+            localStorage.removeItem(`messages_${id}`);
+          } catch (e) {
+            console.log('Error al limpiar caché local:', e);
+          }
+        }
+        
+        // Mostrar toast de éxito
+        toast({
+          title: "Éxito",
+          description: updates.user_category === 'important' 
+            ? "Conversación marcada como importante" 
+            : updates.user_category === 'default'
+              ? "Conversación movida a Todos"
+              : "Conversación actualizada correctamente",
+          duration: 3000
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error al actualizar conversación:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar la conversación",
+        variant: "destructive"
+      });
+    }
+  }
+
+  // Marcar como importante o no importante
+  const handleToggleImportant = (id: string, isCurrentlyImportant: boolean) => {
+    console.log(`🔄 Cambiando estado de conversación ${id}: ${isCurrentlyImportant ? 'importante → normal' : 'normal → importante'}`);
+    
+    // Si está marcada como importante, cambiarla a default
+    // Si no está marcada como importante, cambiarla a important
+    const newCategory = isCurrentlyImportant ? "default" : "important";
+    
+    // Obtener la hora actual para el timestamp
+    const now = new Date().toISOString();
+    
+    // Preparar actualizaciones según la acción
+    const updates: any = { 
+      user_category: newCategory 
+    };
+    
+    // Si la estamos pasando a importante
+    if (newCategory === "important") {
+      updates.tag = "yellow";
+      updates.colorLabel = "yellow";
+      updates.manuallyMovedToAll = false;
+      updates.manuallyMovedToAllTimestamp = null;
+    } 
+    // Si la estamos pasando a todos (no importante)
+    else {
+      updates.tag = "gray";
+      updates.colorLabel = "gray";
+      updates.manuallyMovedToAll = true;
+      updates.manuallyMovedToAllTimestamp = now;
+      
+      // Guardar en localStorage para persistir entre recargas
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`manually_moved_${id}`, 'true');
+          localStorage.setItem(`manually_moved_time_${id}`, now);
+          console.log(`✅ Guardado estado "movido manualmente a Todos" para conversación ${id} en localStorage`);
+        } catch (e) {
+          console.error('Error saving to localStorage:', e);
+        }
+      }
+    }
+    
+    // Actualizar UI inmediatamente para mejor experiencia
+    setConversations(prevConvs => 
+      prevConvs.map(conv => 
+        conv.id === id ? { 
+          ...conv, 
+          userCategory: newCategory,
+          colorLabel: newCategory === "important" ? "yellow" : "gray",
+          tag: newCategory === "important" ? "yellow" : "gray",
+          manuallyMovedToAll: newCategory === "important" ? false : true,
+          manuallyMovedToAllTimestamp: newCategory === "important" ? null : now
+        } : conv
+      )
+    );
+    
+    // Luego enviar a la base de datos con prioridad alta
+    console.log(`⚠️ Enviando actualización prioritaria a la base de datos para conversación ${id}`);
+    handleUpdateConversation(id, updates);
+    
+    // Forzar refresco completo y cambio de pestaña
+    setTimeout(() => {
+      // Cambiar a la pestaña destino según la acción que se realizó
+      if (isCurrentlyImportant) {
+        // Si estaba importante y ahora pasa a normal, ir a "all"
+        console.log(`🔄 Cambiando a pestaña TODOS después de desmarcar conversación ${id}`);
+        setActiveTab("all");
+      } else {
+        // Si estaba normal y ahora pasa a importante, ir a "important"
+        console.log(`🔄 Cambiando a pestaña IMPORTANTES después de marcar conversación ${id}`);
+        setActiveTab("important");
+      }
+      
+      // Forzar refresco completo para que los filtros se apliquen correctamente
+      console.log(`🔄 Forzando refresco completo de conversaciones`);
+      try {
+        loadConversationsRef.current();
+        console.log(`✅ Refresco completo finalizado`);
+      } catch (error) {
+        console.error("Error al refrescar conversaciones:", error);
+      }
+    }, 500);
+  };
+
+  // Actualizar etiqueta de conversación
+  const handleUpdateTag = (id: string, tag: string) => {
+    handleUpdateConversation(id, { tag });
+  }
+
+  // Actualizar categoría de usuario
+  const handleUpdateUserCategory = (id: string, userCategory: "default" | "important" | "urgent" | "completed") => {
+    handleUpdateConversation(id, { user_category: userCategory });
+  }
+
   // Actualizar etiqueta de color
   const handleUpdateColorLabel = useCallback((id: string, colorLabel: string) => {
     setConversations((prev) =>
       prev.map((conv) =>
         conv.id === id ? { ...conv, colorLabel } : conv
-      )
-    )
-  }, [])
-
-  // Actualizar categoría de usuario
-  const handleUpdateUserCategory = useCallback((id: string, category: "default" | "important" | "urgent" | "completed") => {
-    setConversations((prev) =>
-      prev.map((conv) =>
-        conv.id === id ? { ...conv, userCategory: category } : conv
-      )
-    )
-  }, [])
-
-  // Actualizar etiqueta
-  const handleUpdateTag = useCallback((id: string, tag: string) => {
-    setConversations((prev) =>
-      prev.map((conv) =>
-        conv.id === id ? { ...conv, tag } : conv
       )
     )
   }, [])
@@ -713,11 +1139,55 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
       const matchesSearch =
       (conv.name?.toLowerCase()?.includes(searchQuery.toLowerCase()) ?? false) ||
       (conv.phone?.includes(searchQuery) ?? false) ||
-      (conv.lastMessage?.toLowerCase()?.includes(searchQuery.toLowerCase()) ?? false)
+      (conv.lastMessage?.toLowerCase()?.includes(searchQuery.toLowerCase()) ?? false);
 
-    if (activeTab === "unread") return matchesSearch && (conv.unread > 0)
-      return matchesSearch
-    })
+    // Frases claves para detectar conversaciones importantes
+    const keyPhrases = [
+      "¡Perfecto! tu cita ha sido confirmada para",
+      "¡Perfecto! un asesor te llamará",
+      "¡Perfecto! un asesor te contactará",
+      "¡Perfecto! una persona te contactará"
+    ];
+
+    // Verificar si el mensaje contiene alguna de las frases clave
+    const containsKeyPhrase = keyPhrases.some(phrase => 
+      (conv.lastMessage?.toLowerCase().includes(phrase.toLowerCase()) ?? false)
+    );
+
+    // Verificar si fue movida manualmente a "Todos"
+    const wasManuallyMovedToAll = conv.manuallyMovedToAll === true;
+    
+    // Una conversación es importante si:
+    // 1. Tiene categoría "important"/"urgent" O
+    // 2. Contiene frases clave Y NO fue movida manualmente a "Todos"
+    const isImportant = 
+      (conv.userCategory === "important" || conv.userCategory === "urgent") || 
+      (containsKeyPhrase && !wasManuallyMovedToAll); // Solo considerar frases clave si no fue movida manualmente
+
+    if (activeTab === "important") return matchesSearch && isImportant;
+    // En la pestaña "Todos" mostrar las que NO son importantes
+    if (activeTab === "all") return matchesSearch && !isImportant;
+    
+    return matchesSearch;
+  });
+
+  // Handler for updating a conversation's name
+  const handleUpdateName = useCallback((id: string, name: string) => {
+    console.log(`📝 Actualizando nombre para conversación ${id} a "${name}"`);
+    
+    // Actualizar el estado local inmediatamente para una experiencia más fluida
+    setConversations(prevConvs => 
+      prevConvs.map(conv => 
+        conv.id === id ? { 
+          ...conv, 
+          name: name  // Actualizar el nombre localmente
+        } : conv
+      )
+    );
+    
+    // Luego enviar la actualización al servidor
+    handleUpdateConversation(id, { sender_name: name });
+  }, []);
 
   // Si no está montado, no renderizar nada
   if (!mounted) return null
@@ -743,7 +1213,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
               onClick={() => {
                 // Usar directamente el ID conocido que funciona
                 const hardcodedId = "2d385aa5-40e0-4ec9-9360-19281bc605e4";
-                setIsLoading(true);
+                setIsLoadingConversations(true);
                 fetchConversations(hardcodedId)
                   .then(conversations => {
                     if (conversations && conversations.length > 0) {
@@ -773,7 +1243,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
                     setServerError("Error al conectar con el servidor. Verifica que esté ejecutándose.");
                   })
                   .finally(() => {
-                    setIsLoading(false);
+                    setIsLoadingConversations(false);
                   });
               }}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -796,7 +1266,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
           onClick={() => {
             // Usar directamente el ID conocido que funciona
             const hardcodedId = "2d385aa5-40e0-4ec9-9360-19281bc605e4";
-            setIsLoading(true);
+            setIsLoadingConversations(true);
             fetchConversations(hardcodedId)
               .then(conversations => {
                 if (conversations && conversations.length > 0) {
@@ -826,7 +1296,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
                 setServerError("Error al conectar con el servidor. Verifica que esté ejecutándose.");
               })
               .finally(() => {
-                setIsLoading(false);
+                setIsLoadingConversations(false);
               });
           }}
           className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
@@ -890,7 +1360,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
         <div className="flex flex-1 overflow-hidden bg-gray-100 dark:bg-gray-900 rounded-r-lg">
           {/* Lista de conversaciones */}
           <div className={cn("w-96 border-r dark:border-gray-700", selectedChat && isMobile ? "hidden" : "block")}>
-            {isLoading && !conversations.length ? (
+            {isLoadingConversations && !conversations.length ? (
               <EmptyState isLoading={true} />
             ) : serverError ? (
               <EmptyState error={serverError} isLoading={false} />
@@ -903,9 +1373,12 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
               searchQuery={searchQuery}
               activeTab={activeTab}
               setActiveTab={setActiveTab}
-              onUpdateColorLabel={handleUpdateColorLabel}
-              onUpdateUserCategory={handleUpdateUserCategory}
               onUpdateTag={handleUpdateTag}
+              onUpdateColorLabel={(id, colorLabel) => handleUpdateConversation(id, { tag: colorLabel })}
+              onUpdateUserCategory={handleUpdateUserCategory}
+              onToggleImportant={handleToggleImportant}
+              onUpdateName={handleUpdateName}
+              allConversations={conversations}
             />
             )}
           </div>
@@ -981,11 +1454,24 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-row justify-end gap-2 sm:justify-end">
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={isDeleting}
+            >
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteConversation}>
-              Eliminar
+            <Button 
+              variant="destructive" 
+              onClick={confirmDeleteConversation}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Eliminando...
+                </>
+              ) : "Eliminar"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -993,4 +1479,5 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
     </div>
   )
 }
+
 
