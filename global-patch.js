@@ -34,13 +34,18 @@ const PANEL_URL = process.env.CONTROL_PANEL_URL;
 console.log(`📌 GLOBAL-PATCH: URL final: ${PANEL_URL}`);
 
 // Definir la función global registerBotResponse que guardará en Supabase
-global.registerBotResponse = async function(conversationId, message, business_id, sender_type = 'bot') {
+global.registerBotResponse = async function(conversationId, message, business_id, sender_type = 'bot', metadata = null) {
   console.log('🔄 Llamada a global.registerBotResponse interceptada');
   console.log(`📤 Guardando mensaje de tipo '${sender_type}' para: ${conversationId}`);
   
   try {
-    // Guardar mensaje en Supabase
-    await supabaseRegister(conversationId, message, business_id, sender_type);
+    // Verificar si se proporcionaron metadatos
+    if (metadata) {
+      console.log(`📝 Metadatos adicionales incluidos: ${JSON.stringify(metadata)}`);
+    }
+    
+    // Guardar mensaje en Supabase con metadatos si existen
+    await supabaseRegister(conversationId, message, business_id, sender_type, metadata);
     console.log('✅ Mensaje guardado en Supabase correctamente');
     return { success: true, message: "Mensaje guardado en Supabase" };
   } catch (error) {

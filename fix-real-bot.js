@@ -263,15 +263,15 @@ async function directSupabaseAxios(endpoint, method, data = null) {
   }
 }
 
-// Función principal para guardar mensajes en Supabase
-async function saveMessageToSupabase(conversationId, message, business_id, sender_type = 'bot') {
+// Función para guardar mensajes directamente en Supabase usando la URL directa
+async function saveMessageToSupabase(conversationId, message, business_id, sender_type = 'bot', metadata = null) {
   console.log('🔄 Guardando mensaje en Supabase...');
   console.log(`📤 Tipo de mensaje: ${sender_type}`);
+  console.log(`📤 Guardando mensaje de tipo '${sender_type}' para: ${conversationId}`);
   
   try {
     // Normalizar el ID de la conversación para evitar problemas con diferentes formas de escribir el mismo ID
     const normalizedConversationId = String(conversationId).trim().replace(/_TEST.*$/i, '');
-    console.log(`📤 Guardando mensaje de tipo '${sender_type}' para: ${conversationId}`);
     console.log(`🚀 Procesando mensaje para: ${normalizedConversationId}`);
     
     // 1. Buscar la conversación existente
@@ -358,26 +358,34 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
     }
     
     // 3. Guardar el mensaje
-    const newMessage = {
+    const messageData = {
       conversation_id: conversationDbId,
-      content: message,
-      sender_type: sender_type, // Usar el tipo de remitente proporcionado
-      read: false,
-      created_at: new Date().toISOString()
+      content: typeof message === 'string' ? message : JSON.stringify(message),
+      sender_type,
+      created_at: new Date().toISOString(),
+      business_id
     };
     
+    // Si hay metadatos, agregarlos al mensaje
+    if (metadata && typeof metadata === 'object') {
+      messageData.metadata = metadata;
+      if (metadata.source === 'dashboard' || metadata.from_api_send_manual === true) {
+        messageData.sent_from_dashboard = true;
+      }
+    }
+
     if (supabase) {
       try {
-        const { error } = await supabase.from('messages').insert([newMessage]);
+        const { error } = await supabase.from('messages').insert([messageData]);
         if (error) throw error;
       } catch (clientError) {
         console.log('⚠️ Error guardando mensaje con cliente, usando API REST:', clientError.message);
         
-        const { error } = await directSupabaseAxios('messages', 'post', newMessage);
+        const { error } = await directSupabaseAxios('messages', 'post', messageData);
         if (error) throw error;
       }
     } else {
-      const { error } = await directSupabaseAxios('messages', 'post', newMessage);
+      const { error } = await directSupabaseAxios('messages', 'post', messageData);
       if (error) throw error;
     }
     
@@ -427,7 +435,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
 }
 
 // Función para registrar respuestas del bot
-async function registerBotResponse(conversationId, message, business_id = BUSINESS_ID, sender_type = 'bot') {
+async function registerBotResponse(conversationId, message, business_id = BUSINESS_ID, sender_type = 'bot', metadata = null) {
   if (!conversationId || !message) {
     console.error('❌ Error: Se requiere conversationId y message');
     return false;
@@ -438,9 +446,13 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
   console.log('🚀 Procesando mensaje para:', normalizedConversationId);
   console.log('📝 Mensaje:', JSON.stringify(message).substring(0, 100) + (message.length > 100 ? '...' : ''));
   
+  if (metadata) {
+    console.log('📝 Metadatos:', JSON.stringify(metadata));
+  }
+  
   try {
-    // Intentar guardar directamente en Supabase
-    await saveMessageToSupabase(normalizedConversationId, message, business_id, sender_type);
+    // Intentar guardar directamente en Supabase, pasando los metadatos
+    await saveMessageToSupabase(normalizedConversationId, message, business_id, sender_type, metadata);
     console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
     return { success: true, message: "Mensaje guardado en Supabase" };
   } catch (error) {
@@ -452,12 +464,19 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
       const serverUrl = `${CONTROL_PANEL_URL}/api/register-bot-response`;
       console.log('🔄 Enviando mensaje al servidor:', serverUrl);
       
-      const response = await axios.post(serverUrl, {
+      const requestData = {
         conversationId: normalizedConversationId,
         message,
         business_id: business_id,
         sender_type: sender_type
-      });
+      };
+      
+      // Añadir metadatos a la solicitud si existen
+      if (metadata) {
+        requestData.metadata = metadata;
+      }
+      
+      const response = await axios.post(serverUrl, requestData);
       
       console.log('✅ Mensaje enviado correctamente al servidor:', response.status);
       return { success: true, message: "Mensaje enviado al servidor" };
