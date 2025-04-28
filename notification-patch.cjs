@@ -496,7 +496,7 @@ async function fixMessagesInDatabase() {
   try {
     console.log('🔧 Iniciando reparación de mensajes en la base de datos...');
     
-    // 1. Obtener mensajes que tienen sender_type='user' pero podrían ser del bot
+    // 1. Obtener mensajes que tienen sender_type='user'
     const { data: suspectMessages, error: selectError } = await supabase
       .from('messages')
       .select('*')
@@ -509,31 +509,57 @@ async function fixMessagesInDatabase() {
     
     console.log(`ℹ️ Encontrados ${suspectMessages.length} mensajes con sender_type='user' para analizar`);
     
-    // Contador de mensajes corregidos
+    // Contador de mensajes
     let correctedCount = 0;
+    let analyzedCount = 0;
     
-    // 2. Patrones que indican que un mensaje es probablemente del bot/dashboard
+    // 2. Patrones exactos que indican que un mensaje es del bot/dashboard
     const botPatterns = [
-      "¡Perfecto!", 
-      "Perfecto!", 
-      "CUPRA Master",
-      "CUPRA",
-      "un asesor te llamará",
-      "un asesor te contactará", 
-      "una persona te contactará",
-      "cita ha sido confirmada",
-      "Hola soy Hernán"
+      { pattern: "¡Perfecto!", weight: 10 },
+      { pattern: "Perfecto!", weight: 10 },
+      { pattern: "CUPRA Master", weight: 10 },
+      { pattern: "Hola soy Hernán", weight: 10 },
+      { pattern: "un asesor te llamará", weight: 10 },
+      { pattern: "un asesor te contactará", weight: 10 },
+      { pattern: "una persona te contactará", weight: 10 },
+      { pattern: "cita ha sido confirmada", weight: 10 },
+      { pattern: "CUPRA", weight: 5 },
+      { pattern: "asesor te llamará", weight: 8 },
+      { pattern: "te llamará a las", weight: 8 }
     ];
     
     // 3. Analizar y corregir mensajes sospechosos
     for (const msg of suspectMessages) {
-      // Verificar si el contenido coincide con alguno de los patrones
-      const isBotMessage = botPatterns.some(pattern => 
-        msg.content && msg.content.includes(pattern)
-      );
+      analyzedCount++;
       
-      if (isBotMessage) {
-        console.log(`🔄 Corrigiendo mensaje: "${msg.content.substring(0, 40)}..."`);
+      // Skip análisis si no hay contenido
+      if (!msg.content) {
+        console.log(`⏩ Saltando mensaje sin contenido: ${msg.id.substring(0, 8)}`);
+        continue;
+      }
+      
+      // Calculando peso total para decidir si es mensaje del bot
+      let score = 0;
+      let matchedPatterns = [];
+      
+      for (const { pattern, weight } of botPatterns) {
+        if (msg.content.includes(pattern)) {
+          score += weight;
+          matchedPatterns.push(pattern);
+        }
+      }
+      
+      // Debug de cada mensaje analizado
+      console.log(`
+📝 Analizando mensaje: ID=${msg.id.substring(0, 8)}
+   Contenido: "${msg.content.substring(0, 60)}${msg.content.length > 60 ? '...' : ''}"
+   Patrones detectados: ${matchedPatterns.length > 0 ? matchedPatterns.join(', ') : 'ninguno'}
+   Puntuación: ${score}/10
+      `);
+      
+      // Si la puntuación es 5 o mayor, consideramos que es un mensaje del bot
+      if (score >= 5) {
+        console.log(`🔄 Corrigiendo mensaje de ID ${msg.id.substring(0, 8)}`);
         
         // Actualizar el mensaje
         const { error: updateError } = await supabase
@@ -553,10 +579,17 @@ async function fixMessagesInDatabase() {
       }
     }
     
-    console.log(`✅ Reparación completada. Se corrigieron ${correctedCount} mensajes.`);
+    console.log(`
+✅ Reparación completada:
+   - Mensajes analizados: ${analyzedCount}
+   - Mensajes corregidos: ${correctedCount}
+   - Porcentaje corregido: ${analyzedCount > 0 ? (correctedCount / analyzedCount * 100).toFixed(2) : 0}%
+    `);
+    
     return { 
       success: true, 
       total: suspectMessages.length,
+      analyzed: analyzedCount,
       corrected: correctedCount 
     };
   } catch (error) {
