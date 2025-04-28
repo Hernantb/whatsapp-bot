@@ -404,13 +404,13 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
             </div>
           `;
         } else {
-          // SISTEMA (BOT/DASHBOARD) - DERECHA (fondo verde)
+          // SISTEMA (BOT/DASHBOARD) - DERECHA (fondo oscuro)
           messagesHtml += `
             <div style="overflow: hidden; margin-bottom: 12px;">
-              <div style="background-color: #2d2d3d; color: white; padding: 8px; border-radius: 10px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: right; float: right; clear: both; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
-                <div style="font-size: 0.8em; color: #ddd; margin-bottom: 4px;"><strong>${senderLabel}</strong> - ${msgTime}</div>
-                <div>${msg.content.replace(/\n/g, '<br>')}</div>
-                ${isTriggerMessage ? '<div style="color: #FF9999; font-weight: bold; margin-top: 5px; font-size: 0.85em;">⚠️ MENSAJE QUE ACTIVÓ LA NOTIFICACIÓN</div>' : ''}
+              <div style="background-color: #2d2d3d; color: #FFFFFF; padding: 8px; border-radius: 10px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: right; float: right; clear: both; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+                <div style="font-size: 0.8em; color: #FFFFFF; margin-bottom: 4px;"><strong>${senderLabel}</strong> - ${msgTime}</div>
+                <div style="color: #FFFFFF;">${msg.content.replace(/\n/g, '<br>')}</div>
+                ${isTriggerMessage ? '<div style="color: #FFD0D0; font-weight: bold; margin-top: 5px; font-size: 0.85em;">⚠️ MENSAJE QUE ACTIVÓ LA NOTIFICACIÓN</div>' : ''}
               </div>
             </div>
           `;
