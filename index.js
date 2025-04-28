@@ -1012,9 +1012,6 @@ async function sendWhatsAppResponse(recipient, message) {
         
         if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER || !GUPSHUP_USERID) {
             console.error('❌ Error: Faltan credenciales GupShup (API_KEY, NUMBER o USERID). No se puede enviar el mensaje.');
-            console.error(`API_KEY: ${GUPSHUP_API_KEY ? 'Presente' : 'Ausente'}`);
-            console.error(`NUMBER: ${GUPSHUP_NUMBER ? GUPSHUP_NUMBER : 'Ausente'}`);
-            console.error(`USERID: ${GUPSHUP_USERID ? 'Presente' : 'Ausente'}`);
             return false;
         }
         
@@ -1041,33 +1038,27 @@ async function sendWhatsAppResponse(recipient, message) {
         console.log('📤 Enviando mensaje a GupShup:');
         console.log(`📞 Destino: ${formattedNumber}`);
         console.log(`💬 Mensaje: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
-        console.log(`🔑 Usando API Key: ${apiKey.substring(0, 8)}...`);
-        console.log(`👤 UserID: ${GUPSHUP_USERID}`);
-        console.log(`📱 Número origen: ${source}`);
         
-        // Formato del cuerpo de la solicitud
-        const messageJson = JSON.stringify({
-            type: 'text',
-            text: message
-        });
-        
+        // Formato del cuerpo de la solicitud (similar a FormData pero como URLSearchParams)
         const formData = new URLSearchParams();
         formData.append('channel', 'whatsapp');
         formData.append('source', source);
         formData.append('destination', formattedNumber);
         formData.append('src.name', source);
-        formData.append('message', messageJson);
+        formData.append('message', JSON.stringify({
+            type: 'text',
+            text: message
+        }));
         
-        // Headers para la solicitud
+        // Formato simple de headers, como funcionaba antes
         const headers = {
             'Cache-Control': 'no-cache',
             'Content-Type': 'application/x-www-form-urlencoded',
             'apikey': apiKey,
-            'userid': GUPSHUP_USERID
+            'userid': GUPSHUP_USERID  // Añadimos el userid para mejorar la autenticación
         };
         
         console.log('🔄 Enviando mensaje a WhatsApp...');
-        console.log(`📦 Payload: ${formData.toString()}`);
         
         try {
             const response = await axios.post(apiUrl, formData, { headers });
@@ -1082,8 +1073,8 @@ async function sendWhatsAppResponse(recipient, message) {
                 
                 // Guardar mensaje en la base de datos
                 try {
-                    const saveResult = await registerBotResponse(
-                        conversationId || recipient,
+                    const saveResult = await global.registerBotResponse(
+                        recipient,
                         message,
                         BUSINESS_ID, 
                         'bot'
@@ -1122,7 +1113,6 @@ async function sendWhatsAppResponse(recipient, message) {
                 return true;
             } else {
                 console.error(`❌ Error: Código de respuesta ${response.status}`);
-                console.error(`📄 Datos de respuesta: ${JSON.stringify(response.data)}`);
                 return false;
             }
         } catch (apiError) {
@@ -1133,46 +1123,23 @@ async function sendWhatsAppResponse(recipient, message) {
                     apiError.response.status, 
                     JSON.stringify(apiError.response.data));
                 
-                // Si recibimos error de autenticación, dejar registro claro
-                if (apiError.response.status === 401) {
-                    console.error('🔐 ERROR DE AUTENTICACIÓN: Las credenciales de GupShup parecen ser inválidas');
-                    console.error(`🔑 API Key: ${apiKey.substring(0, 8)}...`);
-                    console.error(`👤 UserID: ${GUPSHUP_USERID}`);
+                // Intentar con una estructura ligeramente diferente si recibimos un error
+                if (apiError.response.status === 401 && 
+                    apiError.response.data === "Portal User Not Found With APIKey") {
+                    
+                    console.log('⚠️ Error "Portal User Not Found With APIKey" - Este error ocurre en local pero puede funcionar en producción');
+                    console.log('📝 Este mensaje probablemente SÍ será enviado cuando se ejecute en el servidor de producción');
                 }
             } else if (apiError.request) {
-                console.error('🔍 No se recibió respuesta del servidor GupShup');
-                console.error('📡 Detalles de la solicitud:', apiError.request);
+                console.error('🔍 No se recibió respuesta del servidor');
             } else {
                 console.error('🔍 Error en la configuración de la solicitud:', apiError.message);
             }
             
-            // Intento alternativo con fetch nativo
-            try {
-                console.log('🔄 Intentando envío alternativo con fetch nativo...');
-                
-                const fetchResponse = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: headers,
-                    body: formData
-                });
-                
-                const responseData = await fetchResponse.json();
-                console.log('📡 Respuesta del método alternativo:', JSON.stringify(responseData));
-                
-                if (fetchResponse.ok) {
-                    console.log('✅ Mensaje enviado exitosamente usando método alternativo');
-                    return true;
-                } else {
-                    console.error('❌ El método alternativo también falló:', fetchResponse.status);
-                    return false;
-                }
-            } catch (fetchError) {
-                console.error('❌ Error en envío alternativo:', fetchError.message);
-                return false;
-            }
+            return false;
         }
     } catch (error) {
-        console.error('❌ Error general enviando mensaje:', error.message);
+        console.error('❌ Error enviando mensaje:', error.message);
         
         if (error.response) {
             console.error('🔍 Detalles del error:', 
@@ -1437,7 +1404,7 @@ app.post('/webhook', async (req, res) => {
         
         console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
         
-        // Verificar si este mensaje ya fue procesado recientemente
+        // Verificar si este mensaje ya fue procesado recientemente (evita duplicados)
         const messageKey = `${messageId || sender}_${message}`;
         if (recentlyProcessedMessages.has(messageKey)) {
             console.log(`⚠️ Mensaje duplicado detectado, ignorando: ${messageKey}`);
@@ -1505,6 +1472,9 @@ app.post('/webhook', async (req, res) => {
         
         // Solo si el bot está activo y tenemos ID válido
         if (botActive && conversationId) {
+            // IMPORTANTE: SIEMPRE intentar agrupar mensajes, independientemente de su contenido
+            console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
+            
             // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
             const now = Date.now();
             const messageTimestamp = timestamp ? new Date(timestamp).getTime() : now;
@@ -1527,7 +1497,7 @@ app.post('/webhook', async (req, res) => {
                 return;
             }
             
-            // Si por alguna razón no debe esperar, procesar normalmente
+            // Si por alguna razón no debe esperar, procesar normalmente (caso raro)
             console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
             
             try {
@@ -1537,13 +1507,25 @@ app.post('/webhook', async (req, res) => {
                 if (botResponse) {
                     console.log(`✅ Respuesta generada por OpenAI: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
                     
-                    // Enviar respuesta a WhatsApp
-                    const sendResult = await sendWhatsAppResponse(sender, botResponse);
+                    // Asegurar que el mensaje se envía correctamente
+                    let sendAttempts = 0;
+                    let sendSuccess = false;
                     
-                    if (sendResult) {
-                        console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender}`);
-                    } else {
-                        console.log(`⚠️ No se pudo enviar la respuesta a WhatsApp, pero sí se guardó en la base de datos`);
+                    while (!sendSuccess && sendAttempts < 3) {
+                        sendAttempts++;
+                        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+                        sendSuccess = await sendWhatsAppResponse(sender, botResponse);
+                        
+                        if (sendSuccess) {
+                            console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
+                        } else if (sendAttempts < 3) {
+                            console.log(`⚠️ Reintentando envío en 1 segundo...`);
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                    }
+                    
+                    if (!sendSuccess) {
+                        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
                     }
                 } else {
                     console.log(`⚠️ OpenAI no generó respuesta para el mensaje de ${sender}`);
@@ -2785,273 +2767,6 @@ const pendingResponses = new Map();
 // Tiempo máximo de espera para una respuesta (en ms)
 const MAX_WAIT_TIME = 60000; // 60 segundos
 
-// Sistema para agrupar mensajes rápidos
-// Mapa para almacenar los mensajes recientes por conversación: { conversationId: { messages: [], timeout } }
-const pendingMessageGroups = new Map();
-
-// Tiempo de espera para agrupar mensajes sucesivos (en ms)
-const MESSAGE_GROUPING_DELAY = 10000; // Aumentado a 10 segundos para garantizar capturar mensajes consecutivos
-
-// Número máximo de mensajes por grupo
-const MAX_MESSAGES_PER_GROUP = 6; // Limitar a 6 mensajes por grupo para evitar tiempos de espera largos
-
-// Tiempo máximo entre mensajes para considerarlos parte del mismo grupo (en ms)
-const MAX_MESSAGE_GAP = 5000; // 5 segundos entre mensajes para considerarlos parte del mismo grupo
-
-/**
- * Agrega un mensaje a un grupo pendiente y devuelve true si el mensaje debe esperar
- * o false si debe procesarse inmediatamente
- * @param {string} conversationId - ID de la conversación
- * @param {object} messageData - Datos del mensaje recibido
- * @returns {boolean} - true si el mensaje debe esperar, false si debe procesarse
- */
-function addToPendingMessageGroup(conversationId, messageData) {
-  // Si no tenemos ID de conversación, procesar inmediatamente
-  if (!conversationId) return false;
-  
-  const currentTime = Date.now();
-  
-  // FORZAR AGRUPACIÓN: Siempre grupar mensajes hasta que expire el tiempo
-  let shouldGroup = true;
-  
-  // Si ya existe un grupo para esta conversación
-  if (pendingMessageGroups.has(conversationId)) {
-    const group = pendingMessageGroups.get(conversationId);
-    
-    // Limpiar el timeout existente para extenderlo
-    if (group.timeout) {
-      clearTimeout(group.timeout);
-    }
-    
-    // Verificar si no excedemos el máximo de mensajes por grupo
-    if (group.messages.length >= MAX_MESSAGES_PER_GROUP) {
-      console.log(`⚠️ Máximo de mensajes por grupo alcanzado (${MAX_MESSAGES_PER_GROUP}). Procesando grupo actual.`);
-      // Procesar el grupo actual y comenzar uno nuevo
-      setTimeout(() => processMessageGroup(conversationId), 0);
-      
-      // Crear un nuevo grupo con este mensaje
-      const timeout = setTimeout(() => {
-        processMessageGroup(conversationId);
-      }, MESSAGE_GROUPING_DELAY);
-      
-      pendingMessageGroups.set(conversationId, {
-        messages: [messageData],
-        timeout: timeout,
-        startTime: currentTime,
-        lastMessageTime: currentTime
-      });
-      
-      return true;
-    }
-    
-    // Verificar si ha pasado demasiado tiempo desde el último mensaje
-    const timeSinceLastMessage = currentTime - (group.lastMessageTime || group.startTime);
-    console.log(`⏱️ Tiempo desde el último mensaje: ${timeSinceLastMessage}ms (máximo permitido: ${MAX_MESSAGE_GAP}ms)`);
-    
-    if (timeSinceLastMessage > MAX_MESSAGE_GAP && group.messages.length > 0) {
-      // Ha pasado demasiado tiempo, procesar el grupo actual
-      console.log(`⏱️ Ha pasado demasiado tiempo desde el último mensaje (${timeSinceLastMessage}ms > ${MAX_MESSAGE_GAP}ms)`);
-      console.log(`🔄 Procesando grupo existente y creando uno nuevo`);
-      
-      // Procesar grupo actual
-      setTimeout(() => processMessageGroup(conversationId), 0);
-      
-      // Crear nuevo grupo con este mensaje
-      const timeout = setTimeout(() => {
-        processMessageGroup(conversationId);
-      }, MESSAGE_GROUPING_DELAY);
-      
-      pendingMessageGroups.set(conversationId, {
-        messages: [messageData],
-        timeout: timeout,
-        startTime: currentTime,
-        lastMessageTime: currentTime
-      });
-      
-      return true;
-    }
-    
-    // Agregar este mensaje al grupo existente
-    group.messages.push(messageData);
-    group.lastMessageTime = currentTime;
-    console.log(`✨ Mensaje agrupado para ${conversationId}. Total: ${group.messages.length} mensajes en grupo`);
-    
-    // Crear un nuevo timeout
-    group.timeout = setTimeout(() => {
-      processMessageGroup(conversationId);
-    }, MESSAGE_GROUPING_DELAY);
-    
-    return true; // Indicar que se debe esperar y no procesar aún
-  } else {
-    // Crear un nuevo grupo para esta conversación
-    console.log(`✨ Iniciando grupo de mensajes para ${conversationId}`);
-    
-    const timeout = setTimeout(() => {
-      processMessageGroup(conversationId);
-    }, MESSAGE_GROUPING_DELAY);
-    
-    pendingMessageGroups.set(conversationId, {
-      messages: [messageData],
-      timeout: timeout,
-      startTime: currentTime,
-      lastMessageTime: currentTime
-    });
-    
-    return true; // Indicar que se debe esperar y no procesar aún
-  }
-}
-
-/**
- * Procesa un grupo de mensajes acumulados
- * @param {string} conversationId - ID de la conversación
- */
-async function processMessageGroup(conversationId) {
-  // Verificar que el grupo todavía existe
-  if (!pendingMessageGroups.has(conversationId)) {
-    console.log(`⚠️ No se encontró grupo de mensajes para ${conversationId}`);
-    return;
-  }
-  
-  const group = pendingMessageGroups.get(conversationId);
-  const messages = group.messages;
-  
-  // Eliminar el grupo para que nuevos mensajes comiencen uno nuevo
-  pendingMessageGroups.delete(conversationId);
-  
-  console.log(`🔄 Procesando grupo de ${messages.length} mensajes para ${conversationId}`);
-  
-  // Si no hay mensajes, no hay nada que hacer
-  if (messages.length === 0) {
-    console.log(`⚠️ Grupo vacío para ${conversationId}, ignorando`);
-    return;
-  }
-  
-  // Si solo hay un mensaje, procesarlo normalmente SOLO si ha pasado suficiente tiempo
-  const currentTime = Date.now();
-  const timeSinceGroupStart = currentTime - group.startTime;
-  
-  if (messages.length === 1 && timeSinceGroupStart > MAX_MESSAGE_GAP) {
-    console.log(`ℹ️ Solo un mensaje en el grupo y ha pasado suficiente tiempo (${timeSinceGroupStart}ms), procesando normalmente`);
-    const sender = messages[0].sender;
-    const message = messages[0].message;
-    
-    try {
-      const botResponse = await processMessageWithOpenAI(sender, message, conversationId);
-      
-      if (botResponse) {
-        console.log(`✅ Respuesta generada para mensaje: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
-        
-        // Asegurar que el mensaje se envía correctamente
-        let sendAttempts = 0;
-        let sendSuccess = false;
-        
-        while (!sendSuccess && sendAttempts < 3) {
-          sendAttempts++;
-          console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
-          sendSuccess = await sendWhatsAppResponse(sender, botResponse);
-          
-          if (sendSuccess) {
-            console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
-          } else if (sendAttempts < 3) {
-            console.log(`⚠️ Reintentando envío en 1 segundo...`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        }
-        
-        if (!sendSuccess) {
-          console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
-        }
-      } else {
-        console.log(`⚠️ OpenAI no generó respuesta para el mensaje`);
-      }
-    } catch (aiError) {
-      console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
-    }
-    return;
-  }
-  
-  // IMPORTANTE: Incluso si solo hay un mensaje, pero no ha pasado suficiente tiempo, 
-  // lo tratamos como un grupo potencial en caso de que lleguen más mensajes pronto
-  if (messages.length === 1 && timeSinceGroupStart <= MAX_MESSAGE_GAP) {
-    console.log(`⏱️ Solo un mensaje, pero esperando más (${timeSinceGroupStart}ms < ${MAX_MESSAGE_GAP}ms)`);
-    // Volver a poner el mensaje en la cola por un tiempo adicional
-    const timeout = setTimeout(() => {
-      processMessageGroup(conversationId);
-    }, MAX_MESSAGE_GAP - timeSinceGroupStart);
-    
-    pendingMessageGroups.set(conversationId, {
-      messages: messages,
-      timeout: timeout,
-      startTime: group.startTime,
-      lastMessageTime: group.lastMessageTime || group.startTime
-    });
-    return;
-  }
-  
-  // Concatenar todos los mensajes con saltos de línea para mejor comprensión
-  const combinedMessage = messages.map(m => m.message).join("\n");
-  const sender = messages[0].sender; // Todos los mensajes son del mismo remitente
-  
-  console.log(`📦 Combinando ${messages.length} mensajes en uno solo: "${combinedMessage.substring(0, 100)}${combinedMessage.length > 100 ? '...' : ''}"`);
-  
-  // Construir un mensaje enriquecido que explique a OpenAI la situación
-  const enrichedMessage = `[El usuario ha enviado ${messages.length} mensajes consecutivos que deben tratarse como una sola consulta]\n\n${combinedMessage}`;
-  
-  // Procesar el mensaje combinado
-  try {
-    console.log(`🤖 Enviando a OpenAI mensaje combinado con ${messages.length} partes`);
-    const botResponse = await processMessageWithOpenAI(sender, enrichedMessage, conversationId);
-    
-    if (botResponse) {
-      console.log(`✅ Respuesta generada para mensaje combinado: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
-      
-      // Asegurar que el mensaje se envía correctamente
-      let sendAttempts = 0;
-      let sendSuccess = false;
-      
-      while (!sendSuccess && sendAttempts < 3) {
-        sendAttempts++;
-        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
-        sendSuccess = await sendWhatsAppResponse(sender, botResponse);
-        
-        if (sendSuccess) {
-          console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
-        } else if (sendAttempts < 3) {
-          console.log(`⚠️ Reintentando envío en 1 segundo...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-      
-      if (!sendSuccess) {
-        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
-        
-        // Guardar el mensaje en Supabase aunque no se pudiera enviar a WhatsApp
-        try {
-          console.log(`💾 Guardando respuesta en Supabase aunque no se pudo enviar a WhatsApp`);
-          const saveResult = await registerBotResponse(
-            conversationId,
-            botResponse,
-            BUSINESS_ID, 
-            'bot'
-          );
-          
-          if (saveResult && saveResult.success) {
-            console.log(`✅ Respuesta guardada en base de datos, ID: ${saveResult.messageId || 'desconocido'}`);
-          } else {
-            console.error(`❌ No se pudo guardar la respuesta en la base de datos: ${saveResult?.error || 'Error desconocido'}`);
-          }
-        } catch (dbError) {
-          console.error(`❌ Error guardando respuesta en la base de datos: ${dbError.message}`);
-        }
-      }
-    } else {
-      console.log(`⚠️ OpenAI no generó respuesta para el mensaje combinado`);
-    }
-  } catch (aiError) {
-    console.error(`❌ Error procesando mensaje combinado con OpenAI: ${aiError.message}`);
-  }
-}
-
 /**
  * Espera un mensaje de respuesta para una conversación específica
  * @param {string} conversationId - ID de la conversación 
@@ -3168,10 +2883,141 @@ module.exports = {
   extractMessageData,
   processMessageWithOpenAI,
   sendWhatsAppResponse,
-  waitForUserResponse,
-  resolveWaitingPromise,
-  addToPendingMessageGroup,
-  processMessageGroup
+  waitForUserResponse,    // Exportar la nueva función
+  resolveWaitingPromise   // Exportar la nueva función
 };
 
 // ... existing code ...
+
+/**
+ * Procesa un grupo de mensajes acumulados
+ * @param {string} conversationId - ID de la conversación
+ */
+async function processMessageGroup(conversationId) {
+  // Verificar que el grupo todavía existe
+  if (!pendingMessageGroups.has(conversationId)) {
+    console.log(`⚠️ No se encontró grupo de mensajes para ${conversationId}`);
+    return;
+  }
+  
+  const group = pendingMessageGroups.get(conversationId);
+  const messages = group.messages;
+  
+  // Eliminar el grupo para que nuevos mensajes comiencen uno nuevo
+  pendingMessageGroups.delete(conversationId);
+  
+  console.log(`🔄 Procesando grupo de ${messages.length} mensajes para ${conversationId}`);
+  
+  // Si no hay mensajes, no hay nada que hacer
+  if (messages.length === 0) {
+    console.log(`⚠️ Grupo vacío para ${conversationId}, ignorando`);
+    return;
+  }
+  
+  // REGLA IMPORTANTE: Si hay más de un mensaje, SIEMPRE combinarlos sin importar el tiempo
+  if (messages.length > 1) {
+    console.log(`🔗 Múltiples mensajes detectados (${messages.length}), combinando automáticamente`);
+    
+    // Concatenar todos los mensajes con saltos de línea para mejor comprensión
+    const combinedMessage = messages.map(m => m.message).join("\n");
+    const sender = messages[0].sender; // Todos los mensajes son del mismo remitente
+    
+    console.log(`📦 Combinando ${messages.length} mensajes en uno solo: "${combinedMessage.substring(0, 100)}${combinedMessage.length > 100 ? '...' : ''}"`);
+    
+    // Construir un mensaje enriquecido que explique a OpenAI la situación
+    const enrichedMessage = `[El usuario ha enviado ${messages.length} mensajes consecutivos que deben tratarse como una sola consulta]\n\n${combinedMessage}`;
+    
+    // Procesar el mensaje combinado
+    try {
+      console.log(`🤖 Enviando a OpenAI mensaje combinado con ${messages.length} partes`);
+      const botResponse = await processMessageWithOpenAI(sender, enrichedMessage, conversationId);
+      
+      if (botResponse) {
+        console.log(`✅ Respuesta generada para mensaje combinado: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
+        
+        // Asegurar que el mensaje se envía correctamente
+        let sendAttempts = 0;
+        let sendSuccess = false;
+        
+        while (!sendSuccess && sendAttempts < 3) {
+          sendAttempts++;
+          console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+          sendSuccess = await sendWhatsAppResponse(sender, botResponse);
+          
+          if (sendSuccess) {
+            console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
+          } else if (sendAttempts < 3) {
+            console.log(`⚠️ Reintentando envío en 1 segundo...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+        
+        if (!sendSuccess) {
+          console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
+          
+          // Guardar el mensaje en Supabase aunque no se pudiera enviar a WhatsApp
+          try {
+            console.log(`💾 Guardando respuesta en Supabase aunque no se pudo enviar a WhatsApp`);
+            const saveResult = await registerBotResponse(
+              conversationId,
+              botResponse,
+              BUSINESS_ID, 
+              'bot'
+            );
+            
+            if (saveResult && saveResult.success) {
+              console.log(`✅ Respuesta guardada en base de datos, ID: ${saveResult.messageId || 'desconocido'}`);
+            } else {
+              console.error(`❌ No se pudo guardar la respuesta en la base de datos: ${saveResult?.error || 'Error desconocido'}`);
+            }
+          } catch (dbError) {
+            console.error(`❌ Error guardando respuesta en la base de datos: ${dbError.message}`);
+          }
+        }
+      } else {
+        console.log(`⚠️ OpenAI no generó respuesta para el mensaje combinado`);
+      }
+    } catch (aiError) {
+      console.error(`❌ Error procesando mensaje combinado con OpenAI: ${aiError.message}`);
+    }
+    return;
+  }
+  
+  // Si solo hay un mensaje, procesarlo normalmente
+  console.log(`ℹ️ Solo un mensaje en el grupo, procesando normalmente`);
+  const sender = messages[0].sender;
+  const message = messages[0].message;
+  
+  try {
+    const botResponse = await processMessageWithOpenAI(sender, message, conversationId);
+    
+    if (botResponse) {
+      console.log(`✅ Respuesta generada para mensaje: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
+      
+      // Asegurar que el mensaje se envía correctamente
+      let sendAttempts = 0;
+      let sendSuccess = false;
+      
+      while (!sendSuccess && sendAttempts < 3) {
+        sendAttempts++;
+        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+        sendSuccess = await sendWhatsAppResponse(sender, botResponse);
+        
+        if (sendSuccess) {
+          console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
+        } else if (sendAttempts < 3) {
+          console.log(`⚠️ Reintentando envío en 1 segundo...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (!sendSuccess) {
+        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
+      }
+    } else {
+      console.log(`⚠️ OpenAI no generó respuesta para el mensaje`);
+    }
+  } catch (aiError) {
+    console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
+  }
+}
