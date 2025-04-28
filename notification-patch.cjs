@@ -350,95 +350,75 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
         <div style="background-color: #f9f9f9; padding: 10px; border-radius: 5px; margin: 10px 0; max-height: 400px; overflow-y: auto;">
       `;
       
-      // Obtener número o ID de negocio para verificación
-      const businessIdOrPhone = businessId || 'business';
-      
       // Log para depuración
-      console.log('🔍 CLASIFICACIÓN DE MENSAJES EN EMAIL:');
+      console.log('🔍 CLASIFICACIÓN ESTRICTA DE MENSAJES EN EMAIL:');
       console.log(`📱 Teléfono del cliente: ${phoneNumber}`);
       console.log(`🏢 ID del negocio: ${businessId}`);
+      
+      // Ordenar mensajes cronológicamente (más viejos primero)
+      lastMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       
       lastMessages.forEach(msg => {
         // Log detallado de cada mensaje para depuración
         console.log(`
-📩 MENSAJE ORIGINAL (ID: ${msg.id?.substring(0,8) || 'N/A'}):
-   - is_from_business: ${msg.is_from_business}
-   - source_type: ${msg.source_type || 'N/A'}
-   - sender_id: ${msg.sender_id || 'N/A'}
-   - role: ${msg.role || 'N/A'}
+📩 MENSAJE (ID: ${msg.id?.substring(0,8) || 'N/A'}):
+   - sender_type: "${msg.sender_type || 'undefined'}"
    - Contenido: "${msg.content?.substring(0,40)}..."
         `);
         
-        // NUEVA LÓGICA: Confiar SOLO en metadatos, NUNCA en el contenido del mensaje
-        // Un mensaje es del bot/dashboard SOLO si:
-        // 1. is_from_business === true, O
-        // 2. source_type es 'bot', 'ai', 'openai', 'assistant', 'dashboard', O
-        // 3. sender_id coincide con el ID del negocio/no es el teléfono del cliente, O
-        // 4. role es 'assistant'
+        // IMPORTANTE: USAR DIRECTAMENTE EL CAMPO SENDER_TYPE COMO CRITERIO ABSOLUTO
+        // Cualquier mensaje con sender_type 'user' está a la izquierda
+        // Cualquier otro tipo (bot, agent, undefined, etc) está a la derecha
+        const isFromClient = msg.sender_type === 'user';
         
-        let isFromBot = false;
+        // Determinar el nombre a mostrar según el sender_type
+        const senderLabel = isFromClient 
+          ? 'Cliente' 
+          : (msg.sender_type === 'bot' 
+              ? 'Bot' 
+              : msg.sender_type === 'agent' 
+                ? 'Asesor' 
+                : 'Sistema');
         
-        // Verificar por is_from_business (fuente principal de verdad)
-        if (msg.is_from_business === true) {
-          isFromBot = true;
-          console.log(`   ✓ BOT/DASHBOARD: Detectado por is_from_business`);
-        }
-        // Verificar por source_type
-        else if (msg.source_type && ['bot', 'ai', 'openai', 'assistant', 'dashboard'].includes(msg.source_type.toLowerCase())) {
-          isFromBot = true;
-          console.log(`   ✓ BOT/DASHBOARD: Detectado por source_type: ${msg.source_type}`);
-        }
-        // Verificar por sender_id
-        else if (msg.sender_id) {
-          // Si el sender_id NO es el número del cliente, probablemente sea del bot/negocio
-          if (msg.sender_id !== phoneNumber && (msg.sender_id === businessIdOrPhone || msg.sender_id.includes('business'))) {
-            isFromBot = true;
-            console.log(`   ✓ BOT/DASHBOARD: Detectado por sender_id: ${msg.sender_id}`);
-          } else {
-            console.log(`   ✓ CLIENTE: Detectado por sender_id: ${msg.sender_id}`);
-          }
-        }
-        // Verificar por role
-        else if (msg.role === 'assistant') {
-          isFromBot = true;
-          console.log(`   ✓ BOT/DASHBOARD: Detectado por role: ${msg.role}`);
-        }
-        else {
-          console.log(`   ✓ CLIENTE: Por defecto, no cumple ningún criterio de bot/dashboard`);
-        }
+        // Log para confirmar la posición
+        console.log(`   → ${isFromClient ? 'IZQUIERDA (Cliente)' : 'DERECHA (Sistema)'} - ${senderLabel}`);
         
-        // Verificar si es el mensaje trigger
-        const isTriggerMessage = msg.content === message;
-        
-        // Estilos para bot (verde a la derecha) vs cliente (blanco a la izquierda)
-        const msgStyle = isFromBot 
-          ? 'background-color: #DCF8C6; padding: 8px; border-radius: 5px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: right; float: right; clear: both;' 
-          : 'background-color: #FFFFFF; padding: 8px; border-radius: 5px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: left; float: left; clear: both;';
-        
-        // Destacar mensaje trigger
-        const highlightStyle = isTriggerMessage 
-          ? 'border: 2px solid #FF0000; box-shadow: 0 0 5px rgba(255, 0, 0, 0.5);' 
-          : '';
-        
-        // Formatear hora del mensaje
+        // Formatear la hora del mensaje
         const msgTime = new Date(msg.created_at).toLocaleTimeString('es-ES', {
           hour: '2-digit',
           minute: '2-digit'
         });
         
-        // Generar HTML para cada mensaje
-        messagesHtml += `
-          <div style="overflow: hidden; margin-bottom: 10px;">
-            <div style="${msgStyle} ${highlightStyle}">
-              <div style="font-size: 0.8em; color: #777;">${isFromBot ? 'Bot/Dashboard' : 'Cliente'} - ${msgTime}</div>
-              <div>${msg.content.replace(/\n/g, '<br>')}</div>
-              ${isTriggerMessage ? '<div style="color: #FF0000; font-weight: bold; margin-top: 5px;">⚠️ MENSAJE QUE ACTIVÓ LA NOTIFICACIÓN</div>' : ''}
+        // Marcar específicamente si es el mensaje que activó la notificación
+        const isTriggerMessage = msg.content === message;
+        
+        // Estilos para los diferentes tipos de mensajes
+        if (isFromClient) {
+          // CLIENTE - IZQUIERDA (fondo blanco)
+          messagesHtml += `
+            <div style="overflow: hidden; margin-bottom: 12px;">
+              <div style="background-color: #FFFFFF; border: 1px solid #e0e0e0; padding: 8px; border-radius: 10px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: left; float: left; clear: both; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                <div style="font-size: 0.8em; color: #666; margin-bottom: 4px;"><strong>Cliente</strong> - ${msgTime}</div>
+                <div style="color: #333;">${msg.content.replace(/\n/g, '<br>')}</div>
+              </div>
             </div>
-          </div>
-        `;
+          `;
+        } else {
+          // SISTEMA (BOT/DASHBOARD) - DERECHA (fondo verde)
+          messagesHtml += `
+            <div style="overflow: hidden; margin-bottom: 12px;">
+              <div style="background-color: #2d2d3d; color: white; padding: 8px; border-radius: 10px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: right; float: right; clear: both; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+                <div style="font-size: 0.8em; color: #ddd; margin-bottom: 4px;"><strong>${senderLabel}</strong> - ${msgTime}</div>
+                <div>${msg.content.replace(/\n/g, '<br>')}</div>
+                ${isTriggerMessage ? '<div style="color: #FF9999; font-weight: bold; margin-top: 5px; font-size: 0.85em;">⚠️ MENSAJE QUE ACTIVÓ LA NOTIFICACIÓN</div>' : ''}
+              </div>
+            </div>
+          `;
+        }
       });
       
       messagesHtml += `
+        <div style="clear: both;"></div>
         </div>
       `;
     }
