@@ -92,6 +92,9 @@ const recentlyProcessedMessages = new Set();
 // 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
 
+// Caché de contactos para almacenar nombres asociados a números
+const contactCache = {};
+
 // Función para actualizar/mantener los mapeos entre conversaciones y números telefónicos
 // Debe llamarse cada vez que se crea o accede a una conversación
 async function updateConversationMappings() {
@@ -417,7 +420,34 @@ function safeISODate(timestamp) {
   }
 }
 
-// Función para guardar mensaje en Supabase
+// Agregar la función getContactName al principio del archivo
+/**
+ * Obtiene el nombre de un contacto a partir de su número de teléfono
+ * Si no se encuentra, devuelve el número como valor predeterminado
+ * @param {string} phoneNumber - Número de teléfono del contacto
+ * @returns {string} - Nombre del contacto o número de teléfono
+ */
+function getContactName(phoneNumber) {
+  try {
+    console.log(`🔍 Buscando nombre para el contacto: ${phoneNumber}`);
+    
+    // Si no hay número, devolver un valor predeterminado
+    if (!phoneNumber) return 'Usuario';
+    
+    // Si tenemos el contacto en caché local, usarlo
+    if (contactCache[phoneNumber]) {
+      return contactCache[phoneNumber];
+    }
+    
+    // Si no tenemos información, usar el número como nombre predeterminado
+    return phoneNumber;
+  } catch (error) {
+    console.error(`❌ Error al obtener nombre de contacto: ${error.message}`);
+    return phoneNumber; // Valor seguro por defecto
+  }
+}
+
+// Modificar la función saveMessageToSupabase para manejar el caso donde getContactName no está disponible
 async function saveMessageToSupabase({ sender, message, messageId, timestamp, conversationId, isBotActive }) {
   try {
     // Verificar parámetros mínimos necesarios
@@ -439,14 +469,20 @@ async function saveMessageToSupabase({ sender, message, messageId, timestamp, co
     if (!actualConversationId && phoneToConversationMap[sender]) {
       actualConversationId = phoneToConversationMap[sender];
       console.log(`✅ ID de conversación encontrado en caché: ${actualConversationId}`);
+      
+      // Verificar que la conversación siga existiendo en la base de datos
+      const conversationExists = await verifyConversationExists(actualConversationId);
+      if (!conversationExists) {
+        console.log(`⚠️ La conversación ${actualConversationId} encontrada en caché no existe en la base de datos`);
+        actualConversationId = null; // Forzar creación de una nueva conversación
+      }
     }
 
-    // Paso 2: Si no tenemos conversación, buscarla o crearla
+    // Paso 2: Si no tenemos ID, buscar o crear la conversación
     if (!actualConversationId) {
       try {
         console.log(`🔍 Buscando conversación para: ${sender}`);
         
-        // Buscar conversación existente por número de teléfono
         const { data: existingConv, error: convError } = await supabase
           .from('conversations')
           .select('*')
@@ -472,13 +508,24 @@ async function saveMessageToSupabase({ sender, message, messageId, timestamp, co
           // Crear nueva conversación
           console.log(`➕ Creando nueva conversación para: ${sender}`);
           
+          // Usar un nombre seguro para el remitente
+          let senderName = sender;
+          try {
+            // Intentar obtener el nombre del contacto si la función está disponible
+            if (typeof getContactName === 'function') {
+              senderName = getContactName(sender) || sender;
+            }
+          } catch (nameError) {
+            console.log(`⚠️ No se pudo obtener nombre del contacto, usando número: ${sender}`);
+          }
+          
           const { data: newConv, error: createError } = await supabase
             .from('conversations')
             .insert([{
               user_id: sender,
               business_id: BUSINESS_ID,
               is_bot_active: true,
-              sender_name: getContactName(sender) || sender,
+              sender_name: senderName,
               last_message: message.substring(0, 100),
               last_message_time: new Date().toISOString()
             }])
