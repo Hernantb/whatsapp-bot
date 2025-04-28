@@ -1006,14 +1006,15 @@ async function processMessageWithOpenAI(sender, message, conversationId) {
 async function sendWhatsAppResponse(recipient, message) {
     try {
         if (!recipient || !message) {
-            console.error('❌ DIAGNÓSTICO: Faltan parámetros para enviar mensaje. Recipient:', recipient, 'Message:', message ? 'existe' : 'vacío');
+            console.error('❌ Faltan parámetros para enviar mensaje');
             return false;
         }
         
         if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER || !GUPSHUP_USERID) {
-            console.error('❌ DIAGNÓSTICO: Faltan credenciales GupShup. API_KEY:', GUPSHUP_API_KEY ? 'existe' : 'falta', 
-                         'NUMBER:', GUPSHUP_NUMBER ? GUPSHUP_NUMBER : 'falta', 
-                         'USERID:', GUPSHUP_USERID ? 'existe' : 'falta');
+            console.error('❌ Error: Faltan credenciales GupShup (API_KEY, NUMBER o USERID). No se puede enviar el mensaje.');
+            console.error(`API_KEY: ${GUPSHUP_API_KEY ? 'Presente' : 'Ausente'}`);
+            console.error(`NUMBER: ${GUPSHUP_NUMBER ? GUPSHUP_NUMBER : 'Ausente'}`);
+            console.error(`USERID: ${GUPSHUP_USERID ? 'Presente' : 'Ausente'}`);
             return false;
         }
         
@@ -1037,44 +1038,39 @@ async function sendWhatsAppResponse(recipient, message) {
         const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
         const source = GUPSHUP_NUMBER;
         
-        console.log('📤 DIAGNÓSTICO: Enviando mensaje a GupShup:');
-        console.log(`📞 DIAGNÓSTICO: Número origen: ${source}`);
-        console.log(`📞 DIAGNÓSTICO: Destino: ${formattedNumber}`);
-        console.log(`💬 DIAGNÓSTICO: Mensaje: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
-        console.log(`🔑 DIAGNÓSTICO: API Key: ${apiKey ? apiKey.substring(0, 10) + '...' : 'no disponible'}`);
-        console.log(`👤 DIAGNÓSTICO: UserID: ${GUPSHUP_USERID ? GUPSHUP_USERID.substring(0, 10) + '...' : 'no disponible'}`);
+        console.log('📤 Enviando mensaje a GupShup:');
+        console.log(`📞 Destino: ${formattedNumber}`);
+        console.log(`💬 Mensaje: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
+        console.log(`🔑 Usando API Key: ${apiKey.substring(0, 8)}...`);
+        console.log(`👤 UserID: ${GUPSHUP_USERID}`);
+        console.log(`📱 Número origen: ${source}`);
         
-        // Formato del cuerpo de la solicitud (similar a FormData pero como URLSearchParams)
+        // Formato del cuerpo de la solicitud
+        const messageJson = JSON.stringify({
+            type: 'text',
+            text: message
+        });
+        
         const formData = new URLSearchParams();
         formData.append('channel', 'whatsapp');
         formData.append('source', source);
         formData.append('destination', formattedNumber);
         formData.append('src.name', source);
-        formData.append('message', JSON.stringify({
-            type: 'text',
-            text: message
-        }));
+        formData.append('message', messageJson);
         
-        // Formato simple de headers, como funcionaba antes
+        // Headers para la solicitud
         const headers = {
             'Cache-Control': 'no-cache',
             'Content-Type': 'application/x-www-form-urlencoded',
             'apikey': apiKey,
-            'userid': GUPSHUP_USERID  // Añadimos el userid para mejorar la autenticación
+            'userid': GUPSHUP_USERID
         };
         
-        console.log('🔄 DIAGNÓSTICO: Datos completos a enviar:', {
-            url: apiUrl,
-            datos: Object.fromEntries(formData),
-            headers: { ...headers, apikey: 'OCULTA', userid: 'OCULTO' }
-        });
-        
         console.log('🔄 Enviando mensaje a WhatsApp...');
+        console.log(`📦 Payload: ${formData.toString()}`);
         
         try {
-            console.log('⏱️ DIAGNÓSTICO: Iniciando llamada a API GupShup:', new Date().toISOString());
             const response = await axios.post(apiUrl, formData, { headers });
-            console.log('⏱️ DIAGNÓSTICO: Finalizada llamada a API GupShup:', new Date().toISOString());
             
             console.log('📡 Respuesta de GupShup:', JSON.stringify(response.data));
             
@@ -1083,13 +1079,11 @@ async function sendWhatsAppResponse(recipient, message) {
                 
                 // Obtener el ID de la conversación correspondiente al número de teléfono
                 let conversationId = phoneToConversationMap[recipient];
-                console.log('🔍 DIAGNÓSTICO: ConversationId de phoneToConversationMap:', conversationId);
                 
                 // Guardar mensaje en la base de datos
                 try {
-                    console.log('💾 DIAGNÓSTICO: Guardando mensaje en base de datos con recipient:', recipient);
-                    const saveResult = await global.registerBotResponse(
-                        recipient,
+                    const saveResult = await registerBotResponse(
+                        conversationId || recipient,
                         message,
                         BUSINESS_ID, 
                         'bot'
@@ -1097,15 +1091,12 @@ async function sendWhatsAppResponse(recipient, message) {
                     
                     if (saveResult && saveResult.success) {
                         console.log('✅ Mensaje del bot guardado en Supabase');
-                        console.log('🔍 DIAGNÓSTICO: Resultado completo al guardar:', JSON.stringify(saveResult));
                         conversationId = saveResult.conversationId || conversationId;
                     } else {
                         console.warn(`⚠️ No se pudo guardar el mensaje en Supabase: ${saveResult?.error || 'Error desconocido'}`);
-                        console.warn('⚠️ DIAGNÓSTICO: Detalles del error al guardar:', JSON.stringify(saveResult));
                     }
                 } catch (dbError) {
                     console.log(`⚠️ Error guardando mensaje en Supabase: ${dbError.message}`);
-                    console.log('⚠️ DIAGNÓSTICO: Stack de error al guardar:', dbError.stack);
                 }
                 
                 // Verificar si el mensaje del bot requiere enviar notificación
@@ -1131,104 +1122,57 @@ async function sendWhatsAppResponse(recipient, message) {
                 return true;
             } else {
                 console.error(`❌ Error: Código de respuesta ${response.status}`);
-                console.error('❌ DIAGNÓSTICO: Respuesta completa con error:', JSON.stringify(response));
+                console.error(`📄 Datos de respuesta: ${JSON.stringify(response.data)}`);
                 return false;
             }
         } catch (apiError) {
             console.error('❌ Error en la llamada a la API de GupShup:', apiError.message);
-            console.error('❌ DIAGNÓSTICO: Error completo:', apiError);
-            
-            // Variable para controlar si debemos continuar el flujo a pesar del error
-            let shouldContinueFlow = false;
             
             if (apiError.response) {
                 console.error('🔍 Detalles del error:', 
                     apiError.response.status, 
                     JSON.stringify(apiError.response.data));
-                console.error('🔍 DIAGNÓSTICO: Headers de respuesta:', JSON.stringify(apiError.response.headers));
                 
-                // Detectar el entorno actual
-                const isLocalEnvironment = process.env.NODE_ENV === 'development' || 
-                                        !process.env.NODE_ENV || 
-                                        process.env.IS_RENDER !== 'true';
-                
-                // Tratar errores de autenticación en ambiente local
-                if (isLocalEnvironment && apiError.response.status === 401) {
-                    console.log('⚠️ Error de autenticación 401 detectado en ambiente local');
-                    
-                    if (apiError.response.data === "Portal User Not Found With APIKey") {
-                        console.log('⚠️ Error "Portal User Not Found With APIKey" - Este error ocurre en local pero puede funcionar en producción');
-                        console.log('📝 Continuando flujo como si el mensaje se hubiera enviado correctamente');
-                        shouldContinueFlow = true;
-                    } else {
-                        console.log('⚠️ Error 401 diferente: ' + JSON.stringify(apiError.response.data));
-                        console.log('📝 Continuando flujo como si el mensaje se hubiera enviado correctamente');
-                        shouldContinueFlow = true;
-                    }
+                // Si recibimos error de autenticación, dejar registro claro
+                if (apiError.response.status === 401) {
+                    console.error('🔐 ERROR DE AUTENTICACIÓN: Las credenciales de GupShup parecen ser inválidas');
+                    console.error(`🔑 API Key: ${apiKey.substring(0, 8)}...`);
+                    console.error(`👤 UserID: ${GUPSHUP_USERID}`);
                 }
             } else if (apiError.request) {
-                console.error('🔍 No se recibió respuesta del servidor');
-                console.error('🔍 DIAGNÓSTICO: Detalles de la solicitud:', apiError.request);
+                console.error('🔍 No se recibió respuesta del servidor GupShup');
+                console.error('📡 Detalles de la solicitud:', apiError.request);
             } else {
                 console.error('🔍 Error en la configuración de la solicitud:', apiError.message);
             }
             
-            // Si estamos en modo local y ocurrió un error 401, continuamos con el flujo
-            if (shouldContinueFlow) {
-                // Guardar el mensaje en la base de datos a pesar del error de GupShup
-                try {
-                    console.log('💾 DIAGNÓSTICO: Guardando mensaje en base de datos a pesar del error de GupShup');
-                    const saveResult = await global.registerBotResponse(
-                        recipient,
-                        message,
-                        BUSINESS_ID, 
-                        'bot'
-                    );
-                    
-                    if (saveResult && saveResult.success) {
-                        console.log('✅ Mensaje del bot guardado en Supabase (a pesar del error de GupShup)');
-                        console.log('🔍 DIAGNÓSTICO: Resultado completo al guardar:', JSON.stringify(saveResult));
-                        
-                        const conversationId = saveResult.conversationId || phoneToConversationMap[recipient];
-                        
-                        // Verificar si el mensaje del bot requiere enviar notificación
-                        if (notificationModule && conversationId) {
-                            console.log(`🔍 Verificando si el mensaje requiere notificación...`);
-                            try {
-                                const notificationResult = await notificationModule.processMessageForNotification(
-                                    message,
-                                    conversationId,
-                                    recipient
-                                );
-                                
-                                if (notificationResult.requiresNotification) {
-                                    console.log(`✅ Se ha enviado una notificación por correo: ${notificationResult.notificationSent}`);
-                                } else {
-                                    console.log(`ℹ️ El mensaje no requiere envío de notificación`);
-                                }
-                            } catch (notificationError) {
-                                console.error(`❌ Error al procesar notificación: ${notificationError.message}`);
-                            }
-                        }
-                        
-                        return true; // Reportar éxito para continuar el flujo
-                    } else {
-                        console.warn(`⚠️ No se pudo guardar el mensaje en Supabase: ${saveResult?.error || 'Error desconocido'}`);
-                        console.warn('⚠️ DIAGNÓSTICO: Detalles del error al guardar:', JSON.stringify(saveResult));
-                    }
-                } catch (dbError) {
-                    console.log(`⚠️ Error guardando mensaje en Supabase: ${dbError.message}`);
-                    console.log('⚠️ DIAGNÓSTICO: Stack de error al guardar:', dbError.stack);
-                }
+            // Intento alternativo con fetch nativo
+            try {
+                console.log('🔄 Intentando envío alternativo con fetch nativo...');
                 
-                return true; // Reportar éxito para continuar el flujo incluso si falla el guardado
+                const fetchResponse = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: formData
+                });
+                
+                const responseData = await fetchResponse.json();
+                console.log('📡 Respuesta del método alternativo:', JSON.stringify(responseData));
+                
+                if (fetchResponse.ok) {
+                    console.log('✅ Mensaje enviado exitosamente usando método alternativo');
+                    return true;
+                } else {
+                    console.error('❌ El método alternativo también falló:', fetchResponse.status);
+                    return false;
+                }
+            } catch (fetchError) {
+                console.error('❌ Error en envío alternativo:', fetchError.message);
+                return false;
             }
-            
-            return false; // Si no es un caso especial, reportar fallo
         }
     } catch (error) {
-        console.error('❌ Error enviando mensaje:', error.message);
-        console.error('❌ DIAGNÓSTICO: Stack completo:', error.stack);
+        console.error('❌ Error general enviando mensaje:', error.message);
         
         if (error.response) {
             console.error('🔍 Detalles del error:', 
@@ -2949,7 +2893,41 @@ async function processMessageGroup(conversationId) {
   // Si solo hay un mensaje, procesarlo normalmente
   if (messages.length === 1) {
     console.log(`ℹ️ Solo un mensaje en el grupo, procesando normalmente`);
-    await processMessageWithOpenAI(messages[0].sender, messages[0].message, conversationId);
+    const sender = messages[0].sender;
+    const message = messages[0].message;
+    
+    try {
+      const botResponse = await processMessageWithOpenAI(sender, message, conversationId);
+      
+      if (botResponse) {
+        console.log(`✅ Respuesta generada para mensaje: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
+        
+        // Asegurar que el mensaje se envía correctamente
+        let sendAttempts = 0;
+        let sendSuccess = false;
+        
+        while (!sendSuccess && sendAttempts < 3) {
+          sendAttempts++;
+          console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+          sendSuccess = await sendWhatsAppResponse(sender, botResponse);
+          
+          if (sendSuccess) {
+            console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
+          } else if (sendAttempts < 3) {
+            console.log(`⚠️ Reintentando envío en 1 segundo...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+        
+        if (!sendSuccess) {
+          console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
+        }
+      } else {
+        console.log(`⚠️ OpenAI no generó respuesta para el mensaje`);
+      }
+    } catch (aiError) {
+      console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
+    }
     return;
   }
   
@@ -2970,13 +2948,44 @@ async function processMessageGroup(conversationId) {
     if (botResponse) {
       console.log(`✅ Respuesta generada para mensaje combinado: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
       
-      // Enviar respuesta a WhatsApp
-      const sendResult = await sendWhatsAppResponse(sender, botResponse);
+      // Asegurar que el mensaje se envía correctamente
+      let sendAttempts = 0;
+      let sendSuccess = false;
       
-      if (sendResult) {
-        console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender}`);
-      } else {
-        console.log(`⚠️ No se pudo enviar la respuesta a WhatsApp, pero sí se guardó en la base de datos`);
+      while (!sendSuccess && sendAttempts < 3) {
+        sendAttempts++;
+        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+        sendSuccess = await sendWhatsAppResponse(sender, botResponse);
+        
+        if (sendSuccess) {
+          console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
+        } else if (sendAttempts < 3) {
+          console.log(`⚠️ Reintentando envío en 1 segundo...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (!sendSuccess) {
+        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
+        
+        // Guardar el mensaje en Supabase aunque no se pudiera enviar a WhatsApp
+        try {
+          console.log(`💾 Guardando respuesta en Supabase aunque no se pudo enviar a WhatsApp`);
+          const saveResult = await registerBotResponse(
+            conversationId,
+            botResponse,
+            BUSINESS_ID, 
+            'bot'
+          );
+          
+          if (saveResult && saveResult.success) {
+            console.log(`✅ Respuesta guardada en base de datos, ID: ${saveResult.messageId || 'desconocido'}`);
+          } else {
+            console.error(`❌ No se pudo guardar la respuesta en la base de datos: ${saveResult?.error || 'Error desconocido'}`);
+          }
+        } catch (dbError) {
+          console.error(`❌ Error guardando respuesta en la base de datos: ${dbError.message}`);
+        }
       }
     } else {
       console.log(`⚠️ OpenAI no generó respuesta para el mensaje combinado`);
