@@ -5,7 +5,7 @@ Un bot de WhatsApp que utiliza OpenAI para generar respuestas inteligentes y se 
 ## Características
 
 - ✅ Integración con WhatsApp usando GupShup
-- ✅ Procesamiento de mensajes con OpenAI
+- ✅ Procesamiento de mensajes con OpenAI (usando la API de Asistentes v2)
 - ✅ Almacenamiento de conversaciones en Supabase (opcional)
 - ✅ Sistema de notificaciones por correo electrónico
 - ✅ Endpoints para pruebas y diagnóstico
@@ -67,6 +67,11 @@ NOTIFICATION_EMAILS=correo1@ejemplo.com,correo2@ejemplo.com
 
 # URLs de servicios
 CONTROL_PANEL_URL=url-de-tu-panel-de-control
+
+# Otros ajustes
+PORT=3095
+LOG_LEVEL=info
+FORCE_SAVE_TO_SUPABASE=true
 ```
 
 4. **Iniciar el servidor**
@@ -159,4 +164,4 @@ Las contribuciones son bienvenidas. Por favor, abre un issue o pull request para
 
 ## Licencia
 
-Este proyecto está licenciado bajo la licencia ISC. 
+Este proyecto está licenciado bajo la licencia ISC.
