@@ -1395,7 +1395,7 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        const { sender, message, messageId } = messageData;
+        const { sender, message, messageId, timestamp } = messageData;
         
         if (!sender || !message) {
             console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
@@ -1413,7 +1413,10 @@ app.post('/webhook', async (req, res) => {
         
         // Marcar este mensaje como procesado
         recentlyProcessedMessages.add(messageKey);
-        setTimeout(() => recentlyProcessedMessages.delete(messageKey), 60000); // Eliminar después de 1 minuto
+        setTimeout(() => recentlyProcessedMessages.delete(messageKey), 120000); // Eliminar después de 2 minutos para mayor seguridad
+        
+        // Responder inmediatamente al webhook para evitar timeouts de WhatsApp
+        res.sendStatus(200);
         
         // Guardar mensaje en Supabase
         console.log(`💾 Guardando mensaje entrante para ${sender}`);
@@ -1426,7 +1429,7 @@ app.post('/webhook', async (req, res) => {
                 sender,
                 message,
                 messageId,
-                timestamp: messageData.timestamp
+                timestamp
             });
             
             // Registrar el resultado completo para diagnóstico
@@ -1435,7 +1438,7 @@ app.post('/webhook', async (req, res) => {
             if (!saveResult || !saveResult.success) {
                 console.error('❌ Error al guardar mensaje:', saveResult?.error || 'Error desconocido');
                 // Si no pudimos guardar el mensaje, no continuamos
-                return res.sendStatus(200);
+                return;
             }
             
             conversationId = saveResult.conversationId;
@@ -1461,14 +1464,37 @@ app.post('/webhook', async (req, res) => {
             message,
             messageId,
             conversationId,
-            timestamp: messageData.timestamp
+            timestamp
         })) {
             console.log(`🔄 Mensaje procesado como respuesta a una espera previa`);
-            return res.sendStatus(200);
+            return;
         }
         
-        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y tenemos un ID válido
+        // Solo si el bot está activo y tenemos ID válido
         if (botActive && conversationId) {
+            // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
+            const now = Date.now();
+            const messageTimestamp = timestamp ? new Date(timestamp).getTime() : now;
+            
+            // Agregar el mensaje al grupo de mensajes pendientes
+            const shouldWait = addToPendingMessageGroup(conversationId, {
+                sender,
+                message,
+                messageId,
+                conversationId,
+                timestamp: messageTimestamp,
+                receivedAt: now // Añadir tiempo exacto de recepción para análisis
+            });
+            
+            // Si debe esperar, detenemos aquí. El grupo será procesado por el timeout
+            if (shouldWait) {
+                const group = pendingMessageGroups.get(conversationId);
+                const messageCount = group ? group.messages.length : 0;
+                console.log(`⏳ Mensaje en espera para agrupación (${conversationId}) - Total acumulado: ${messageCount}`);
+                return;
+            }
+            
+            // Si por alguna razón no debe esperar, procesar normalmente
             console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
             
             try {
@@ -1495,12 +1521,9 @@ app.post('/webhook', async (req, res) => {
         } else {
             console.log(`🛑 Bot ${!botActive ? 'INACTIVO' : 'sin ID de conversación válido'}: NO se procesa mensaje de ${sender} con OpenAI ni se envía respuesta automática`);
         }
-        
-        // Responder inmediatamente al webhook
-        res.sendStatus(200);
     } catch (error) {
         console.error('❌ Error en webhook:', error);
-        res.sendStatus(200); // Siempre responder OK a WhatsApp
+        // Ya enviamos la respuesta 200 antes, no necesitamos responder aquí
     }
 });
 
@@ -2734,7 +2757,10 @@ const MAX_WAIT_TIME = 60000; // 60 segundos
 const pendingMessageGroups = new Map();
 
 // Tiempo de espera para agrupar mensajes sucesivos (en ms)
-const MESSAGE_GROUPING_DELAY = 4500; // 4.5 segundos
+const MESSAGE_GROUPING_DELAY = 4000; // 4 segundos para capturar mensajes consecutivos
+
+// Número máximo de mensajes por grupo
+const MAX_MESSAGES_PER_GROUP = 6; // Limitar a 6 mensajes por grupo para evitar tiempos de espera largos
 
 /**
  * Agrega un mensaje a un grupo pendiente y devuelve true si el mensaje debe esperar
@@ -2756,6 +2782,26 @@ function addToPendingMessageGroup(conversationId, messageData) {
     // Limpiar el timeout existente para extenderlo
     if (group.timeout) {
       clearTimeout(group.timeout);
+    }
+    
+    // Verificar si no excedemos el máximo de mensajes por grupo
+    if (group.messages.length >= MAX_MESSAGES_PER_GROUP) {
+      console.log(`⚠️ Máximo de mensajes por grupo alcanzado (${MAX_MESSAGES_PER_GROUP}). Procesando grupo actual.`);
+      // Procesar el grupo actual y comenzar uno nuevo
+      setTimeout(() => processMessageGroup(conversationId), 0);
+      
+      // Crear un nuevo grupo con este mensaje
+      const timeout = setTimeout(() => {
+        processMessageGroup(conversationId);
+      }, MESSAGE_GROUPING_DELAY);
+      
+      pendingMessageGroups.set(conversationId, {
+        messages: [messageData],
+        timeout: timeout,
+        startTime: currentTime
+      });
+      
+      return true;
     }
     
     // Agregar este mensaje al grupo
@@ -2818,15 +2864,19 @@ async function processMessageGroup(conversationId) {
     return;
   }
   
-  // Concatenar todos los mensajes en uno solo
-  const combinedMessage = messages.map(m => m.message).join(" ");
+  // Concatenar todos los mensajes con saltos de línea para mejor comprensión
+  const combinedMessage = messages.map(m => m.message).join("\n");
   const sender = messages[0].sender; // Todos los mensajes son del mismo remitente
   
-  console.log(`📦 Combinando ${messages.length} mensajes en uno solo: "${combinedMessage}"`);
+  console.log(`📦 Combinando ${messages.length} mensajes en uno solo: "${combinedMessage.substring(0, 100)}${combinedMessage.length > 100 ? '...' : ''}"`);
+  
+  // Construir un mensaje enriquecido que explique a OpenAI la situación
+  const enrichedMessage = `[El usuario ha enviado ${messages.length} mensajes consecutivos que deben tratarse como una sola consulta]\n\n${combinedMessage}`;
   
   // Procesar el mensaje combinado
   try {
-    const botResponse = await processMessageWithOpenAI(sender, combinedMessage, conversationId);
+    console.log(`🤖 Enviando a OpenAI mensaje combinado con ${messages.length} partes`);
+    const botResponse = await processMessageWithOpenAI(sender, enrichedMessage, conversationId);
     
     if (botResponse) {
       console.log(`✅ Respuesta generada para mensaje combinado: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
@@ -2903,148 +2953,6 @@ function resolveWaitingPromise(conversationId, messageData) {
   
   return false;
 }
-
-// Webhook para recibir mensajes de WhatsApp
-app.post('/webhook', async (req, res) => {
-    try {
-        const body = req.body;
-        console.log(`📩 Mensaje recibido en webhook: ${JSON.stringify(body).substring(0, 500)}...`);
-        
-        // Extraer datos del mensaje
-        const messageData = extractMessageData(body);
-        
-        // Si es una actualización de estado, solo registrarla
-        if (messageData.isStatusUpdate) {
-            console.log(`📊 Notificación de estado recibida, no requiere respuesta`);
-            console.log(`📊 Procesada notificación de estado`);
-            return res.sendStatus(200);
-        }
-        
-        const { sender, message, messageId } = messageData;
-        
-        if (!sender || !message) {
-            console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
-            return res.sendStatus(200);
-        }
-        
-        console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
-        
-        // Verificar si este mensaje ya fue procesado recientemente
-        const messageKey = `${messageId || sender}_${message}`;
-        if (recentlyProcessedMessages.has(messageKey)) {
-            console.log(`⚠️ Mensaje duplicado detectado, ignorando: ${messageKey}`);
-            return res.sendStatus(200);
-        }
-        
-        // Marcar este mensaje como procesado
-        recentlyProcessedMessages.add(messageKey);
-        setTimeout(() => recentlyProcessedMessages.delete(messageKey), 60000); // Eliminar después de 1 minuto
-        
-        // Guardar mensaje en Supabase
-        console.log(`💾 Guardando mensaje entrante para ${sender}`);
-        let conversationId = null;
-        let botActive = true;
-        
-        try {
-            // Obtener o crear conversación
-            const saveResult = await saveMessageToSupabase({
-                sender,
-                message,
-                messageId,
-                timestamp: messageData.timestamp
-            });
-            
-            // Registrar el resultado completo para diagnóstico
-            console.log(`📋 Resultado de guardar mensaje:`, JSON.stringify(saveResult, null, 2));
-            
-            if (!saveResult || !saveResult.success) {
-                console.error('❌ Error al guardar mensaje:', saveResult?.error || 'Error desconocido');
-                // Si no pudimos guardar el mensaje, no continuamos
-                return res.sendStatus(200);
-            }
-            
-            conversationId = saveResult.conversationId;
-            botActive = saveResult.isBotActive === true;
-            
-            console.log(`✅ Mensaje guardado en conversación ${conversationId} (Bot activo: ${botActive ? 'SÍ' : 'NO'})`);
-            
-            // Solo actualizar la última actividad si tenemos un ID válido
-            if (conversationId) {
-                // Actualizar última actividad de la conversación
-                await updateConversationLastActivity(conversationId, message);
-            }
-        } catch (dbError) {
-            console.error(`❌ Error guardando mensaje: ${dbError.message}`);
-            // Por seguridad, desactivamos el bot si hay errores
-            botActive = false;
-        }
-        
-        // Verificar si hay alguna promesa esperando respuesta para esta conversación
-        // Solo verificar si tenemos un ID de conversación válido
-        if (conversationId && resolveWaitingPromise(conversationId, {
-            sender,
-            message,
-            messageId,
-            conversationId,
-            timestamp: messageData.timestamp
-        })) {
-            console.log(`🔄 Mensaje procesado como respuesta a una espera previa`);
-            return res.sendStatus(200);
-        }
-        
-        // Responder inmediatamente al webhook antes de procesar 
-        // para evitar timeouts de WhatsApp
-        res.sendStatus(200);
-        
-        // Solo si el bot está activo y tenemos ID válido
-        if (botActive && conversationId) {
-            // Agregar el mensaje al grupo de mensajes pendientes
-            const shouldWait = addToPendingMessageGroup(conversationId, {
-                sender,
-                message,
-                messageId,
-                conversationId,
-                timestamp: messageData.timestamp
-            });
-            
-            // Si debe esperar, detenemos aquí. El grupo será procesado por el timeout
-            if (shouldWait) {
-                console.log(`⏳ Mensaje en espera para posible agrupación (${conversationId})`);
-                return;
-            }
-            
-            // Si por alguna razón no debe esperar, procesar normalmente
-            console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
-            
-            try {
-                // Procesar con OpenAI y obtener respuesta
-                const botResponse = await processMessageWithOpenAI(sender, message, conversationId);
-                
-                if (botResponse) {
-                    console.log(`✅ Respuesta generada por OpenAI: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
-                    
-                    // Enviar respuesta a WhatsApp
-                    const sendResult = await sendWhatsAppResponse(sender, botResponse);
-                    
-                    if (sendResult) {
-                        console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender}`);
-                    } else {
-                        console.log(`⚠️ No se pudo enviar la respuesta a WhatsApp, pero sí se guardó en la base de datos`);
-                    }
-                } else {
-                    console.log(`⚠️ OpenAI no generó respuesta para el mensaje de ${sender}`);
-                }
-            } catch (aiError) {
-                console.error(`❌ Error procesando con OpenAI: ${aiError.message}`);
-            }
-        } else {
-            console.log(`🛑 Bot ${!botActive ? 'INACTIVO' : 'sin ID de conversación válido'}: NO se procesa mensaje de ${sender} con OpenAI ni se envía respuesta automática`);
-        }
-    } catch (error) {
-        console.error('❌ Error en webhook:', error);
-        res.sendStatus(200); // Siempre responder OK a WhatsApp
-    }
-});
 
 // Añadir una nueva ruta para enviar un mensaje y esperar respuesta
 app.post('/api/send-and-wait', async (req, res) => {
