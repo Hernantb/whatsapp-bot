@@ -419,138 +419,148 @@ function safeISODate(timestamp) {
 
 // Función para guardar mensaje en Supabase
 async function saveMessageToSupabase({ sender, message, messageId, timestamp, conversationId, isBotActive }) {
-    try {
-        if (!sender || !message) {
-            console.warn('❌ Datos incompletos para guardar mensaje en Supabase');
-            return null;
-        }
-
-        console.log(`💾 Guardando mensaje de tipo 'user' para: ${sender}`);
-        
-        // Si no tenemos conversation_id, intentar encontrarlo
-        let existingConversationId = conversationId;
-        
-        if (!existingConversationId) {
-            // Verificar si ya existe una conversación para este remitente
-            console.log(`🔍 Buscando conversación para: ${sender}`);
-            
-            const { data: existingConv, error: convError } = await supabase
-                .from('conversations')
-                .select('id, is_bot_active')
-                .eq('user_id', sender)
-                .eq('business_id', BUSINESS_ID);
-            
-            if (convError) {
-                console.error('❌ Error buscando conversación:', convError);
-            } else if (existingConv && existingConv.length > 0) {
-                existingConversationId = existingConv[0].id;
-                // Actualizar el estado del bot si lo recibimos
-                if (typeof isBotActive !== 'undefined') {
-                    // Forzar la actualización del estado en caché
-                    senderBotStatusMap[sender] = isBotActive === true;
-                } else {
-                    // Usar el estado de la DB
-                    isBotActive = existingConv[0].is_bot_active === true;
-                    senderBotStatusMap[sender] = isBotActive;
-                }
-                
-                console.log(`ℹ️ Usando conversación existente con ID: ${existingConversationId} (bot activo: ${isBotActive ? 'SÍ' : 'NO'})`);
-            } else {
-                // Crear nueva conversación
-                console.log(`📝 Creando nueva conversación para ${sender}`);
-                const { data: newConv, error: createError } = await supabase
-                    .from('conversations')
-                    .insert([
-                        { 
-                            user_id: sender,
-                            business_id: BUSINESS_ID,
-                            is_bot_active: false, // Por defecto inactivo
-                            sender_name: sender
-                        }
-                    ])
-                    .select();
-                
-                if (createError) {
-                    console.error('❌ Error creando conversación:', createError);
-                    return null;
-                }
-                
-                if (newConv && newConv.length > 0) {
-                    existingConversationId = newConv[0].id;
-                    isBotActive = false; // Nueva conversación, bot inactivo por defecto
-                    
-                    // Actualizar mapeos
-                    phoneToConversationMap[sender] = existingConversationId;
-                    conversationIdToPhoneMap[existingConversationId] = sender;
-                    
-                    // Actualizar estado en caché
-                    senderBotStatusMap[sender] = false;
-                    
-                    console.log(`✅ Nueva conversación creada: ${existingConversationId} para ${sender} (bot inactivo por defecto)`);
-                }
-            }
-        }
-        
-        if (!existingConversationId) {
-            console.error('❌ No se pudo crear o encontrar conversación');
-            return null;
-        }
-
-        // Guardar el mensaje en la tabla messages
-        const tableColumns = await getMessagesTableStructure();
-        
-        // Usar la función segura para formatear la fecha
-        const safeTimestamp = safeISODate(timestamp);
-        console.log(`📅 Timestamp formateado: ${safeTimestamp}`);
-        
-        let messageData = {
-            conversation_id: existingConversationId,
-            content: message,
-            sender_type: 'user',
-            created_at: safeTimestamp
-        };
-        
-        // Solo añadir business_id si existe en la tabla
-        if (tableColumns && tableColumns.includes('business_id')) {
-            messageData.business_id = BUSINESS_ID;
-        }
-        
-        const { error: saveError } = await supabase
-            .from('messages')
-            .insert([messageData]);
-        
-        if (saveError) {
-            console.error('❌ Error guardando mensaje:', saveError);
-            
-            // Si el error es sobre business_id, intentar sin él
-            if (saveError.message && saveError.message.includes('business_id')) {
-                console.log('ℹ️ Intentando guardar mensaje sin business_id...');
-                
-                delete messageData.business_id;
-                
-                const { error: retryError } = await supabase
-                    .from('messages')
-                    .insert([messageData]);
-                
-                if (retryError) {
-                    console.error('❌ Error en segundo intento para guardar mensaje:', retryError);
-                    return null;
-                }
-            } else {
-                return null;
-            }
-        }
-        
-        // Actualizar la conversación con el último mensaje
-        await updateConversationLastActivity(existingConversationId, message);
-        
-        console.log('✅ Mensaje guardado en Supabase correctamente');
-        return existingConversationId;
-        
-    } catch (error) {
-        console.error('❌ Error general guardando mensaje en Supabase:', error);
-        return null;
+  try {
+    // Verificar parámetros mínimos necesarios
+    if (!sender && !conversationId) {
+      console.error('❌ saveMessageToSupabase: Se requiere sender o conversationId');
+      return { success: false, error: 'Se requiere sender o conversationId' };
     }
+
+    if (!message) {
+      console.error('❌ saveMessageToSupabase: Se requiere un mensaje');
+      return { success: false, error: 'Se requiere un mensaje' };
+    }
+
+    // Variables para resultado
+    let actualConversationId = conversationId;
+    let botActive = isBotActive !== undefined ? isBotActive : true; // Por defecto activo si no se especifica
+
+    // Paso 1: Verificar si tenemos un ID de conversación mapeado para este número
+    if (!actualConversationId && phoneToConversationMap[sender]) {
+      actualConversationId = phoneToConversationMap[sender];
+      console.log(`✅ ID de conversación encontrado en caché: ${actualConversationId}`);
+    }
+
+    // Paso 2: Si no tenemos conversación, buscarla o crearla
+    if (!actualConversationId) {
+      try {
+        console.log(`🔍 Buscando conversación para: ${sender}`);
+        
+        // Buscar conversación existente por número de teléfono
+        const { data: existingConv, error: convError } = await supabase
+          .from('conversations')
+          .select('*')
+          .eq('user_id', sender)
+          .eq('business_id', BUSINESS_ID)
+          .single();
+        
+        if (convError && convError.code !== 'PGRST116') {
+          console.error(`❌ Error buscando conversación: ${convError.message}`);
+          return { success: false, error: convError.message };
+        }
+        
+        if (existingConv) {
+          // Usar conversación existente
+          actualConversationId = existingConv.id;
+          botActive = existingConv.is_bot_active === true;
+          console.log(`ℹ️ Usando conversación existente con ID: ${actualConversationId} (bot activo: ${botActive ? 'SÍ' : 'NO'})`);
+          
+          // Actualizar mapeo
+          phoneToConversationMap[sender] = actualConversationId;
+          conversationIdToPhoneMap[actualConversationId] = sender;
+        } else {
+          // Crear nueva conversación
+          console.log(`➕ Creando nueva conversación para: ${sender}`);
+          
+          const { data: newConv, error: createError } = await supabase
+            .from('conversations')
+            .insert([{
+              user_id: sender,
+              business_id: BUSINESS_ID,
+              is_bot_active: true,
+              sender_name: getContactName(sender) || sender,
+              last_message: message.substring(0, 100),
+              last_message_time: new Date().toISOString()
+            }])
+            .select();
+          
+          if (createError) {
+            console.error(`❌ Error creando conversación: ${createError.message}`);
+            return { success: false, error: createError.message };
+          }
+          
+          if (newConv && newConv.length > 0) {
+            actualConversationId = newConv[0].id;
+            botActive = newConv[0].is_bot_active === true;
+            console.log(`✅ Nueva conversación creada con ID: ${actualConversationId}`);
+            
+            // Actualizar mapeo
+            phoneToConversationMap[sender] = actualConversationId;
+            conversationIdToPhoneMap[actualConversationId] = sender;
+          } else {
+            console.error('❌ Error: No se pudo crear la conversación');
+            return { success: false, error: 'No se pudo crear la conversación' };
+          }
+        }
+      } catch (convError) {
+        console.error(`❌ Error crítico con la conversación: ${convError.message}`);
+        return { success: false, error: convError.message };
+      }
+    }
+
+    // Paso 3: Guardar el mensaje
+    let messageRecord;
+    try {
+      console.log(`⚠️ No se pudo obtener metadata de la tabla mediante RPC: Could not find the function public.get_table_metadata(table_name) in the schema cache`);
+      
+      // Format timestamp if provided
+      let messageTime = new Date().toISOString();
+      if (timestamp) {
+        messageTime = safeISODate(timestamp);
+        console.log(`📅 Timestamp formateado: ${messageTime}`);
+      }
+      
+      // Guardar mensaje en la base de datos
+      const { data: newMessage, error: msgError } = await supabase
+        .from('messages')
+        .insert([{
+          conversation_id: actualConversationId,
+          content: message,
+          sender_type: 'user',
+          created_at: messageTime
+        }])
+        .select();
+      
+      if (msgError) {
+        console.error(`❌ Error guardando mensaje: ${msgError.message}`);
+        return { success: false, error: msgError.message };
+      }
+      
+      messageRecord = newMessage && newMessage.length > 0 ? newMessage[0] : null;
+      console.log(`✅ Mensaje guardado en Supabase correctamente`);
+    } catch (messageError) {
+      console.error(`❌ Error guardando mensaje: ${messageError.message}`);
+      return { success: false, error: messageError.message };
+    }
+
+    // Añadir validación adicional para asegurar que tenemos un ID de conversación antes de retornar
+    if (!actualConversationId) {
+      console.error('❌ Error: No se pudo obtener un ID de conversación válido después de todo el proceso');
+      return { success: false, error: 'No se pudo obtener ID de conversación válido' };
+    }
+
+    // Devolver información completa
+    return {
+      success: true,
+      conversationId: actualConversationId,
+      messageId: messageRecord?.id,
+      isBotActive: botActive,
+      message: 'Mensaje guardado correctamente'
+    };
+  } catch (error) {
+    console.error(`❌ Error general en saveMessageToSupabase: ${error.message}`);
+    return { success: false, error: error.message };
+  }
 }
 
 // Función para actualizar última actividad de conversación
@@ -1419,22 +1429,24 @@ app.post('/webhook', async (req, res) => {
                 timestamp: messageData.timestamp
             });
             
-            if (!saveResult || !saveResult.conversationId) {
-                console.error('❌ Error: No se pudo obtener ID de conversación válido');
-                // Si no tenemos conversationId, igual intentamos seguir procesando
-                // pero con el bot desactivado por seguridad
-                botActive = false;
-            } else {
-                conversationId = saveResult.conversationId;
-                botActive = saveResult.isBotActive === true;
-                
-                console.log(`✅ Mensaje guardado en conversación ${conversationId} (Bot activo: ${botActive ? 'SÍ' : 'NO'})`);
-                
-                // Solo actualizar la última actividad si tenemos un ID válido
-                if (conversationId) {
-                    // Actualizar última actividad de la conversación
-                    await updateConversationLastActivity(conversationId, message);
-                }
+            // Registrar el resultado completo para diagnóstico
+            console.log(`📋 Resultado de guardar mensaje:`, JSON.stringify(saveResult, null, 2));
+            
+            if (!saveResult || !saveResult.success) {
+                console.error('❌ Error al guardar mensaje:', saveResult?.error || 'Error desconocido');
+                // Si no pudimos guardar el mensaje, no continuamos
+                return res.sendStatus(200);
+            }
+            
+            conversationId = saveResult.conversationId;
+            botActive = saveResult.isBotActive === true;
+            
+            console.log(`✅ Mensaje guardado en conversación ${conversationId} (Bot activo: ${botActive ? 'SÍ' : 'NO'})`);
+            
+            // Solo actualizar la última actividad si tenemos un ID válido
+            if (conversationId) {
+                // Actualizar última actividad de la conversación
+                await updateConversationLastActivity(conversationId, message);
             }
         } catch (dbError) {
             console.error(`❌ Error guardando mensaje: ${dbError.message}`);
