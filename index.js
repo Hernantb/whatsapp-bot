@@ -2790,10 +2790,13 @@ const MAX_WAIT_TIME = 60000; // 60 segundos
 const pendingMessageGroups = new Map();
 
 // Tiempo de espera para agrupar mensajes sucesivos (en ms)
-const MESSAGE_GROUPING_DELAY = 4000; // 4 segundos para capturar mensajes consecutivos
+const MESSAGE_GROUPING_DELAY = 10000; // Aumentado a 10 segundos para garantizar capturar mensajes consecutivos
 
 // Número máximo de mensajes por grupo
 const MAX_MESSAGES_PER_GROUP = 6; // Limitar a 6 mensajes por grupo para evitar tiempos de espera largos
+
+// Tiempo máximo entre mensajes para considerarlos parte del mismo grupo (en ms)
+const MAX_MESSAGE_GAP = 5000; // 5 segundos entre mensajes para considerarlos parte del mismo grupo
 
 /**
  * Agrega un mensaje a un grupo pendiente y devuelve true si el mensaje debe esperar
@@ -2807,6 +2810,9 @@ function addToPendingMessageGroup(conversationId, messageData) {
   if (!conversationId) return false;
   
   const currentTime = Date.now();
+  
+  // FORZAR AGRUPACIÓN: Siempre grupar mensajes hasta que expire el tiempo
+  let shouldGroup = true;
   
   // Si ya existe un grupo para esta conversación
   if (pendingMessageGroups.has(conversationId)) {
@@ -2831,14 +2837,43 @@ function addToPendingMessageGroup(conversationId, messageData) {
       pendingMessageGroups.set(conversationId, {
         messages: [messageData],
         timeout: timeout,
-        startTime: currentTime
+        startTime: currentTime,
+        lastMessageTime: currentTime
       });
       
       return true;
     }
     
-    // Agregar este mensaje al grupo
+    // Verificar si ha pasado demasiado tiempo desde el último mensaje
+    const timeSinceLastMessage = currentTime - (group.lastMessageTime || group.startTime);
+    console.log(`⏱️ Tiempo desde el último mensaje: ${timeSinceLastMessage}ms (máximo permitido: ${MAX_MESSAGE_GAP}ms)`);
+    
+    if (timeSinceLastMessage > MAX_MESSAGE_GAP && group.messages.length > 0) {
+      // Ha pasado demasiado tiempo, procesar el grupo actual
+      console.log(`⏱️ Ha pasado demasiado tiempo desde el último mensaje (${timeSinceLastMessage}ms > ${MAX_MESSAGE_GAP}ms)`);
+      console.log(`🔄 Procesando grupo existente y creando uno nuevo`);
+      
+      // Procesar grupo actual
+      setTimeout(() => processMessageGroup(conversationId), 0);
+      
+      // Crear nuevo grupo con este mensaje
+      const timeout = setTimeout(() => {
+        processMessageGroup(conversationId);
+      }, MESSAGE_GROUPING_DELAY);
+      
+      pendingMessageGroups.set(conversationId, {
+        messages: [messageData],
+        timeout: timeout,
+        startTime: currentTime,
+        lastMessageTime: currentTime
+      });
+      
+      return true;
+    }
+    
+    // Agregar este mensaje al grupo existente
     group.messages.push(messageData);
+    group.lastMessageTime = currentTime;
     console.log(`✨ Mensaje agrupado para ${conversationId}. Total: ${group.messages.length} mensajes en grupo`);
     
     // Crear un nuevo timeout
@@ -2858,7 +2893,8 @@ function addToPendingMessageGroup(conversationId, messageData) {
     pendingMessageGroups.set(conversationId, {
       messages: [messageData],
       timeout: timeout,
-      startTime: currentTime
+      startTime: currentTime,
+      lastMessageTime: currentTime
     });
     
     return true; // Indicar que se debe esperar y no procesar aún
@@ -2890,9 +2926,12 @@ async function processMessageGroup(conversationId) {
     return;
   }
   
-  // Si solo hay un mensaje, procesarlo normalmente
-  if (messages.length === 1) {
-    console.log(`ℹ️ Solo un mensaje en el grupo, procesando normalmente`);
+  // Si solo hay un mensaje, procesarlo normalmente SOLO si ha pasado suficiente tiempo
+  const currentTime = Date.now();
+  const timeSinceGroupStart = currentTime - group.startTime;
+  
+  if (messages.length === 1 && timeSinceGroupStart > MAX_MESSAGE_GAP) {
+    console.log(`ℹ️ Solo un mensaje en el grupo y ha pasado suficiente tiempo (${timeSinceGroupStart}ms), procesando normalmente`);
     const sender = messages[0].sender;
     const message = messages[0].message;
     
@@ -2928,6 +2967,24 @@ async function processMessageGroup(conversationId) {
     } catch (aiError) {
       console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
     }
+    return;
+  }
+  
+  // IMPORTANTE: Incluso si solo hay un mensaje, pero no ha pasado suficiente tiempo, 
+  // lo tratamos como un grupo potencial en caso de que lleguen más mensajes pronto
+  if (messages.length === 1 && timeSinceGroupStart <= MAX_MESSAGE_GAP) {
+    console.log(`⏱️ Solo un mensaje, pero esperando más (${timeSinceGroupStart}ms < ${MAX_MESSAGE_GAP}ms)`);
+    // Volver a poner el mensaje en la cola por un tiempo adicional
+    const timeout = setTimeout(() => {
+      processMessageGroup(conversationId);
+    }, MAX_MESSAGE_GAP - timeSinceGroupStart);
+    
+    pendingMessageGroups.set(conversationId, {
+      messages: messages,
+      timeout: timeout,
+      startTime: group.startTime,
+      lastMessageTime: group.lastMessageTime || group.startTime
+    });
     return;
   }
   
