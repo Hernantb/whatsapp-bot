@@ -1163,7 +1163,8 @@ function extractMessageData(body) {
       timestamp: null,
       isImage: false,
       isAudio: false,
-      isVideo: false  // Nueva bandera para detectar si es un video
+      isVideo: false,
+      isDocument: false  // Nueva bandera para detectar si es un documento/archivo
     };
     
     // Imprimir la estructura completa para depuración
@@ -1189,8 +1190,17 @@ function extractMessageData(body) {
           
           console.log(`📨 Datos del mensaje: ${JSON.stringify(messageData)}`);
           
+          // Detectar si es un documento/archivo
+          if (messageData.type === 'document' || messageData.document) {
+            console.log('📄 Mensaje de tipo documento detectado');
+            result.isDocument = true;
+            result.message = messageData.document && messageData.document.filename 
+              ? `[DOCUMENTO RECIBIDO: ${messageData.document.filename}]` 
+              : "[DOCUMENTO RECIBIDO]";
+            result.documentData = messageData.document || null;
+          }
           // Detectar si es un video
-          if (messageData.type === 'video' || messageData.video) {
+          else if (messageData.type === 'video' || messageData.video) {
             console.log('🎬 Mensaje de tipo video detectado');
             result.isVideo = true;
             result.message = "[VIDEO RECIBIDO]"; // Mensaje estándar para indicar que se recibió un video
@@ -1210,7 +1220,7 @@ function extractMessageData(body) {
             result.message = "[IMAGEN RECIBIDA]";
             result.imageData = messageData.image || null;
           }
-          // Extraer contenido según el tipo de mensaje (solo si no es imagen, audio o video)
+          // Extraer contenido según el tipo de mensaje (solo si no es imagen, audio, video o documento)
           else if (messageData.text && messageData.text.body) {
             result.message = messageData.text.body;
             console.log(`💬 Mensaje de texto encontrado: "${result.message}"`);
@@ -1411,7 +1421,7 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        const { sender, message, messageId, isImage, isAudio, isVideo } = messageData;
+        const { sender, message, messageId, isImage, isAudio, isVideo, isDocument } = messageData;
         
         if (!sender || !message) {
             console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
@@ -1516,6 +1526,28 @@ app.post('/webhook', async (req, res) => {
         // Verificación final antes de procesar
         console.log(`🔐 VERIFICACIÓN FINAL antes de procesar: Bot para ${sender} está ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'}`);
         
+        // Si es un documento, enviar una respuesta estándar inmediatamente
+        if (isDocument && botActive) {
+            console.log('📄 Respondiendo a mensaje de documento con respuesta estándar');
+            
+            const documentResponse = "He recibido tu documento. Actualmente no puedo procesar archivos, pero puedo ayudarte con consultas por texto o transferirte con un asesor para que revise este archivo.";
+            
+            try {
+                await sendWhatsAppResponse(sender, documentResponse);
+                
+                // Registrar la respuesta en la base de datos
+                if (conversationId) {
+                    await registerBotResponse(conversationId, documentResponse);
+                    console.log('✅ Respuesta a documento registrada en la base de datos');
+                }
+            } catch (responseError) {
+                console.error(`❌ Error enviando respuesta a documento: ${responseError.message}`);
+            }
+            
+            // Terminar aquí, no pasamos el documento al procesamiento normal
+            return res.sendStatus(200);
+        }
+        
         // Si es un video, enviar una respuesta estándar inmediatamente
         if (isVideo && botActive) {
             console.log('🎬 Respondiendo a mensaje de video con respuesta estándar');
@@ -1582,8 +1614,8 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es un audio, video ni una imagen
-        if (botActive && !isAudio && !isVideo && !isImage) {
+        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es un audio, video, imagen o documento
+        if (botActive && !isAudio && !isVideo && !isImage && !isDocument) {
             console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
             
             // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
