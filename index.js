@@ -1162,7 +1162,8 @@ function extractMessageData(body) {
       messageId: null,
       timestamp: null,
       isImage: false,
-      isAudio: false  // Nueva bandera para detectar si es un audio
+      isAudio: false,
+      isVideo: false  // Nueva bandera para detectar si es un video
     };
     
     // Imprimir la estructura completa para depuración
@@ -1188,8 +1189,15 @@ function extractMessageData(body) {
           
           console.log(`📨 Datos del mensaje: ${JSON.stringify(messageData)}`);
           
+          // Detectar si es un video
+          if (messageData.type === 'video' || messageData.video) {
+            console.log('🎬 Mensaje de tipo video detectado');
+            result.isVideo = true;
+            result.message = "[VIDEO RECIBIDO]"; // Mensaje estándar para indicar que se recibió un video
+            result.videoData = messageData.video || null;
+          }
           // Detectar si es un mensaje de audio
-          if (messageData.type === 'audio' || messageData.audio) {
+          else if (messageData.type === 'audio' || messageData.audio) {
             console.log('🔊 Mensaje de tipo audio detectado');
             result.isAudio = true;
             result.message = "[AUDIO RECIBIDO]"; // Mensaje estándar para indicar que se recibió un audio
@@ -1202,7 +1210,7 @@ function extractMessageData(body) {
             result.message = "[IMAGEN RECIBIDA]";
             result.imageData = messageData.image || null;
           }
-          // Extraer contenido según el tipo de mensaje (solo si no es imagen ni audio)
+          // Extraer contenido según el tipo de mensaje (solo si no es imagen, audio o video)
           else if (messageData.text && messageData.text.body) {
             result.message = messageData.text.body;
             console.log(`💬 Mensaje de texto encontrado: "${result.message}"`);
@@ -1403,7 +1411,7 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        const { sender, message, messageId, isImage, isAudio } = messageData;
+        const { sender, message, messageId, isImage, isAudio, isVideo } = messageData;
         
         if (!sender || !message) {
             console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
@@ -1508,6 +1516,28 @@ app.post('/webhook', async (req, res) => {
         // Verificación final antes de procesar
         console.log(`🔐 VERIFICACIÓN FINAL antes de procesar: Bot para ${sender} está ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'}`);
         
+        // Si es un video, enviar una respuesta estándar inmediatamente
+        if (isVideo && botActive) {
+            console.log('🎬 Respondiendo a mensaje de video con respuesta estándar');
+            
+            const videoResponse = "Lo siento, actualmente no puedo procesar videos. Por favor, envía tu consulta como mensaje de texto o, si necesitas asistencia con este video, puedo transferirte con un asesor.";
+            
+            try {
+                await sendWhatsAppResponse(sender, videoResponse);
+                
+                // Registrar la respuesta en la base de datos
+                if (conversationId) {
+                    await registerBotResponse(conversationId, videoResponse);
+                    console.log('✅ Respuesta a video registrada en la base de datos');
+                }
+            } catch (responseError) {
+                console.error(`❌ Error enviando respuesta a video: ${responseError.message}`);
+            }
+            
+            // Terminar aquí, no pasamos el video al procesamiento normal
+            return res.sendStatus(200);
+        }
+        
         // Si es un audio, enviar una respuesta estándar inmediatamente
         if (isAudio && botActive) {
             console.log('🔊 Respondiendo a mensaje de audio con respuesta estándar');
@@ -1552,8 +1582,8 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es un audio ni una imagen
-        if (botActive && !isAudio && !isImage) {
+        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es un audio, video ni una imagen
+        if (botActive && !isAudio && !isVideo && !isImage) {
             console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
             
             // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
