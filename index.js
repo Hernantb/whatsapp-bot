@@ -1161,7 +1161,8 @@ function extractMessageData(body) {
       message: null,
       messageId: null,
       timestamp: null,
-      isImage: false  // Nueva bandera para detectar si es una imagen
+      isImage: false,
+      isAudio: false  // Nueva bandera para detectar si es un audio
     };
     
     // Imprimir la estructura completa para depuración
@@ -1187,14 +1188,21 @@ function extractMessageData(body) {
           
           console.log(`📨 Datos del mensaje: ${JSON.stringify(messageData)}`);
           
-          // Comprobar si es una imagen
-          if (messageData.type === 'image' || messageData.image) {
+          // Detectar si es un mensaje de audio
+          if (messageData.type === 'audio' || messageData.audio) {
+            console.log('🔊 Mensaje de tipo audio detectado');
+            result.isAudio = true;
+            result.message = "[AUDIO RECIBIDO]"; // Mensaje estándar para indicar que se recibió un audio
+            result.audioData = messageData.audio || null;
+          }
+          // Detectar si es una imagen
+          else if (messageData.type === 'image' || messageData.image) {
             console.log('🖼️ Mensaje de tipo imagen detectado');
             result.isImage = true;
-            result.message = "[IMAGEN RECIBIDA]"; // Mensaje estándar para indicar que se recibió una imagen
+            result.message = "[IMAGEN RECIBIDA]";
             result.imageData = messageData.image || null;
           }
-          // Extraer contenido según el tipo de mensaje (sólo si no es una imagen)
+          // Extraer contenido según el tipo de mensaje (solo si no es imagen ni audio)
           else if (messageData.text && messageData.text.body) {
             result.message = messageData.text.body;
             console.log(`💬 Mensaje de texto encontrado: "${result.message}"`);
@@ -1395,7 +1403,7 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        const { sender, message, messageId, isImage } = messageData;
+        const { sender, message, messageId, isImage, isAudio } = messageData;
         
         if (!sender || !message) {
             console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
@@ -1428,8 +1436,8 @@ app.post('/webhook', async (req, res) => {
             
             // Guardar mensaje del usuario en la base de datos
             console.log(`💾 Guardando mensaje de tipo 'user' para: ${sender}`);
-            const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
-      
+            const userMessageResult = await registerBotResponse(sender, message, BUSINESS_ID, 'user');
+            
             if (userMessageResult && userMessageResult.success) {
                 console.log('✅ Mensaje guardado en Supabase correctamente');
                 conversationId = userMessageResult.conversationId;
@@ -1499,7 +1507,29 @@ app.post('/webhook', async (req, res) => {
         
         // Verificación final antes de procesar
         console.log(`🔐 VERIFICACIÓN FINAL antes de procesar: Bot para ${sender} está ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'}`);
-      
+        
+        // Si es un audio, enviar una respuesta estándar inmediatamente
+        if (isAudio && botActive) {
+            console.log('🔊 Respondiendo a mensaje de audio con respuesta estándar');
+            
+            const audioResponse = "Lo siento, actualmente no puedo procesar mensajes de audio. Por favor, envía tu consulta como mensaje de texto o, si necesitas asistencia con este audio, puedo transferirte con un asesor.";
+            
+            try {
+                await sendWhatsAppResponse(sender, audioResponse);
+                
+                // Registrar la respuesta en la base de datos
+                if (conversationId) {
+                    await registerBotResponse(conversationId, audioResponse);
+                    console.log('✅ Respuesta a audio registrada en la base de datos');
+                }
+            } catch (responseError) {
+                console.error(`❌ Error enviando respuesta a audio: ${responseError.message}`);
+            }
+            
+            // Terminar aquí, no pasamos el audio al procesamiento normal
+            return res.sendStatus(200);
+        }
+        
         // Si es una imagen, enviar una respuesta estándar inmediatamente
         if (isImage && botActive) {
             console.log('🖼️ Respondiendo a mensaje de imagen con respuesta estándar');
@@ -1521,9 +1551,9 @@ app.post('/webhook', async (req, res) => {
             // Terminar aquí, no pasamos la imagen al procesamiento normal
             return res.sendStatus(200);
         }
-      
-        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es una imagen
-        if (botActive && !isImage) {
+        
+        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es un audio ni una imagen
+        if (botActive && !isAudio && !isImage) {
             console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
             
             // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
