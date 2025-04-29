@@ -1160,7 +1160,8 @@ function extractMessageData(body) {
       sender: null,
       message: null,
       messageId: null,
-      timestamp: null
+      timestamp: null,
+      isImage: false  // Nueva bandera para detectar si es una imagen
     };
     
     // Imprimir la estructura completa para depuración
@@ -1186,8 +1187,15 @@ function extractMessageData(body) {
           
           console.log(`📨 Datos del mensaje: ${JSON.stringify(messageData)}`);
           
-          // Extraer contenido según el tipo de mensaje
-          if (messageData.text && messageData.text.body) {
+          // Comprobar si es una imagen
+          if (messageData.type === 'image' || messageData.image) {
+            console.log('🖼️ Mensaje de tipo imagen detectado');
+            result.isImage = true;
+            result.message = "[IMAGEN RECIBIDA]"; // Mensaje estándar para indicar que se recibió una imagen
+            result.imageData = messageData.image || null;
+          }
+          // Extraer contenido según el tipo de mensaje (sólo si no es una imagen)
+          else if (messageData.text && messageData.text.body) {
             result.message = messageData.text.body;
             console.log(`💬 Mensaje de texto encontrado: "${result.message}"`);
           } else if (messageData.type === 'text' && messageData.text) {
@@ -1387,7 +1395,7 @@ app.post('/webhook', async (req, res) => {
             return res.sendStatus(200);
         }
         
-        const { sender, message, messageId } = messageData;
+        const { sender, message, messageId, isImage } = messageData;
         
         if (!sender || !message) {
             console.log(`⚠️ Mensaje incompleto recibido, ignorando: ${JSON.stringify(messageData)}`);
@@ -1422,7 +1430,7 @@ app.post('/webhook', async (req, res) => {
             console.log(`💾 Guardando mensaje de tipo 'user' para: ${sender}`);
             const userMessageResult = await global.registerBotResponse(sender, message, BUSINESS_ID, 'user');
       
-      if (userMessageResult && userMessageResult.success) {
+            if (userMessageResult && userMessageResult.success) {
                 console.log('✅ Mensaje guardado en Supabase correctamente');
                 conversationId = userMessageResult.conversationId;
                 
@@ -1431,7 +1439,7 @@ app.post('/webhook', async (req, res) => {
                     phoneToConversationMap[sender] = conversationId;
                     conversationIdToPhoneMap[conversationId] = sender;
                 }
-      } else {
+            } else {
                 console.error(`❌ Error al guardar mensaje en Supabase: ${userMessageResult?.error || 'Error desconocido'}`);
             }
         } catch (supabaseError) {
@@ -1461,7 +1469,7 @@ app.post('/webhook', async (req, res) => {
                     senderBotStatusMap[sender] = botActive;
                     console.log(`📝 Caché actualizada: senderBotStatusMap[${sender}] = ${botActive}`);
                 }
-      } else {
+            } else {
                 // Si no tenemos ID, buscar por número
                 const { data: convByNumber, error: numberError } = await supabase
                     .from('conversations')
@@ -1492,8 +1500,30 @@ app.post('/webhook', async (req, res) => {
         // Verificación final antes de procesar
         console.log(`🔐 VERIFICACIÓN FINAL antes de procesar: Bot para ${sender} está ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'}`);
       
-        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO
-        if (botActive) {
+        // Si es una imagen, enviar una respuesta estándar inmediatamente
+        if (isImage && botActive) {
+            console.log('🖼️ Respondiendo a mensaje de imagen con respuesta estándar');
+            
+            const imageResponse = "Lo siento, actualmente no puedo procesar imágenes. Por favor, envía tu consulta como mensaje de texto o, si necesitas asistencia con esta imagen, puedo transferirte con un asesor.";
+            
+            try {
+                await sendWhatsAppResponse(sender, imageResponse);
+                
+                // Registrar la respuesta en la base de datos
+                if (conversationId) {
+                    await registerBotResponse(conversationId, imageResponse);
+                    console.log('✅ Respuesta a imagen registrada en la base de datos');
+                }
+            } catch (responseError) {
+                console.error(`❌ Error enviando respuesta a imagen: ${responseError.message}`);
+            }
+            
+            // Terminar aquí, no pasamos la imagen al procesamiento normal
+            return res.sendStatus(200);
+        }
+      
+        // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es una imagen
+        if (botActive && !isImage) {
             console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
             
             // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
