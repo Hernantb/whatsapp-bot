@@ -35,6 +35,9 @@ const OpenAI = require('openai');
 // Importar módulo de notificaciones
 const notificationModule = require('./notification-patch.cjs');
 
+// Importar módulo de agrupamiento de mensajes
+const messageGrouping = require('./message-grouping');
+
 // Importar Supabase
 const { createClient } = require('@supabase/supabase-js');
 
@@ -1289,54 +1292,34 @@ module.exports = {
 
 // Iniciar el servidor en el puerto especificado
 app.listen(PORT, async () => {
-  console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
-  console.log(`🤖 Bot conectado al panel: ${CONTROL_PANEL_URL}`);
+  console.log(`🌐 Servidor ejecutándose en puerto ${PORT}`);
   
-  // Verificar credenciales de GupShup
-  console.log('🔍 Verificando credenciales de integración...');
-  if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER || !GUPSHUP_USERID) {
-    console.warn('⚠️ ADVERTENCIA: Falta alguna credencial de GupShup:');
-    console.warn(`  - API Key: ${GUPSHUP_API_KEY ? '✅ Configurada' : '❌ Falta'}`);
-    console.warn(`  - Número: ${GUPSHUP_NUMBER ? '✅ Configurado' : '❌ Falta'}`);
-    console.warn(`  - User ID: ${GUPSHUP_USERID ? '✅ Configurado' : '❌ Falta'}`);
-    console.warn('⚠️ La integración con WhatsApp no funcionará sin estas credenciales.');
-  } else {
-    console.log('✅ Credenciales de GupShup presentes:');
-    console.log(`  - API Key: ${GUPSHUP_API_KEY.substring(0, 8)}...`);
-    console.log(`  - Número de origen: ${GUPSHUP_NUMBER}`);
-    console.log(`  - User ID: ${GUPSHUP_USERID.substring(0, 8)}...`);
-  }
-  
-  // Verificar credenciales de OpenAI
-  if (!OPENAI_API_KEY) {
-    console.warn('⚠️ ADVERTENCIA: Falta la clave API de OpenAI. El bot no podrá responder.');
-  } else {
-    console.log(`✅ Clave API de OpenAI configurada: ${OPENAI_API_KEY.substring(0, 8)}...`);
-    if (OPENAI_API_KEY.startsWith('sk-proj-') && process.env.NODE_ENV === 'production') {
-      console.warn('⚠️ ADVERTENCIA: Parece que estás usando una clave de API de prueba en producción.');
-    }
-  }
-  
-  // Verificar conexión con Supabase
-  try {
-    console.log('🔄 Verificando conexión con Supabase...');
-    const { data, error } = await supabase.from('conversations').select('id').limit(1);
-    
-    if (error) {
-      console.error('❌ Error de conexión a Supabase:', error.message);
-      console.warn('⚠️ Asegúrate de que las credenciales de Supabase son correctas');
-    } else {
-      console.log('✅ Conexión a Supabase verificada correctamente');
+  // Auto-verificar supabase al iniciar
+  if (supabase) {
+    try {
+      console.log('🔍 Verificando conexión a Supabase...');
       
-      // Cargar mapeos iniciales
-      console.log('🔄 Inicializando mapeos y estados...');
-      await updateConversationMappings();
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('id')
+        .limit(1);
+      
+      if (error) {
+        console.error(`❌ Error conectando a Supabase: ${error.message}`);
+      } else {
+        console.log('✅ Conexión a Supabase OK');
+        
+        // Pre-cargar mapeos al inicio
+        await updateConversationMappings();
+      }
+    } catch (dbError) {
+      console.error(`❌ Error crítico con Supabase: ${dbError.message}`);
     }
-  } catch (error) {
-    console.error('❌ Error crítico al verificar conexión con Supabase:', error.message);
+  } else {
+    console.warn('⚠️ Supabase no configurado, algunas características no estarán disponibles');
   }
   
-  // Verificar módulo de notificaciones
+  // Verificar si el módulo de notificaciones está disponible
   if (notificationModule) {
     console.log('📧 Verificando módulo de notificaciones...');
     
@@ -1364,6 +1347,25 @@ app.listen(PORT, async () => {
     }
   } else {
     console.warn('⚠️ Módulo de notificaciones no disponible');
+  }
+  
+  // Inicializar el módulo de agrupamiento de mensajes
+  try {
+    console.log('🔄 Inicializando módulo de agrupamiento de mensajes...');
+    
+    // Configurar el módulo con las funciones necesarias
+    const groupingInitialized = messageGrouping.setupMessageGrouping({
+      processMessageWithOpenAI,
+      sendWhatsAppResponse
+    });
+    
+    if (groupingInitialized) {
+      console.log('✅ Módulo de agrupamiento de mensajes inicializado correctamente');
+    } else {
+      console.warn('⚠️ No se pudo inicializar el módulo de agrupamiento de mensajes');
+    }
+  } catch (error) {
+    console.error(`❌ Error inicializando módulo de agrupamiento: ${error.message}`);
   }
   
   console.log('🤖 Bot WhatsApp listo y funcionando');
@@ -1489,9 +1491,32 @@ app.post('/webhook', async (req, res) => {
         
         // Verificación final antes de procesar
         console.log(`🔐 VERIFICACIÓN FINAL antes de procesar: Bot para ${sender} está ${botActive ? 'ACTIVO ✅' : 'INACTIVO ❌'}`);
-        
+      
         // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO
         if (botActive) {
+            console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
+            
+            // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
+            const now = Date.now();
+            const messageTimestamp = messageData.timestamp ? new Date(messageData.timestamp).getTime() : now;
+            
+            // Agregar el mensaje al grupo de mensajes pendientes
+            const shouldWait = messageGrouping.addToPendingMessageGroup(conversationId, {
+                sender,
+                message,
+                messageId,
+                conversationId,
+                timestamp: messageTimestamp,
+                receivedAt: now // Añadir tiempo exacto de recepción para análisis
+            });
+            
+            // Si debe esperar, detenemos aquí. El grupo será procesado por el timeout
+            if (shouldWait) {
+                console.log(`⏳ Mensaje en espera para agrupación (conversación: ${conversationId})`);
+                return;
+            }
+            
+            // Si por alguna razón no debe esperar, procesar normalmente (caso raro)
             console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
             
             try {
