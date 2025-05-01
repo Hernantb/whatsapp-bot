@@ -35,9 +35,6 @@ const OpenAI = require('openai');
 // Importar módulo de notificaciones
 const notificationModule = require('./notification-patch.cjs');
 
-// Importar módulo de agrupamiento de mensajes
-const messageGrouping = require('./message-grouping');
-
 // Importar Supabase
 const { createClient } = require('@supabase/supabase-js');
 
@@ -50,6 +47,7 @@ const PORT = process.env.PORT || 3010;
 let CONTROL_PANEL_URL = process.env.CONTROL_PANEL_URL || 'https://whatsapp-bot-main.onrender.com/register-bot-response';
 const BUSINESS_ID = process.env.BUSINESS_ID || '2d385aa5-40e0-4ec9-9360-19281bc605e4';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'verify_token_whatsapp_webhook';
+const MESSAGE_EXPIRE_TIME = 24 * 60 * 60 * 1000; // 24 horas para expiración de mensajes procesados
 
 // Credenciales de GupShup - cambiadas a 'let' para permitir actualización en tiempo de ejecución
 let GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
@@ -94,6 +92,8 @@ const recentlyProcessedMessages = new Set();
 
 // 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
+
+// Tiempo de expiración para mensajes procesados - 24 horas
 
 // Función para actualizar/mantener los mapeos entre conversaciones y números telefónicos
 // Debe llamarse cada vez que se crea o accede a una conversación
@@ -244,8 +244,6 @@ app.use((req, res, next) => {
 });
 
 // 🔃 Control de mensajes procesados para evitar duplicados
-const MESSAGE_EXPIRE_TIME = 60000; // 60 segundos para expirar mensajes procesados
-
 // Función para verificar si un mensaje ya fue procesado
 function isMessageProcessed(messageId, sender, text) {
   // Si tenemos un ID específico del mensaje
@@ -1324,82 +1322,52 @@ module.exports = {
   sendWhatsAppResponse
 };
 
-// Iniciar el servidor en el puerto especificado
+// Inicialización del servidor
 app.listen(PORT, async () => {
   console.log(`🌐 Servidor ejecutándose en puerto ${PORT}`);
   
-  // Auto-verificar supabase al iniciar
-  if (supabase) {
-    try {
-      console.log('🔍 Verificando conexión a Supabase...');
+  // Inicializar cliente de Supabase
+  console.log('🔍 Verificando conexión a Supabase...');
+  try {
+    const { data, error } = await supabase.from('conversations').select('id').limit(1);
+    if (error) {
+      console.error('❌ Error conectando a Supabase:', error.message);
+    } else {
+      console.log('✅ Conexión a Supabase OK');
       
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('id')
-        .limit(1);
-      
-      if (error) {
-        console.error(`❌ Error conectando a Supabase: ${error.message}`);
-      } else {
-        console.log('✅ Conexión a Supabase OK');
-        
-        // Pre-cargar mapeos al inicio
-        await updateConversationMappings();
-      }
-    } catch (dbError) {
-      console.error(`❌ Error crítico con Supabase: ${dbError.message}`);
+      // Actualizar mapeos iniciales
+      updateConversationMappings();
     }
-  } else {
-    console.warn('⚠️ Supabase no configurado, algunas características no estarán disponibles');
+  } catch (e) {
+    console.error('❌ Error crítico en conexión a Supabase:', e.message);
   }
   
-  // Verificar si el módulo de notificaciones está disponible
-  if (notificationModule) {
-    console.log('📧 Verificando módulo de notificaciones...');
-    
-    if (typeof notificationModule.processMessageForNotification === 'function') {
+  // Inicializar módulo de notificaciones
+  console.log('📧 Verificando módulo de notificaciones...');
+  try {
+    if (notificationModule) {
       console.log('✅ Módulo de notificaciones cargado correctamente');
       
-      // Verificar las frases de notificación
-      if (notificationModule.checkForNotificationPhrases) {
-        console.log('📝 Frases que generan notificaciones:');
-        const testPhrases = [
-          "¡Perfecto! tu cita ha sido confirmada para mañana",
-          "Te llamará un asesor",
-          "Una persona te contactará"
-        ];
-        
-        for (const phrase of testPhrases) {
-          const requiresNotification = notificationModule.checkForNotificationPhrases(phrase);
-          console.log(`  - "${phrase}": ${requiresNotification ? '✅ Notifica' : '❌ No notifica'}`);
-        }
-      } else {
-        console.warn('⚠️ El módulo no expone la función checkForNotificationPhrases');
-      }
+      // Probar detección de frases de notificación
+      const testPhrases = [
+        "¡Perfecto! tu cita ha sido confirmada para mañana",
+        "Te llamará un asesor",
+        "Una persona te contactará"
+      ];
+      
+      console.log('📝 Frases que generan notificaciones:');
+      notificationModule.getNotificationPhrases().forEach(phrase => {
+        console.log(`🔔 Frase detectada: "${phrase}"`);
+        testPhrases.forEach(test => {
+          const shouldNotify = notificationModule.shouldSendNotification(test);
+          console.log(`  - "${test}": ${shouldNotify ? '✅ Notifica' : '❌ No notifica'}`);
+        });
+      });
     } else {
-      console.warn('⚠️ El módulo de notificaciones no expone la función processMessageForNotification');
-    }
-  } else {
-    console.warn('⚠️ Módulo de notificaciones no disponible');
-  }
-  
-  // Inicializar el módulo de agrupamiento de mensajes
-  try {
-    console.log('🔄 Inicializando módulo de agrupamiento de mensajes...');
-    
-    // Configurar el módulo con las funciones necesarias
-    const groupingInitialized = messageGrouping.setupMessageGrouping({
-      processMessageWithOpenAI,
-      sendWhatsAppResponse
-    });
-    
-    if (groupingInitialized) {
-      console.log('✅ Módulo de agrupamiento de mensajes inicializado correctamente');
-    } else {
-      console.warn('⚠️ No se pudo inicializar el módulo de agrupamiento de mensajes');
+      console.warn('⚠️ Módulo de notificaciones no disponible');
     }
   } catch (error) {
-    console.error(`❌ Error inicializando módulo de agrupamiento: ${error.message}`);
+    console.error(`❌ Error inicializando módulo de notificaciones: ${error.message}`);
   }
   
   console.log('🤖 Bot WhatsApp listo y funcionando');
@@ -1430,16 +1398,36 @@ app.post('/webhook', async (req, res) => {
         
         console.log(`👤 Mensaje recibido de ${sender}: ${message}`);
         
-        // Verificar si este mensaje ya fue procesado recientemente
-        const messageKey = `${messageId || sender}_${message}`;
+        // SISTEMA ROBUSTO DE DETECCIÓN DE DUPLICADOS
+        // 1. Usar el messageId como identificador principal si está disponible
+        // 2. Crear una clave compuesta con el ID del mensaje, el remitente y el contenido
+        // 3. Verificar tanto en el conjunto de mensajes recientes como en el caché de procesados
+        
+        let isDuplicate = false;
+        
+        // Crear un identificador único para este mensaje
+        const messageKey = messageId ? `${messageId}_${message.substring(0, 20)}` : `${sender}_${message.substring(0, 20)}_${Date.now()}`;
+        
+        // Verificar si este mensaje ya fue procesado recientemente (memoria)
         if (recentlyProcessedMessages.has(messageKey)) {
             console.log(`⚠️ Mensaje duplicado detectado, ignorando: ${messageKey}`);
             return res.sendStatus(200);
         }
         
-        // Marcar este mensaje como procesado
+        // Verificar en caché persistente si este mensaje ya fue procesado
+        if (isMessageProcessed(messageId, sender, message)) {
+            console.log(`⚠️ Mensaje duplicado encontrado en caché persistente, ignorando: ${messageKey}`);
+            return res.sendStatus(200);
+        }
+        
+        // Marcar este mensaje como procesado en ambos sistemas
         recentlyProcessedMessages.add(messageKey);
-        setTimeout(() => recentlyProcessedMessages.delete(messageKey), 60000); // Eliminar después de 1 minuto
+        markMessageAsProcessed(messageId, sender, message);
+        
+        // Eliminación de la memoria después de un tiempo para evitar fuga de memoria
+        setTimeout(() => recentlyProcessedMessages.delete(messageKey), 600000); // 10 minutos
+        
+        // Continuar con el procesamiento normal desde aquí
         
         // Guardar mensaje en Supabase
         console.log(`💾 Guardando mensaje entrante para ${sender}`);
@@ -1616,29 +1604,6 @@ app.post('/webhook', async (req, res) => {
         
         // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es un audio, video, imagen o documento
         if (botActive && !isAudio && !isVideo && !isImage && !isDocument) {
-            console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
-            
-            // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
-            const now = Date.now();
-            const messageTimestamp = messageData.timestamp ? new Date(messageData.timestamp).getTime() : now;
-            
-            // Agregar el mensaje al grupo de mensajes pendientes
-            const shouldWait = messageGrouping.addToPendingMessageGroup(conversationId, {
-                sender,
-                message,
-                messageId,
-                conversationId,
-                timestamp: messageTimestamp,
-                receivedAt: now // Añadir tiempo exacto de recepción para análisis
-            });
-            
-            // Si debe esperar, detenemos aquí. El grupo será procesado por el timeout
-            if (shouldWait) {
-                console.log(`⏳ Mensaje en espera para agrupación (conversación: ${conversationId})`);
-                return;
-            }
-            
-            // Si por alguna razón no debe esperar, procesar normalmente (caso raro)
             console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
             
             try {
@@ -1648,13 +1613,25 @@ app.post('/webhook', async (req, res) => {
                 if (botResponse) {
                     console.log(`✅ Respuesta generada por OpenAI: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
                     
-                    // Enviar respuesta a WhatsApp
-                    const sendResult = await sendWhatsAppResponse(sender, botResponse);
+                    // Asegurar que el mensaje se envía correctamente
+                    let sendAttempts = 0;
+                    let sendSuccess = false;
                     
-                    if (sendResult) {
-                        console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender}`);
-      } else {
-                        console.log(`⚠️ No se pudo enviar la respuesta a WhatsApp, pero sí se guardó en la base de datos`);
+                    while (!sendSuccess && sendAttempts < 3) {
+                        sendAttempts++;
+                        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+                        sendSuccess = await sendWhatsAppResponse(sender, botResponse);
+                        
+                        if (sendSuccess) {
+                            console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
+                        } else if (sendAttempts < 3) {
+                            console.log(`⚠️ Reintentando envío en 1 segundo...`);
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                    }
+                    
+                    if (!sendSuccess) {
+                        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
                     }
                 } else {
                     console.log(`⚠️ OpenAI no generó respuesta para el mensaje de ${sender}`);
@@ -1663,7 +1640,11 @@ app.post('/webhook', async (req, res) => {
                 console.error(`❌ Error procesando con OpenAI: ${aiError.message}`);
             }
         } else {
-            console.log(`🛑 Bot INACTIVO: NO se procesa mensaje de ${sender} con OpenAI ni se envía respuesta automática`);
+            if (!botActive) {
+                console.log(`🔕 Bot está desactivado para ${sender}, no se procesará el mensaje`);
+            } else {
+                console.log(`⏩ Mensaje no procesado (tipo de contenido no compatible)`);
+            }
         }
         
         // Responder inmediatamente al webhook
