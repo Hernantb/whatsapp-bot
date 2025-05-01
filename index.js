@@ -85,7 +85,7 @@ const conversationIdToPhoneMap = {};
 const senderBotStatusMap = {};
 
 // Cache para evitar procesar mensajes duplicados (por ID + contenido)
-const processedMessages = {};
+const processedMessages = new Map();
 
 // Set para almacenar mensajes procesados recientemente (evitar duplicados)
 const recentlyProcessedMessages = new Set();
