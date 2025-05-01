@@ -35,6 +35,9 @@ const OpenAI = require('openai');
 // Importar módulo de notificaciones
 const notificationModule = require('./notification-patch.cjs');
 
+// Importar módulo de agrupamiento de mensajes
+const messageGrouping = require('./message-grouping');
+
 // Importar Supabase
 const { createClient } = require('@supabase/supabase-js');
 
@@ -1370,6 +1373,25 @@ app.listen(PORT, async () => {
     console.error(`❌ Error inicializando módulo de notificaciones: ${error.message}`);
   }
   
+  // Inicializar el módulo de agrupamiento de mensajes
+  try {
+    console.log('🔄 Inicializando módulo de agrupamiento de mensajes...');
+    
+    // Configurar el módulo con las funciones necesarias
+    const groupingInitialized = messageGrouping.setupMessageGrouping({
+      processMessageWithOpenAI,
+      sendWhatsAppResponse
+    });
+    
+    if (groupingInitialized) {
+      console.log('✅ Módulo de agrupamiento de mensajes inicializado correctamente');
+    } else {
+      console.warn('⚠️ No se pudo inicializar el módulo de agrupamiento de mensajes');
+    }
+  } catch (error) {
+    console.error(`❌ Error inicializando módulo de agrupamiento: ${error.message}`);
+  }
+  
   console.log('🤖 Bot WhatsApp listo y funcionando');
 });
 
@@ -1604,6 +1626,29 @@ app.post('/webhook', async (req, res) => {
         
         // Procesar mensaje con OpenAI SOLO si el bot está ACTIVO y no es un audio, video, imagen o documento
         if (botActive && !isAudio && !isVideo && !isImage && !isDocument) {
+            console.log(`🔍 Intentando agrupar mensaje en conversación ${conversationId}`);
+            
+            // Verificar si hay mensajes recientes para determinar si podría ser una ráfaga
+            const now = Date.now();
+            const messageTimestamp = messageData.timestamp ? new Date(messageData.timestamp).getTime() : now;
+            
+            // Agregar el mensaje al grupo de mensajes pendientes
+            const shouldWait = messageGrouping.addToPendingMessageGroup(conversationId, {
+                sender,
+                message,
+                messageId,
+                conversationId,
+                timestamp: messageTimestamp,
+                receivedAt: now // Añadir tiempo exacto de recepción para análisis
+            });
+            
+            // Si debe esperar, detenemos aquí. El grupo será procesado por el timeout
+            if (shouldWait) {
+                console.log(`⏳ Mensaje en espera para agrupación (conversación: ${conversationId})`);
+                return res.sendStatus(200);
+            }
+            
+            // Si por alguna razón no debe esperar, procesar normalmente (caso raro)
             console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
             
             try {
