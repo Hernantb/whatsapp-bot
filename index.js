@@ -96,6 +96,23 @@ const recentlyProcessedMessages = new Set();
 // 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
 
+// Programar limpieza periódica de caché de mensajes cada hora
+setInterval(() => {
+  console.log('🧹 Ejecutando limpieza programada de caché de mensajes...');
+  const now = Date.now();
+  let cleanedCount = 0;
+  
+  // Limpiar processedMessages
+  for (const [key, timestamp] of processedMessages.entries()) {
+    if (now - timestamp > MESSAGE_EXPIRE_TIME) {
+      processedMessages.delete(key);
+      cleanedCount++;
+    }
+  }
+  
+  console.log(`✅ Limpieza de caché completada. Eliminados ${cleanedCount} mensajes antiguos.`);
+}, 60 * 60 * 1000); // Ejecutar cada hora
+
 // Tiempo de expiración para mensajes procesados - 24 horas
 
 // Función para actualizar/mantener los mapeos entre conversaciones y números telefónicos
@@ -251,7 +268,19 @@ app.use((req, res, next) => {
 function isMessageProcessed(messageId, sender, text) {
   // Si tenemos un ID específico del mensaje
   if (messageId) {
-    return processedMessages.has(messageId);
+    // Primero verificar si existe el ID exacto
+    if (processedMessages.has(messageId)) {
+      console.log(`🔍 Mensaje duplicado encontrado por ID exacto: ${messageId}`);
+      return true;
+    }
+    
+    // También verificar por ID parcial (algunos sistemas pueden enviar ID con prefijos diferentes)
+    for (const [key] of processedMessages.entries()) {
+      if (key.includes(messageId)) {
+        console.log(`🔍 Mensaje duplicado encontrado por ID parcial: ${messageId} en ${key}`);
+        return true;
+      }
+    }
   }
   
   // Si no tenemos ID, usamos una combinación de remitente + texto + timestamp aproximado
@@ -260,7 +289,9 @@ function isMessageProcessed(messageId, sender, text) {
   
   // Verificar si ya existe una entrada reciente con esta combinación
   for (const [key, timestamp] of processedMessages.entries()) {
+    // Si la clave comienza con la combinación de remitente y texto, y está dentro del tiempo de expiración
     if (key.startsWith(messageKey) && (now - timestamp) < MESSAGE_EXPIRE_TIME) {
+      console.log(`🔍 Mensaje duplicado encontrado por combinación de remitente+texto: ${messageKey}`);
       return true;
     }
   }
@@ -273,12 +304,14 @@ function markMessageAsProcessed(messageId, sender, text) {
   const key = messageId || `${sender}:${text}:${Date.now()}`;
   processedMessages.set(key, Date.now());
   
-  // Limpieza de mensajes expirados (cada 100 mensajes)
-  if (processedMessages.size > 100) {
+  // Limpieza de mensajes expirados (cada 20 mensajes en lugar de 100)
+  if (processedMessages.size > 20) {
     const now = Date.now();
+    // Limpiar mensajes expirados
     for (const [key, timestamp] of processedMessages.entries()) {
       if (now - timestamp > MESSAGE_EXPIRE_TIME) {
         processedMessages.delete(key);
+        console.log(`🧹 Eliminando mensaje expirado de caché: ${key.substring(0, 30)}...`);
       }
     }
   }
@@ -1447,7 +1480,7 @@ app.post('/webhook', async (req, res) => {
         markMessageAsProcessed(messageId, sender, message);
         
         // Eliminación de la memoria después de un tiempo para evitar fuga de memoria
-        setTimeout(() => recentlyProcessedMessages.delete(messageKey), 600000); // 10 minutos
+        setTimeout(() => recentlyProcessedMessages.delete(messageKey), MESSAGE_EXPIRE_TIME); // Usar el mismo tiempo de expiración global de 24 horas en lugar de 10 minutos
         
         // Continuar con el procesamiento normal desde aquí
         
