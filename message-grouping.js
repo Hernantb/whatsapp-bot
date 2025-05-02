@@ -1,6 +1,6 @@
 // Configuración para agrupamiento de mensajes
-const MESSAGE_GROUP_WAIT_TIME = 3000; // 3 segundos de espera para agrupar mensajes
-const MAX_MESSAGE_GROUP_WAIT = 5000; // Máximo 5 segundos de espera
+const MESSAGE_GROUP_WAIT_TIME = 7000; // 7 segundos de espera para agrupar mensajes
+const MAX_MESSAGE_GROUP_WAIT = 10000; // Máximo 10 segundos de espera
 const pendingMessageGroups = new Map(); // Almacena los mensajes pendientes por conversación
 
 // Función para añadir un mensaje al grupo de mensajes pendientes de una conversación

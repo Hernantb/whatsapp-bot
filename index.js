@@ -7,8 +7,8 @@ const RENDER_ENV = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_
 const PROD_ENV = process.env.NODE_ENV === 'production';
 
 // Configuración para agrupamiento de mensajes
-const MESSAGE_GROUP_WAIT_TIME = 3000; // 3 segundos de espera para agrupar mensajes
-const MAX_MESSAGE_GROUP_WAIT = 5000; // Máximo 5 segundos de espera
+const MESSAGE_GROUP_WAIT_TIME = 7000; // 7 segundos de espera para agrupar mensajes
+const MAX_MESSAGE_GROUP_WAIT = 10000; // Máximo 10 segundos de espera
 const pendingMessageGroups = new Map(); // Almacena los mensajes pendientes por conversación
 
 // En Render, siempre usar la URL correcta (antes de cualquier otro código)
