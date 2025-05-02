@@ -9,26 +9,49 @@ const DEBUG = true;
 
 console.log('🔄 Inicializando Supabase Realtime');
 
-// Crear UNA SOLA instancia del cliente Supabase para toda la aplicación
-// Esto evita la advertencia "Multiple GoTrueClient instances"
-export const supabase = createClient(DIRECT_URL, DIRECT_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storageKey: 'supabase.auth.token',
-  },
-  global: {
-    headers: {
-      'x-client-info': 'chat-control-panel/1.0.0',
+// Comprobar si ya tenemos una instancia global del cliente
+let supabaseClient: any = null
+
+// Crear una única instancia del cliente Supabase para toda la aplicación
+export const supabase = (() => {
+  // Si ya tenemos una instancia, devolverla
+  if (supabaseClient) {
+    return supabaseClient
+  }
+
+  // Si estamos en el navegador, verificar si hay una instancia global
+  if (typeof window !== 'undefined' && (window as any).__SUPABASE_CLIENT__) {
+    return (window as any).__SUPABASE_CLIENT__
+  }
+
+  // Crear una nueva instancia con las credenciales directas
+  const newClient = createClient(DIRECT_URL, DIRECT_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: 'supabase.auth.token',
     },
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 10,
+    global: {
+      headers: {
+        'x-client-info': 'chat-control-panel/1.0.0',
+      },
     },
-  },
-})
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
+  })
+
+  // Almacenar globalmente
+  if (typeof window !== 'undefined') {
+    (window as any).__SUPABASE_CLIENT__ = newClient
+  }
+  
+  supabaseClient = newClient
+  return newClient
+})()
 
 // Habilitar realtime explícitamente
 supabase.realtime.setAuth(DIRECT_KEY);
@@ -36,7 +59,7 @@ console.log('🔑 Autenticación Realtime configurada');
 
 // Crear canal principal para mensajes
 const mainChannel = supabase.channel('main-channel');
-mainChannel.subscribe((status) => {
+mainChannel.subscribe((status: string) => {
   console.log(`Estado del canal principal: ${status}`);
 });
 
@@ -52,7 +75,7 @@ export const setupRealtimeChannels = () => {
   const messagesChannel = supabase.channel('public:messages');
   
   // Conectar el canal pero sin suscripciones específicas todavía
-  messagesChannel.subscribe((status) => {
+  messagesChannel.subscribe((status: string) => {
     if (status === 'SUBSCRIBED') {
       if (DEBUG) {
         console.log('✅ Canal global de mensajes conectado correctamente');
@@ -101,7 +124,7 @@ export function subscribeToConversationMessages(
         schema: 'public',
         table: 'messages',
         filter: `conversation_id=eq.${conversationId}`,
-      }, (payload) => {
+      }, (payload: any) => {
         // Si no hay datos o no hay mensaje nuevo, ignorar
         if (!payload || !payload.new) {
           return;
@@ -133,7 +156,7 @@ export function subscribeToConversationMessages(
         // Llamar al callback con la carga útil
         callback(payload);
       })
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         log(`🔄 [${new Date().toISOString()}] Estado de la suscripción para ${conversationId}: ${status}`);
         if (status === 'SUBSCRIBED') {
           log(`✅ Suscripción activa para conversación ${conversationId}`);
@@ -291,7 +314,7 @@ export const getBusinessId = async (userId: string) => {
       if (!allUsersError && allUsers?.length > 0) {
         if (DEBUG) {
           console.log('[supabase] Algunos business_users disponibles:', 
-            JSON.stringify(allUsers.map(u => ({ user: u.user_id, business: u.business_id })))
+            JSON.stringify(allUsers.map((u: any) => ({ user: u.user_id, business: u.business_id })))
           );
         }
       }
@@ -313,7 +336,7 @@ export const getBusinessId = async (userId: string) => {
       if (!bizError && businesses?.length > 0) {
         if (DEBUG) {
           console.log('[supabase] Algunos negocios disponibles:', 
-            JSON.stringify(businesses.map(b => ({ id: b.id, name: b.name })))
+            JSON.stringify(businesses.map((b: any) => ({ id: b.id, name: b.name })))
           );
         }
       }

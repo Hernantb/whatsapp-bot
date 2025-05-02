@@ -6,6 +6,11 @@ require('dotenv').config();
 const RENDER_ENV = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL !== undefined;
 const PROD_ENV = process.env.NODE_ENV === 'production';
 
+// Configuración para agrupamiento de mensajes
+const MESSAGE_GROUP_WAIT_TIME = 3000; // 3 segundos de espera para agrupar mensajes
+const MAX_MESSAGE_GROUP_WAIT = 5000; // Máximo 5 segundos de espera
+const pendingMessageGroups = new Map(); // Almacena los mensajes pendientes por conversación
+
 // En Render, siempre usar la URL correcta (antes de cualquier otro código)
 if (RENDER_ENV || PROD_ENV) {
   const correctUrl = 'https://whatsapp-bot-if6z.onrender.com/api/register-bot-response';
@@ -91,9 +96,6 @@ const recentlyProcessedMessages = new Set();
 
 // 🗂 Almacena el historial de threads de usuarios
 const userThreads = {};
-
-// Caché de contactos para almacenar nombres asociados a números
-const contactCache = {};
 
 // Función para actualizar/mantener los mapeos entre conversaciones y números telefónicos
 // Debe llamarse cada vez que se crea o accede a una conversación
@@ -420,34 +422,7 @@ function safeISODate(timestamp) {
   }
 }
 
-// Agregar la función getContactName al principio del archivo
-/**
- * Obtiene el nombre de un contacto a partir de su número de teléfono
- * Si no se encuentra, devuelve el número como valor predeterminado
- * @param {string} phoneNumber - Número de teléfono del contacto
- * @returns {string} - Nombre del contacto o número de teléfono
- */
-function getContactName(phoneNumber) {
-  try {
-    console.log(`🔍 Buscando nombre para el contacto: ${phoneNumber}`);
-    
-    // Si no hay número, devolver un valor predeterminado
-    if (!phoneNumber) return 'Usuario';
-    
-    // Si tenemos el contacto en caché local, usarlo
-    if (contactCache[phoneNumber]) {
-      return contactCache[phoneNumber];
-    }
-    
-    // Si no tenemos información, usar el número como nombre predeterminado
-    return phoneNumber;
-  } catch (error) {
-    console.error(`❌ Error al obtener nombre de contacto: ${error.message}`);
-    return phoneNumber; // Valor seguro por defecto
-  }
-}
-
-// Modificar la función saveMessageToSupabase para manejar el caso donde getContactName no está disponible
+// Función para guardar mensaje en Supabase
 async function saveMessageToSupabase({ sender, message, messageId, timestamp, conversationId, isBotActive }) {
   try {
     // Verificar parámetros mínimos necesarios
@@ -469,20 +444,14 @@ async function saveMessageToSupabase({ sender, message, messageId, timestamp, co
     if (!actualConversationId && phoneToConversationMap[sender]) {
       actualConversationId = phoneToConversationMap[sender];
       console.log(`✅ ID de conversación encontrado en caché: ${actualConversationId}`);
-      
-      // Verificar que la conversación siga existiendo en la base de datos
-      const conversationExists = await verifyConversationExists(actualConversationId);
-      if (!conversationExists) {
-        console.log(`⚠️ La conversación ${actualConversationId} encontrada en caché no existe en la base de datos`);
-        actualConversationId = null; // Forzar creación de una nueva conversación
-      }
     }
 
-    // Paso 2: Si no tenemos ID, buscar o crear la conversación
+    // Paso 2: Si no tenemos conversación, buscarla o crearla
     if (!actualConversationId) {
       try {
         console.log(`🔍 Buscando conversación para: ${sender}`);
         
+        // Buscar conversación existente por número de teléfono
         const { data: existingConv, error: convError } = await supabase
           .from('conversations')
           .select('*')
@@ -508,24 +477,13 @@ async function saveMessageToSupabase({ sender, message, messageId, timestamp, co
           // Crear nueva conversación
           console.log(`➕ Creando nueva conversación para: ${sender}`);
           
-          // Usar un nombre seguro para el remitente
-          let senderName = sender;
-          try {
-            // Intentar obtener el nombre del contacto si la función está disponible
-            if (typeof getContactName === 'function') {
-              senderName = getContactName(sender) || sender;
-            }
-          } catch (nameError) {
-            console.log(`⚠️ No se pudo obtener nombre del contacto, usando número: ${sender}`);
-          }
-          
           const { data: newConv, error: createError } = await supabase
             .from('conversations')
             .insert([{
               user_id: sender,
               business_id: BUSINESS_ID,
               is_bot_active: true,
-              sender_name: senderName,
+              sender_name: getContactName(sender) || sender,
               last_message: message.substring(0, 100),
               last_message_time: new Date().toISOString()
             }])
@@ -1542,43 +1500,6 @@ app.post('/webhook', async (req, res) => {
                 const messageCount = group ? group.messages.length : 0;
                 console.log(`⏳ Mensaje en espera para agrupación (${conversationId}) - Total acumulado: ${messageCount}`);
                 return;
-            }
-            
-            // Si por alguna razón no debe esperar, procesar normalmente (caso raro)
-            console.log(`⚙️ Procesando mensaje de ${sender} con OpenAI: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
-            
-            try {
-                // Procesar con OpenAI y obtener respuesta
-                const botResponse = await processMessageWithOpenAI(sender, message, conversationId);
-                
-                if (botResponse) {
-                    console.log(`✅ Respuesta generada por OpenAI: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
-                    
-                    // Asegurar que el mensaje se envía correctamente
-                    let sendAttempts = 0;
-                    let sendSuccess = false;
-                    
-                    while (!sendSuccess && sendAttempts < 3) {
-                        sendAttempts++;
-                        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
-                        sendSuccess = await sendWhatsAppResponse(sender, botResponse);
-                        
-                        if (sendSuccess) {
-                            console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
-                        } else if (sendAttempts < 3) {
-                            console.log(`⚠️ Reintentando envío en 1 segundo...`);
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        }
-                    }
-                    
-                    if (!sendSuccess) {
-                        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
-                    }
-                } else {
-                    console.log(`⚠️ OpenAI no generó respuesta para el mensaje de ${sender}`);
-                }
-            } catch (aiError) {
-                console.error(`❌ Error procesando con OpenAI: ${aiError.message}`);
             }
         } else {
             console.log(`🛑 Bot ${!botActive ? 'INACTIVO' : 'sin ID de conversación válido'}: NO se procesa mensaje de ${sender} con OpenAI ni se envía respuesta automática`);
@@ -3066,5 +2987,169 @@ async function processMessageGroup(conversationId) {
     }
   } catch (aiError) {
     console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
+  }
+}
+
+// Función para añadir un mensaje al grupo de mensajes pendientes de una conversación
+function addToPendingMessageGroup(conversationId, messageData) {
+  if (!conversationId) return false;
+  
+  // Obtener o crear el grupo para esta conversación
+  if (!pendingMessageGroups.has(conversationId)) {
+    pendingMessageGroups.set(conversationId, {
+      messages: [],
+      timeoutId: null,
+      firstMessageTime: Date.now()
+    });
+  }
+  
+  const group = pendingMessageGroups.get(conversationId);
+  
+  // Agregar el mensaje al grupo
+  group.messages.push(messageData);
+  console.log(`📎 Mensaje añadido al grupo de ${conversationId}. Total: ${group.messages.length}`);
+  
+  // Limpiar el timeout anterior si existe
+  if (group.timeoutId) {
+    clearTimeout(group.timeoutId);
+  }
+  
+  // Calcular cuánto tiempo debe esperar para ver si llegan más mensajes
+  const elapsedTime = Date.now() - group.firstMessageTime;
+  let remainingWaitTime = MESSAGE_GROUP_WAIT_TIME;
+  
+  // Si ya ha pasado mucho tiempo desde el primer mensaje, reducir el tiempo de espera
+  if (elapsedTime > MAX_MESSAGE_GROUP_WAIT) {
+    remainingWaitTime = 500; // Espera mínima de 500ms
+  } else {
+    remainingWaitTime = Math.min(MESSAGE_GROUP_WAIT_TIME, MAX_MESSAGE_GROUP_WAIT - elapsedTime);
+  }
+  
+  // Establecer un nuevo timeout para procesar este grupo
+  group.timeoutId = setTimeout(() => {
+    processMessageGroup(conversationId);
+  }, remainingWaitTime);
+  
+  return true; // Indicar que debe esperar y no procesar inmediatamente
+}
+
+// Función para procesar un grupo de mensajes
+async function processMessageGroup(conversationId) {
+  if (!pendingMessageGroups.has(conversationId)) {
+    console.log(`⚠️ No hay grupo de mensajes pendientes para ${conversationId}`);
+    return;
+  }
+  
+  const group = pendingMessageGroups.get(conversationId);
+  const messages = group.messages;
+  
+  // Eliminar el grupo para evitar reprocesamiento
+  pendingMessageGroups.delete(conversationId);
+  
+  if (!messages || messages.length === 0) {
+    console.log(`⚠️ Grupo de mensajes vacío para ${conversationId}`);
+    return;
+  }
+  
+  console.log(`🔄 Procesando grupo de ${messages.length} mensajes para conversación ${conversationId}`);
+  
+  // Si solo hay un mensaje, procesarlo normalmente
+  if (messages.length === 1) {
+    const singleMessage = messages[0];
+    console.log(`🔹 Procesando mensaje único: "${singleMessage.message.substring(0, 50)}${singleMessage.message.length > 50 ? '...' : ''}"`);
+    await processSingleMessage(singleMessage);
+    return;
+  }
+  
+  // Ordenar mensajes por timestamp para mantener el orden correcto
+  messages.sort((a, b) => {
+    const timeA = a.timestamp || a.receivedAt;
+    const timeB = b.timestamp || b.receivedAt;
+    return timeA - timeB;
+  });
+  
+  // Combinar todos los mensajes en uno solo para procesamiento
+  const combinedMessage = messages.map(m => m.message).join('\n');
+  const firstMessage = messages[0];
+  
+  console.log(`🔀 Combinando ${messages.length} mensajes:`);
+  messages.forEach((m, i) => {
+    console.log(`  ${i+1}: "${m.message.substring(0, 30)}${m.message.length > 30 ? '...' : ''}"`);
+  });
+  
+  console.log(`📝 Mensaje combinado: "${combinedMessage.substring(0, 50)}${combinedMessage.length > 50 ? '...' : ''}"`);
+  
+  // Procesar el mensaje combinado
+  try {
+    // Procesar con OpenAI y obtener respuesta
+    const botResponse = await processMessageWithOpenAI(firstMessage.sender, combinedMessage, conversationId);
+    
+    if (botResponse) {
+      console.log(`✅ Respuesta generada por OpenAI para mensaje combinado: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
+      
+      // Asegurar que el mensaje se envía correctamente
+      let sendAttempts = 0;
+      let sendSuccess = false;
+      
+      while (!sendSuccess && sendAttempts < 3) {
+        sendAttempts++;
+        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+        sendSuccess = await sendWhatsAppResponse(firstMessage.sender, botResponse);
+        
+        if (sendSuccess) {
+          console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${firstMessage.sender} en intento #${sendAttempts}`);
+        } else if (sendAttempts < 3) {
+          console.log(`⚠️ Reintentando envío en 1 segundo...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (!sendSuccess) {
+        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
+      }
+    } else {
+      console.log(`⚠️ OpenAI no generó respuesta para el mensaje combinado de ${firstMessage.sender}`);
+    }
+  } catch (aiError) {
+    console.error(`❌ Error procesando mensaje combinado con OpenAI: ${aiError.message}`);
+  }
+}
+
+// Función para procesar un mensaje individual
+async function processSingleMessage(messageData) {
+  const { sender, message, conversationId } = messageData;
+  
+  try {
+    // Procesar con OpenAI y obtener respuesta
+    const botResponse = await processMessageWithOpenAI(sender, message, conversationId);
+    
+    if (botResponse) {
+      console.log(`✅ Respuesta generada por OpenAI: "${botResponse.substring(0, 50)}${botResponse.length > 50 ? '...' : ''}"`);
+      
+      // Asegurar que el mensaje se envía correctamente
+      let sendAttempts = 0;
+      let sendSuccess = false;
+      
+      while (!sendSuccess && sendAttempts < 3) {
+        sendAttempts++;
+        console.log(`📤 Intento #${sendAttempts} de envío de respuesta a WhatsApp`);
+        sendSuccess = await sendWhatsAppResponse(sender, botResponse);
+        
+        if (sendSuccess) {
+          console.log(`✅ Respuesta enviada exitosamente a WhatsApp para ${sender} en intento #${sendAttempts}`);
+        } else if (sendAttempts < 3) {
+          console.log(`⚠️ Reintentando envío en 1 segundo...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (!sendSuccess) {
+        console.error(`❌ No se pudo enviar la respuesta después de ${sendAttempts} intentos`);
+      }
+    } else {
+      console.log(`⚠️ OpenAI no generó respuesta para el mensaje de ${sender}`);
+    }
+  } catch (aiError) {
+    console.error(`❌ Error procesando con OpenAI: ${aiError.message}`);
   }
 }

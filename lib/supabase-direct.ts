@@ -5,20 +5,61 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = 'https://wscijkxwevgxbgwhbqtm.supabase.co'
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTY5OTY2ODEsImV4cCI6MjAzMjU3MjY4MX0.1dU5G04E5LFDM-RJVRCD3XlKB3Q7eTyHCrZwYpSaLMU'
 
-// Crear cliente usando directamente las claves sin variables de entorno
-export const supabaseDirect = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storageKey: 'supabase.auth.token.direct',
-  },
-  global: {
-    headers: {
-      'x-client-info': 'chat-control-panel/direct-client',
+// Importar la instancia existente para reutilizarla
+import { supabase as sharedClient } from './supabase'
+
+// Verificar si ya tenemos una instancia global para evitar duplicados
+let supabaseClientDirect: any = null
+
+// Crear cliente usando directamente las claves sin variables de entorno, pero
+// reutilizando la instancia global si es posible
+export const supabaseDirect = (() => {
+  // Si estamos en el cliente (browser)
+  if (typeof window !== 'undefined') {
+    // Verificar si ya tenemos una instancia global compartida
+    if ((window as any).__SUPABASE_CLIENT__) {
+      console.log('🔄 Reutilizando instancia global de Supabase');
+      return (window as any).__SUPABASE_CLIENT__;
+    }
+    
+    // Verificar si la instancia compartida existe y está inicializada
+    if (sharedClient && sharedClient.auth) {
+      console.log('🔄 Reutilizando instancia compartida importada de supabase.ts');
+      // Almacenar referencia global para futuras llamadas
+      (window as any).__SUPABASE_CLIENT__ = sharedClient;
+      return sharedClient;
+    }
+  }
+  
+  // Si ya tenemos una instancia directa creada anteriormente
+  if (supabaseClientDirect) {
+    return supabaseClientDirect;
+  }
+  
+  // Como último recurso, crear una nueva instancia
+  console.log('🔄 Creando nueva instancia directa de Supabase');
+  const client = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: 'supabase.auth.token',
     },
-  },
-})
+    global: {
+      headers: {
+        'x-client-info': 'chat-control-panel/direct-client',
+      },
+    },
+  })
+  
+  // Almacenar globalmente
+  if (typeof window !== 'undefined') {
+    (window as any).__SUPABASE_CLIENT__ = client;
+  }
+  
+  supabaseClientDirect = client;
+  return client;
+})();
 
 // Login directo sin depender de variables de entorno
 export async function loginDirectly(email: string, password: string) {
@@ -37,7 +78,6 @@ export async function loginDirectly(email: string, password: string) {
     if (typeof window !== 'undefined') {
       console.log('🧹 Limpiando localStorage...')
       localStorage.removeItem('supabase.auth.token')
-      localStorage.removeItem('supabase.auth.token.direct')
     }
     
     // Intentar login con cliente directo
