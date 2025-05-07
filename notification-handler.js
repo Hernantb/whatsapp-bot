@@ -69,85 +69,96 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
       notification_timestamp: new Date().toISOString()
     };
     
-    // Intentar actualizar también el campo is_important si existe
-    try {
-      const { data: conversationCheck, error: checkError } = await supabase
-        .from('conversations')
-        .select('is_important')
-        .eq('id', conversationId)
-        .limit(1);
-      
-      if (!checkError && conversationCheck && conversationCheck.length > 0) {
-        // Si la columna is_important existe, actualizarla
-        if ('is_important' in conversationCheck[0]) {
-          conversationUpdate.is_important = true;
-        }
-      }
-    } catch (checkError) {
-      console.log('⚠️ No se pudo verificar columna is_important:', checkError.message);
-    }
-    
-    // Intentar marcar como importante usando la columna status si existe
-    try {
-      const { data: statusCheck, error: statusError } = await supabase
-        .from('conversations')
-        .select('status')
-        .eq('id', conversationId)
-        .limit(1);
-      
-      if (!statusError && statusCheck && statusCheck.length > 0) {
-        // Si la columna status existe, actualizarla a 'important'
-        if ('status' in statusCheck[0]) {
-          conversationUpdate.status = 'important';
-          console.log('✅ Actualizando campo status a "important"');
-        }
-      }
-    } catch (statusError) {
-      // Esta columna puede no existir, y estamos manejando ese caso
-      console.log('⚠️ No se pudo actualizar status:', statusError.message);
-      
-      // Intentar crear la columna status en la tabla conversations
-      try {
-        await supabase.rpc('add_column_if_not_exists', {
-          table_name: 'conversations',
-          column_name: 'status',
-          column_type: 'text'
-        });
-        console.log('✅ Columna status creada/verificada');
-        
-        // Ahora que sabemos que la columna debería existir, establecer el valor
-        conversationUpdate.status = 'important';
-      } catch (createColumnError) {
-        console.error('❌ Error creando columna status:', createColumnError.message);
-      }
-    }
-    
-    // Actualizar la conversación con todos los campos necesarios
-    const { error: updateError } = await supabase
+    // SOLUCIÓN ALTERNATIVA: Actualizar al menos notification_sent y timestamp
+    // si no podemos actualizar status
+    const { error: basicUpdateError } = await supabase
       .from('conversations')
       .update(conversationUpdate)
       .eq('id', conversationId);
     
-    if (updateError) {
-      console.error(`❌ Error al actualizar estado de conversación: ${updateError.message}`);
+    if (basicUpdateError) {
+      console.error(`❌ Error en actualización básica: ${basicUpdateError.message}`);
     } else {
-      console.log(`✅ Estado de conversación actualizado correctamente`);
+      console.log(`✅ Actualización básica completada correctamente`);
+    }
+    
+    // Intentamos marcar como importante con is_important (si existe)
+    try {
+      const { error: importantError } = await supabase
+        .from('conversations')
+        .update({ is_important: true })
+        .eq('id', conversationId);
+      
+      if (!importantError) {
+        console.log(`✅ Conversación marcada como importante (is_important=true)`);
+      } else if (importantError.message.includes('does not exist')) {
+        console.log(`⚠️ No existe campo is_important: ${importantError.message}`);
+      } else {
+        console.error(`❌ Error al marcar como importante: ${importantError.message}`);
+      }
+    } catch (importantError) {
+      console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
+    }
+    
+    // Intentamos marcar status='important' (si existe)
+    try {
+      const { error: statusError } = await supabase
+        .from('conversations')
+        .update({ status: 'important' })
+        .eq('id', conversationId);
+      
+      if (!statusError) {
+        console.log(`✅ Conversación marcada con status='important'`);
+      } else if (statusError.message.includes('does not exist')) {
+        console.log(`⚠️ No existe campo status: ${statusError.message}`);
+        
+        // Intentar crear la columna usando SQL nativo
+        try {
+          // No usamos RPC sino update directo en tabla
+          console.log('⚠️ No se pudo establecer status. Usando update con SQL nativo...');
+          
+          // Actualizar otros campos que pueden ayudar a identificar conversaciones importantes
+          const { error: flagsError } = await supabase
+            .from('conversations')
+            .update({ 
+              last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada", 
+              notification_sent: true
+            })
+            .eq('id', conversationId);
+          
+          if (!flagsError) {
+            console.log(`✅ Conversación marcada indirectamente como importante`);
+          } else {
+            console.error(`❌ Error al marcar indirectamente: ${flagsError.message}`);
+          }
+        } catch (sqlError) {
+          console.error(`❌ Error en método alternativo: ${sqlError.message}`);
+        }
+      } else {
+        console.error(`❌ Error al actualizar status: ${statusError.message}`);
+      }
+    } catch (statusError) {
+      console.error(`❌ Error al actualizar status: ${statusError.message}`);
     }
     
     // 2. Si se proporcionó un ID de mensaje, actualizar ese mensaje
     if (messageId) {
-      const { error: messageError } = await supabase
-        .from('messages')
-        .update({ 
-          notification_sent: success,
-          needs_notification: false // Marcarlo como procesado
-        })
-        .eq('id', messageId);
-      
-      if (messageError) {
+      try {
+        const { error: messageError } = await supabase
+          .from('messages')
+          .update({ 
+            notification_sent: success,
+            needs_notification: false // Marcarlo como procesado
+          })
+          .eq('id', messageId);
+        
+        if (messageError) {
+          console.error(`❌ Error al actualizar mensaje: ${messageError.message}`);
+        } else {
+          console.log(`✅ Mensaje ${messageId} actualizado correctamente`);
+        }
+      } catch (messageError) {
         console.error(`❌ Error al actualizar mensaje: ${messageError.message}`);
-      } else {
-        console.log(`✅ Mensaje ${messageId} actualizado correctamente`);
       }
     }
     
