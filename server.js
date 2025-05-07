@@ -582,6 +582,40 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://wscijkxwevgxbgwhbqtm.s
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI3NjgsImV4cCI6MjA1NzM5ODc2OH0._HSnvof7NUk6J__qqq3gJvbJRZnItCAmlI5HYAL8WVI';
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+/**
+ * Verifica si una conversación existe en la base de datos
+ * @param {string} conversationId - El ID de la conversación a verificar
+ * @returns {Promise<boolean>} - true si la conversación existe, false en caso contrario
+ */
+async function verifyConversationExists(conversationId) {
+  try {
+    if (!conversationId) {
+      console.error('❌ verifyConversationExists: Se requiere un ID de conversación');
+      return false;
+    }
+    
+    console.log(`🔍 Verificando existencia de conversación: ${conversationId}`);
+    
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('id', conversationId)
+      .maybeSingle();
+    
+    if (error) {
+      console.error(`❌ Error verificando conversación: ${error.message}`);
+      return false;
+    }
+    
+    const exists = !!data;
+    console.log(`${exists ? '✅' : '❌'} Conversación ${conversationId} ${exists ? 'existe' : 'no existe'}`);
+    return exists;
+  } catch (error) {
+    console.error(`❌ Error en verifyConversationExists: ${error.message}`);
+    return false;
+  }
+}
+
 // Función para verificar y crear columnas necesarias
 async function ensureColumnsExist() {
   console.log('🔧 Verificando y creando columnas necesarias en la base de datos...');
@@ -1947,3 +1981,14 @@ async function checkPendingNotifications() {
 }
 
 // Implementar las funciones necesarias que antes importábamos
+
+// Exportar funciones y objetos para que puedan ser utilizados por otros módulos
+module.exports = {
+  app,
+  server,
+  supabase,
+  verifyConversationExists,
+  checkPendingNotifications,
+  ensureColumnsExist,
+  getBusinessId
+};

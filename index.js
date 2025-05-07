@@ -38,6 +38,18 @@ const notificationModule = require('./notification-patch.cjs');
 // Importar Supabase
 const { createClient } = require('@supabase/supabase-js');
 
+// Importar función de verificación de conversaciones desde server.js
+// Si falla, utiliza la implementación local definida más abajo
+let verifyConversationExists;
+try {
+  const serverModule = require('./server.js');
+  verifyConversationExists = serverModule.verifyConversationExists;
+  console.log('✅ Función verifyConversationExists importada desde server.js');
+} catch (error) {
+  console.warn('⚠️ No se pudo importar verifyConversationExists desde server.js. Usando implementación local.');
+  // La implementación local se mantiene al final del archivo
+}
+
 // Variables globales para el servidor
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://wscijkxwevgxbgwhbqtm.supabase.co';
 // const SUPABASE_API_KEY = process.env.SUPABASE_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTgwOTkxNzYsImV4cCI6MjAxMzY3NTE3Nn0.B_LQ2_2jUIZ1PvR1_ObQ-8fmVOaOY0jXkYa9KGbU9N0';
@@ -1341,7 +1353,10 @@ module.exports = {
   app,
   extractMessageData,
   processMessageWithOpenAI,
-  sendWhatsAppResponse
+  sendWhatsAppResponse,
+  waitForUserResponse,    // Exportar la nueva función
+  resolveWaitingPromise,   // Exportar la nueva función
+  verifyConversationExists // Exportar la función de verificación de conversaciones
 };
 
 // Iniciar el servidor en el puerto especificado
@@ -2931,7 +2946,8 @@ module.exports = {
   processMessageWithOpenAI,
   sendWhatsAppResponse,
   waitForUserResponse,    // Exportar la nueva función
-  resolveWaitingPromise   // Exportar la nueva función
+  resolveWaitingPromise,   // Exportar la nueva función
+  verifyConversationExists // Exportar la función de verificación de conversaciones
 };
 
 // ... existing code ...
@@ -3067,32 +3083,42 @@ async function processMessageGroup(conversationId) {
   } catch (aiError) {
     console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
   }
-}// Función para verificar si una conversación existe
-async function verifyConversationExists(conversationId) {
-  try {
-    if (!conversationId) {
-      console.error('❌ verifyConversationExists: Se requiere un ID de conversación');
+}
+
+// Solo definir verifyConversationExists localmente si no se pudo importar de server.js
+if (!verifyConversationExists) {
+  /**
+   * Verifica si una conversación existe en la base de datos
+   * @param {string} conversationId - El ID de la conversación a verificar
+   * @returns {Promise<boolean>} - true si la conversación existe, false en caso contrario
+   */
+  verifyConversationExists = async function(conversationId) {
+    try {
+      if (!conversationId) {
+        console.error('❌ verifyConversationExists: Se requiere un ID de conversación');
+        return false;
+      }
+      
+      console.log(`🔍 Verificando existencia de conversación: ${conversationId}`);
+      
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('id', conversationId)
+        .maybeSingle();
+      
+      if (error) {
+        console.error(`❌ Error verificando conversación: ${error.message}`);
+        return false;
+      }
+      
+      const exists = !!data;
+      console.log(`${exists ? '✅' : '❌'} Conversación ${conversationId} ${exists ? 'existe' : 'no existe'}`);
+      return exists;
+    } catch (error) {
+      console.error(`❌ Error en verifyConversationExists: ${error.message}`);
       return false;
     }
-    
-    console.log(`🔍 Verificando existencia de conversación: ${conversationId}`);
-    
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('id', conversationId)
-      .maybeSingle();
-    
-    if (error) {
-      console.error(`❌ Error verificando conversación: ${error.message}`);
-      return false;
-    }
-    
-    const exists = !!data;
-    console.log(`${exists ? '✅' : '❌'} Conversación ${conversationId} ${exists ? 'existe' : 'no existe'}`);
-    return exists;
-  } catch (error) {
-    console.error(`❌ Error en verifyConversationExists: ${error.message}`);
-    return false;
-  }
+  };
+  console.log('✅ Función verifyConversationExists definida localmente');
 } 
