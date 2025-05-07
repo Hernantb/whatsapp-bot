@@ -8,7 +8,13 @@ export async function GET(request: Request) {
     const userId = url.searchParams.get('user_id');
     const businessId = url.searchParams.get('business_id');
     
-    // Aquí se debería validar la autenticación del usuario
+    // Validar que tenemos un business_id
+    if (!businessId) {
+      return NextResponse.json(
+        { success: false, error: 'Se requiere el ID del negocio' }, 
+        { status: 400 }
+      );
+    }
     
     let query = supabase
       .from('notification_keywords')
@@ -39,7 +45,7 @@ export async function GET(request: Request) {
     
     return NextResponse.json({
       success: true,
-      keywords: data
+      keywords: data || []
     });
   } catch (error: any) {
     console.error('Error inesperado:', error);
@@ -67,7 +73,12 @@ export async function POST(request: Request) {
       );
     }
     
-    // Aquí se debería validar la autenticación del usuario
+    if (!business_id) {
+      return NextResponse.json(
+        { success: false, error: 'El ID del negocio es obligatorio' }, 
+        { status: 400 }
+      );
+    }
     
     const { data, error } = await supabase
       .from('notification_keywords')
@@ -84,6 +95,19 @@ export async function POST(request: Request) {
     
     if (error) {
       console.error('Error al crear palabra clave:', error);
+      
+      // Mensaje específico para errores de duplicados
+      if (error.code === '23505' || error.message.includes('unique constraint')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Esta palabra clave ya existe para este negocio',
+            details: error.message
+          }, 
+          { status: 409 }
+        );
+      }
+      
       return NextResponse.json(
         { 
           success: false, 
@@ -135,8 +159,6 @@ export async function PATCH(request: Request) {
       );
     }
     
-    // Aquí se debería validar la autenticación del usuario
-    
     // Construir objeto de actualización con solo los campos proporcionados
     const updateData: {keyword?: string, enabled?: boolean} = {};
     if (keyword !== undefined) updateData.keyword = keyword;
@@ -151,6 +173,19 @@ export async function PATCH(request: Request) {
     
     if (error) {
       console.error('Error al actualizar palabra clave:', error);
+      
+      // Mensaje específico para errores de duplicados
+      if (error.code === '23505' || error.message.includes('unique constraint')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Esta palabra clave ya existe para este negocio',
+            details: error.message
+          }, 
+          { status: 409 }
+        );
+      }
+      
       return NextResponse.json(
         { 
           success: false, 
@@ -190,8 +225,6 @@ export async function DELETE(request: Request) {
         { status: 400 }
       );
     }
-    
-    // Aquí se debería validar la autenticación del usuario
     
     const { error } = await supabase
       .from('notification_keywords')
