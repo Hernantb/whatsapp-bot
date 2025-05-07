@@ -10,7 +10,8 @@
     "lint": "eslint *.js",
     "bot": "cd whatsapp-bot-main && node test-server.js",
     "simple-bot": "node test-server.js",
-    "full-bot": "cd whatsapp-bot-main && node index.js"
+    "full-bot": "cd whatsapp-bot-main && node index.js",
+    "start:original": "node render-start.js"
   },
   "repository": {
     "type": "git",

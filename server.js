@@ -1782,7 +1782,7 @@ app.get('/test-notifications', (req, res) => {
 });
 
 // Configuración del puerto desde variables de entorno
-const PORT = process.env.PORT || 7777;
+const PORT = process.env.PORT || 10000;
 
 // Agregar un endpoint específico para pruebas de notificaciones
 app.post('/api/test-notification', async (req, res) => {
