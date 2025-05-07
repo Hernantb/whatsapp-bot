@@ -1,167 +1,82 @@
-# WhatsApp Bot con OpenAI y GupShup
+# WhatsApp Bot con OpenAI y Gupshup
 
-Un bot de WhatsApp que utiliza OpenAI para generar respuestas inteligentes y se conecta a WhatsApp mediante la API de GupShup. Incluye sistema de notificaciones y almacenamiento de conversaciones con Supabase.
+Este proyecto implementa un bot de WhatsApp que utiliza la API de OpenAI para responder mensajes y la integración con Gupshup para enviar/recibir mensajes de WhatsApp.
 
-## Características
+## Estructura del Proyecto
 
-- ✅ Integración con WhatsApp usando GupShup
-- ✅ Procesamiento de mensajes con OpenAI (usando la API de Asistentes v2)
-- ✅ Almacenamiento de conversaciones en Supabase (opcional)
-- ✅ Sistema de notificaciones por correo electrónico
-- ✅ Endpoints para pruebas y diagnóstico
-- ✅ Preparado para despliegue en Render
-
-## Requisitos previos
-
-- Node.js v16 o superior
-- Cuenta y credenciales de GupShup
-- API Key de OpenAI
-- Base de datos Supabase (opcional)
-- Cuenta de SendGrid o servidor SMTP para notificaciones
-
-## Configuración rápida
-
-1. **Clonar el repositorio**
-
-```bash
-git clone https://github.com/tu-usuario/whatsapp-bot.git
-cd whatsapp-bot
-```
-
-2. **Instalar dependencias**
-
-```bash
-npm install
-```
-
-3. **Configurar variables de entorno**
-
-Copia `.env.render` a `.env` y completa las variables:
-
-```bash
-cp .env.render .env
-```
-
-Edita el archivo `.env` con tus credenciales:
-
-```
-# GupShup
-GUPSHUP_API_KEY=tu-api-key
-GUPSHUP_NUMBER=tu-numero
-GUPSHUP_USERID=tu-userid
-
-# OpenAI
-OPENAI_API_KEY=tu-api-key-openai
-
-# Supabase (opcional)
-SUPABASE_URL=tu-url-supabase
-SUPABASE_KEY=tu-key-supabase
-
-# Notificaciones
-SMTP_HOST=smtp.sendgrid.net
-SMTP_PORT=587
-SMTP_USER=apikey
-SMTP_PASS=tu-api-key-sendgrid
-SMTP_FROM="WhatsApp Bot <notificaciones@ejemplo.com>"
-NOTIFICATION_EMAILS=correo1@ejemplo.com,correo2@ejemplo.com
-
-# URLs de servicios
-CONTROL_PANEL_URL=url-de-tu-panel-de-control
-
-# Otros ajustes
-PORT=3095
-LOG_LEVEL=info
-FORCE_SAVE_TO_SUPABASE=true
-```
-
-4. **Iniciar el servidor**
-
-Para desarrollo:
-```bash
-npm run dev
-```
-
-Para producción:
-```bash
-npm start
-```
+- `index.js` - El archivo principal que contiene la lógica del bot
+- `direct-port-fix.js` - Script para solucionar problemas de puerto en Render
+- `notification-patch.cjs` - Módulo para manejar notificaciones
+- `global-patch.js` - Módulo para configuraciones globales
 
 ## Despliegue en Render
 
-### Opción 1: Despliegue automático (recomendado)
+### Configuración Importante
 
-Puedes desplegar directamente desde GitHub utilizando el archivo `render.yaml`:
+⚠️ **NOTA SOBRE PUERTOS**: Este proyecto utiliza Next.js y Express en el mismo repositorio, lo que puede causar conflictos de puerto. Para evitar estos problemas:
 
-1. Sube tu código a GitHub
-2. En Render, selecciona "New Blueprint"
-3. Conecta tu repositorio de GitHub
-4. Render detectará automáticamente la configuración en `render.yaml`
-5. Configura las variables de entorno necesarias
-6. ¡Listo! Tu bot estará desplegado automáticamente
+1. El proyecto configura Next.js para usar el puerto 3000 (predeterminado)
+2. El bot de WhatsApp utiliza el puerto 10000 (configurado por `direct-port-fix.js`)
 
-### Opción 2: Despliegue manual
+### Pasos para Desplegar en Render
 
-1. Crea un nuevo Web Service en Render
+1. Crea un nuevo servicio Web en Render
 2. Conecta tu repositorio de GitHub
-3. Configura los siguientes parámetros:
-   - **Nombre**: `whatsapp-bot` (o el que prefieras)
-   - **Entorno**: Node
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-   - **Plan**: Free (o el que necesites)
+3. Configura las siguientes opciones:
+   - **Nombre**: `whatsapp-bot`
+   - **Entorno**: `Node`
+   - **Buildcommand**: `npm install`
+   - **Start Command**: `node direct-port-fix.js`
+   - **Plan**: `Starter` o según tus necesidades
+   - **Región**: La más cercana a tus usuarios
 
-4. Configura las variables de entorno en el panel de Render (ver `.env.render`)
+4. Configura las siguientes variables de entorno:
+   ```
+   NODE_ENV=production
+   RENDER=true
+   PORT=10000
+   FORCE_PORT=10000
+   OPENAI_MODEL=gpt-4-turbo-preview
+   OPENAI_API_KEY=tu-api-key
+   GUPSHUP_API_KEY=tu-api-key
+   GUPSHUP_NUMBER=tu-numero
+   GUPSHUP_USERID=tu-userid
+   SUPABASE_URL=tu-url
+   SUPABASE_KEY=tu-key
+   CONTROL_PANEL_URL=https://tu-dominio.onrender.com/api/register-bot-response
+   BUSINESS_ID=tu-business-id
+   ```
 
-5. Despliega el servicio y verifica que esté funcionando visitando la URL + `/health`
+5. Crea el servicio y espera a que se complete el despliegue
 
-## Endpoints disponibles
+### Diagnóstico y Solución de Problemas
 
-- **GET /health**: Verificar estado del servidor
-- **GET /status**: Obtener información detallada
-- **GET /diagnostico**: Realizar diagnóstico del sistema
-- **POST /api/send-manual-message**: Enviar mensaje manual a WhatsApp
-- **GET /test-message**: Probar envío de mensajes
-- **GET /test-notification**: Probar sistema de notificaciones
+Si encuentras errores con el puerto al desplegar:
 
-## Solución de problemas
+1. Verifica los logs para identificar el error: `Error: listen EADDRINUSE: address already in use :::3000`
+2. Asegúrate de que estás utilizando `direct-port-fix.js` como punto de entrada
+3. Verifica que `render.yaml` tenga configurado correctamente:
+   ```yaml
+   PORT: 10000
+   FORCE_PORT: 10000
+   ```
 
-### Error con Supabase
+4. Si sigues teniendo problemas, puedes modificar manualmente `direct-port-fix.js` para forzar el uso del puerto 10000
 
-Si ves errores como `supabaseKey is required`:
-- Asegúrate de que `SUPABASE_URL` y `SUPABASE_KEY` estén configurados correctamente
-- Si no usas Supabase, el sistema está preparado para funcionar sin él
+## Desarrollo Local
 
-### Error al conectar con GupShup
+Para ejecutar el proyecto localmente:
 
-Si no puedes enviar mensajes a WhatsApp:
-- Verifica que `GUPSHUP_API_KEY`, `GUPSHUP_NUMBER` y `GUPSHUP_USERID` sean correctos
-- Asegúrate de que tu cuenta de GupShup esté activa
-- Comprueba que el número esté correctamente registrado en GupShup
+```bash
+# Iniciar el bot WhatsApp
+npm run start
 
-### Errores con las notificaciones por correo
+# Para desarrollo con Next.js
+npm run dev
+```
 
-Si las notificaciones no se envían:
-- Verifica las credenciales de SMTP
-- Si usas SendGrid, confirma que la API key tenga permisos para enviar correos
-- Prueba el endpoint `/test-notification` para diagnosticar problemas
+## Recursos Adicionales
 
-### Conflictos de puerto
-
-Si hay problemas al iniciar el servidor por conflictos de puerto:
-- El servidor usa el puerto definido en la variable `PORT` (por defecto 3095)
-- Puedes cambiar el puerto editando la variable de entorno `PORT`
-
-## Mantenimiento
-
-Para actualizar el bot:
-1. Haz tus cambios en el código
-2. Sube los cambios a GitHub
-3. Render se actualizará automáticamente (si tienes Auto-Deploy activado)
-
-## Contribuciones
-
-Las contribuciones son bienvenidas. Por favor, abre un issue o pull request para sugerencias o mejoras.
-
-## Licencia
-
-Este proyecto está licenciado bajo la licencia ISC.
+- [Documentación de Render](https://render.com/docs)
+- [API de OpenAI](https://platform.openai.com/docs/api-reference)
+- [API de Gupshup para WhatsApp](https://www.gupshup.io/developer/docs/whatsapp-api)

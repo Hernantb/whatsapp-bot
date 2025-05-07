@@ -1,35 +1,32 @@
 services:
   - type: web
     name: whatsapp-bot
+    runtime: node
+    buildCommand: npm install
+    startCommand: node direct-port-fix.js
     env: node
     region: singapore # Choose the region closest to your users
     plan: starter # Adjust based on your needs
-    buildCommand: npm install
-    startCommand: node index.js
-    healthCheckPath: /status
+    healthCheckPath: /
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
+      - key: RENDER
+        value: "true"
+      - key: PORT
+        value: 10000
       - key: TZ
         value: America/Argentina/Buenos_Aires
       - key: FORCE_PORT
-        value: $PORT
-      - key: RENDER
-        value: "true"
-      - key: OPENAI_API_KEY
-        sync: false
+        value: 10000
       - key: OPENAI_MODEL
         value: gpt-4-turbo-preview
+      - key: OPENAI_API_KEY
+        sync: false
       - key: GUPSHUP_API_KEY
         sync: false
       - key: GUPSHUP_APP_NAME
-        sync: false
-      - key: GUPSHUP_PHONE_NUMBER
-        sync: false
-      - key: GUPSHUP_SOURCE
-        sync: false
-      - key: GUPSHUP_API_KEY_ALTERNATIVE
         sync: false
       - key: GUPSHUP_APP_NAME_ALTERNATIVE
         sync: false
@@ -38,6 +35,20 @@ services:
       - key: SUPABASE_KEY
         sync: false
       - key: SMTP_HOST
+        sync: false
+      - key: DEBUG
+        value: false
+      - key: GUPSHUP_NUMBER
+        sync: false
+      - key: GUPSHUP_USERID
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: GUPSHUP_PHONE_NUMBER
+        sync: false
+      - key: GUPSHUP_SOURCE
+        sync: false
+      - key: GUPSHUP_API_KEY_ALTERNATIVE
         sync: false
       - key: SMTP_PORT
         value: 587
@@ -58,17 +69,6 @@ services:
       - key: CONTROL_PANEL_URL
         sync: false
       - key: WEBHOOK_URL
-        sync: false
-      - key: DEBUG
-        value: false
-      - key: PORT
-        value: 10000
-      # Las siguientes variables deben configurarse manualmente en Render
-      - key: GUPSHUP_NUMBER
-        sync: false
-      - key: GUPSHUP_USERID
-        sync: false
-      - key: SMTP_FROM
         sync: false
       - key: NOTIFICATION_EMAILS
         sync: false
