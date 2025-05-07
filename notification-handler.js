@@ -105,7 +105,7 @@ async function sendBusinessNotification(conversationId, botMessage, clientPhoneN
           const userIds = businessUsers.map(bu => bu.user_id);
           const { data: profiles, error: profilesError } = await supabase
             .from('profiles')
-            .select('email, full_name')
+            .select('email')
             .in('id', userIds);
           
           if (profilesError) {
@@ -212,7 +212,8 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
     // 1. Actualizar estado de la conversación (marcar como importante)
     const conversationUpdate = {
       notification_sent: success,
-      notification_timestamp: new Date().toISOString()
+      notification_timestamp: new Date().toISOString(),
+      last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada"
     };
     
     // SOLUCIÓN ALTERNATIVA: Actualizar al menos notification_sent y timestamp
@@ -246,45 +247,26 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
       console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
     }
     
-    // Intentamos marcar status='important' (si existe)
+    // Intentamos marcar la importancia directamente usando SQL
     try {
-      const { error: statusError } = await supabase
-        .from('conversations')
-        .update({ status: 'important' })
-        .eq('id', conversationId);
+      // Consulta SQL para actualizar el campo sin causar errores de schema cache
+      const { error: sqlError } = await supabase.rpc('execute_sql', { 
+        sql_statement: `
+          UPDATE conversations 
+          SET is_important = true, 
+              notification_sent = true,
+              notification_timestamp = now()
+          WHERE id = '${conversationId}'
+        `
+      }).single();
       
-      if (!statusError) {
-        console.log(`✅ Conversación marcada con status='important'`);
-      } else if (statusError.message.includes('does not exist')) {
-        console.log(`⚠️ No existe campo status: ${statusError.message}`);
-        
-        // Intentar crear la columna usando SQL nativo
-        try {
-          // No usamos RPC sino update directo en tabla
-          console.log('⚠️ No se pudo establecer status. Usando update con SQL nativo...');
-          
-          // Actualizar otros campos que pueden ayudar a identificar conversaciones importantes
-          const { error: flagsError } = await supabase
-            .from('conversations')
-            .update({ 
-              last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada", 
-              notification_sent: true
-            })
-            .eq('id', conversationId);
-          
-          if (!flagsError) {
-            console.log(`✅ Conversación marcada indirectamente como importante`);
-          } else {
-            console.error(`❌ Error al marcar indirectamente: ${flagsError.message}`);
-          }
-        } catch (sqlError) {
-          console.error(`❌ Error en método alternativo: ${sqlError.message}`);
-        }
+      if (!sqlError) {
+        console.log(`✅ Conversación marcada como importante usando SQL directo`);
       } else {
-        console.error(`❌ Error al actualizar status: ${statusError.message}`);
+        console.log(`⚠️ Error al ejecutar SQL directo: ${sqlError.message}`);
       }
-    } catch (statusError) {
-      console.error(`❌ Error al actualizar status: ${statusError.message}`);
+    } catch (sqlError) {
+      console.log(`⚠️ Error al ejecutar SQL directo: ${sqlError.message}`);
     }
     
     // 2. Si se proporcionó un ID de mensaje, actualizar ese mensaje
