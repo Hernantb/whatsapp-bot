@@ -281,6 +281,16 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
       throw new Error('Cliente Supabase no inicializado');
     }
     
+    // Validar formato UUID para conversationId (Supabase requiere UUID válidos)
+    // Expresión regular para validar formato UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (!uuidRegex.test(conversationId)) {
+      console.log(`⚠️ El ID de conversación no tiene formato UUID válido: ${conversationId}`);
+      console.log(`⚠️ Se requiere buscar o crear una conversación adecuada primero`);
+      throw new Error(`ID de conversación no válido para Supabase: ${conversationId}`);
+    }
+    
     // Primero intentar usando el cliente Supabase
     try {
       const messageObj = {
@@ -376,7 +386,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
             console.log(`📥 POST ${alternativeUrl}`);
             
             const response = await axios.post(alternativeUrl, {
-              conversationId: normalizedConversationId,
+              conversationId: conversationId,
               message,
               sender_type: sender_type
             });
@@ -420,19 +430,91 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
   }
   
   // Normalizar el ID de la conversación para garantizar consistencia
-  const normalizedConversationId = String(conversationId).trim().replace(/_TEST.*$/i, '');
-  console.log('🚀 Procesando mensaje para:', normalizedConversationId);
+  const normalizedInput = String(conversationId).trim().replace(/_TEST.*$/i, '');
+  console.log('🚀 Procesando mensaje para:', normalizedInput);
   console.log('📝 Mensaje:', JSON.stringify(message).substring(0, 100) + (message.length > 100 ? '...' : ''));
   
   if (metadata) {
     console.log('📝 Metadatos:', JSON.stringify(metadata));
   }
   
+  // Expresión regular para validar formato UUID
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  // Expresión regular para validar número de teléfono (simple)
+  const phoneRegex = /^\d{10,15}$/;
+  
+  let finalConversationId = normalizedInput;
+  
+  // Si parece un número de teléfono y no un UUID, intentar buscar o crear conversación
+  if (phoneRegex.test(normalizedInput) && !uuidRegex.test(normalizedInput)) {
+    console.log(`📱 El ID parece ser un número de teléfono: ${normalizedInput}`);
+    
+    try {
+      // Buscar conversación existente por número de teléfono
+      const { data: existingConversation, error: searchError } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('user_id', normalizedInput)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (searchError && searchError.code !== 'PGRST116') {
+        console.error(`❌ Error buscando conversación: ${searchError.message}`);
+      }
+      
+      if (existingConversation && existingConversation.id) {
+        console.log(`✅ Conversación encontrada para teléfono ${normalizedInput}: ${existingConversation.id}`);
+        finalConversationId = existingConversation.id;
+      } else {
+        console.log(`⚠️ No se encontró conversación para teléfono ${normalizedInput}`);
+        
+        // Usar el endpoint de register-bot-response del servidor que puede manejar teléfonos
+        console.log(`🔄 Enviando directamente al servidor para crear conversación`);
+        
+        try {
+          const serverUrl = `${CONTROL_PANEL_URL}/api/register-bot-response`;
+          console.log('🔄 Enviando mensaje al servidor:', serverUrl);
+          
+          const requestData = {
+            conversationId: normalizedInput,  // Usar número de teléfono directamente
+            message,
+            sender_type: sender_type
+          };
+          
+          if (metadata) {
+            requestData.metadata = metadata;
+          }
+          
+          const response = await axios.post(serverUrl, requestData, {
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Accept': 'application/json'
+            }
+          });
+          
+          console.log('✅ Mensaje enviado correctamente al servidor:', response.status);
+          return { success: true, message: "Mensaje enviado al servidor (teléfono)" };
+        } catch (serverError) {
+          console.error('❌ Error enviando al servidor:', serverError.message);
+          return { success: false, error: serverError.message };
+        }
+      }
+    } catch (convError) {
+      console.error(`❌ Error general buscando conversación: ${convError.message}`);
+    }
+  }
+  
   try {
-    // Intentar guardar directamente en Supabase, pasando los metadatos
-    await saveMessageToSupabase(normalizedConversationId, message, null, sender_type, metadata);
-    console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
-    return { success: true, message: "Mensaje guardado en Supabase" };
+    // Si llegamos aquí, deberíamos tener un UUID válido o haber fallado
+    if (uuidRegex.test(finalConversationId)) {
+      // Intentar guardar directamente en Supabase, pasando los metadatos
+      await saveMessageToSupabase(finalConversationId, message, null, sender_type, metadata);
+      console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
+      return { success: true, message: "Mensaje guardado en Supabase" };
+    } else {
+      throw new Error(`No se pudo obtener un ID de conversación válido para: ${normalizedInput}`);
+    }
   } catch (error) {
     // Intentar con el servidor como respaldo
     console.error('❌ Error guardando en Supabase, intentando con el servidor:', error.message);
@@ -443,7 +525,7 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
       console.log('🔄 Enviando mensaje al servidor:', serverUrl);
       
       const requestData = {
-        conversationId: normalizedConversationId,
+        conversationId: finalConversationId,
         message,
         sender_type: sender_type
       };
@@ -465,13 +547,13 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
         const alternativeUrl = `${CONTROL_PANEL_URL}/register-bot-response`;
         console.log('🔄 Intentando URL alternativa:', alternativeUrl);
         
-        const altResponse = await axios.post(alternativeUrl, {
-          conversationId: normalizedConversationId,
+        const response = await axios.post(alternativeUrl, {
+          conversationId: finalConversationId,
           message,
           sender_type: sender_type
         });
         
-        console.log('✅ Mensaje enviado con URL alternativa:', altResponse.status);
+        console.log('✅ Mensaje enviado con URL alternativa:', response.status);
         return { success: true, message: "Mensaje enviado al servidor (alternativa)" };
       } catch (altError) {
         console.error('❌ Error en segundo intento:', altError.message);
