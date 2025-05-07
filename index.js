@@ -447,6 +447,36 @@ function getContactName(phoneNumber) {
   }
 }
 
+// Función para verificar si una conversación existe
+async function verifyConversationExists(conversationId) {
+  try {
+    if (!conversationId) {
+      console.error('❌ verifyConversationExists: Se requiere un ID de conversación');
+      return false;
+    }
+    
+    console.log(`🔍 Verificando existencia de conversación: ${conversationId}`);
+    
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('id', conversationId)
+      .maybeSingle();
+    
+    if (error) {
+      console.error(`❌ Error verificando conversación: ${error.message}`);
+      return false;
+    }
+    
+    const exists = !!data;
+    console.log(`${exists ? '✅' : '❌'} Conversación ${conversationId} ${exists ? 'existe' : 'no existe'}`);
+    return exists;
+  } catch (error) {
+    console.error(`❌ Error en verifyConversationExists: ${error.message}`);
+    return false;
+  }
+}
+
 // Modificar la función saveMessageToSupabase para manejar el caso donde getContactName no está disponible
 async function saveMessageToSupabase({ sender, message, messageId, timestamp, conversationId, isBotActive }) {
   try {
