@@ -38,6 +38,12 @@ const notificationModule = require('./notification-patch.cjs');
 // Importar Supabase
 const { createClient } = require('@supabase/supabase-js');
 
+// Importar módulos de notificación
+const { 
+  checkForNotificationPhrases, 
+  handleNotificationUpdate 
+} = require('./notification-handler');
+
 // Variables globales para el servidor
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://wscijkxwevgxbgwhbqtm.supabase.co';
 // const SUPABASE_API_KEY = process.env.SUPABASE_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2lqa3h3ZXZneGJnd2hicXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTgwOTkxNzYsImV4cCI6MjAxMzY3NTE3Nn0.B_LQ2_2jUIZ1PvR1_ObQ-8fmVOaOY0jXkYa9KGbU9N0';

@@ -16,8 +16,11 @@ const streamPipeline = promisify(pipeline);
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 
-// Buscar e importar cualquier referencia a manual-endpoint.js y comentarla
-// require('./whatsapp-bot-main/manual-endpoint.js');
+// Importar funciones de manejo de notificaciones
+const { 
+  checkForNotificationPhrases, 
+  handleNotificationUpdate 
+} = require('./notification-handler');
 
 dotenv.config({ path: '.env.local' });
 
@@ -604,14 +607,15 @@ async function ensureColumnsExist() {
           .from('conversations')
           .update({
             notification_sent: true,
-            notification_timestamp: new Date().toISOString()
+            notification_timestamp: new Date().toISOString(),
+            status: 'normal' // Nueva columna status
           })
           .eq('id', '00000000-0000-0000-0000-000000000000');
         
         if (!updateError || updateError.code === 'PGRST116') {
-          console.log('✅ Columnas notification_sent y notification_timestamp existen o fueron creadas');
+          console.log('✅ Columnas notification_sent, notification_timestamp y status existen o fueron creadas');
         } else if (updateError.message.includes('column') && updateError.message.includes('does not exist')) {
-          console.log('⚠️ Las columnas de notificación no existen en conversations. Intentando SQL directo...');
+          console.log('⚠️ Algunas columnas no existen en conversations. Intentando SQL directo...');
           
           // Intentar con SQL directo usando RPC
           const { error: sqlError } = await supabase.rpc('exec_sql', {
@@ -621,6 +625,9 @@ async function ensureColumnsExist() {
               
               ALTER TABLE conversations 
               ADD COLUMN IF NOT EXISTS notification_timestamp TIMESTAMP WITH TIME ZONE;
+              
+              ALTER TABLE conversations 
+              ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'normal';
               
               -- Refrescar el schema cache para Supabase
               NOTIFY pgrst, 'reload schema';
@@ -637,6 +644,9 @@ async function ensureColumnsExist() {
               
               ALTER TABLE conversations 
               ADD COLUMN IF NOT EXISTS notification_timestamp TIMESTAMP WITH TIME ZONE;
+              
+              ALTER TABLE conversations 
+              ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'normal';
             `);
             
             if (fallbackError) {
