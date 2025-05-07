@@ -286,8 +286,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
       const messageObj = {
         conversation_id: conversationId,
         content: message,
-        sender_type: sender_type,
-        business_id: business_id
+        sender_type: sender_type
       };
       
       // Añadir metadatos si existen
@@ -345,7 +344,6 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
           const messageData = {
             conversationId,
             message,
-            business_id,
             sender_type,
             ...(metadata || {})  // Incluir metadatos si existen
           };
@@ -377,7 +375,11 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
             console.log(`🔄 Intentando URL alternativa: ${alternativeUrl}`);
             console.log(`📥 POST ${alternativeUrl}`);
             
-            const response = await axios.post(alternativeUrl, messageData, axiosConfig);
+            const response = await axios.post(alternativeUrl, {
+              conversationId: normalizedConversationId,
+              message,
+              sender_type: sender_type
+            });
             
             if (response.status >= 200 && response.status < 300) {
               console.log(`✅ Mensaje guardado usando URL alternativa: ${alternativeUrl}`);
@@ -428,7 +430,7 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
   
   try {
     // Intentar guardar directamente en Supabase, pasando los metadatos
-    await saveMessageToSupabase(normalizedConversationId, message, business_id, sender_type, metadata);
+    await saveMessageToSupabase(normalizedConversationId, message, null, sender_type, metadata);
     console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
     return { success: true, message: "Mensaje guardado en Supabase" };
   } catch (error) {
@@ -443,7 +445,6 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
       const requestData = {
         conversationId: normalizedConversationId,
         message,
-        business_id: business_id,
         sender_type: sender_type
       };
       
@@ -467,7 +468,6 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
         const altResponse = await axios.post(alternativeUrl, {
           conversationId: normalizedConversationId,
           message,
-          business_id: business_id,
           sender_type: sender_type
         });
         
@@ -525,48 +525,10 @@ console.log('📡 VERIFICACIÓN DE ACCESO A SUPABASE');
           'apikey': SUPABASE_KEY
         }
       });
-      const data = await fetchResponse.json();
       console.log('✅ SUPABASE ACCESIBLE VIA FETCH NATIVO:', fetchResponse.status);
-      console.log('✅ CONTENIDO DE RESPUESTA:', JSON.stringify(data).substring(0, 100) + '...');
+      console.log('✅ CONTENIDO DE RESPUESTA:', await fetchResponse.text().then(text => text.substring(0, 100) + '...'));
     } catch (fetchError) {
       console.error('❌ ERROR ACCEDIENDO A SUPABASE VIA FETCH NATIVO:', fetchError.message);
     }
-  } else {
-    console.log('ℹ️ Fetch nativo no disponible en este entorno');
   }
-  
-  // Intentar con node-fetch si está disponible
-  try {
-    const nodeFetch = require('node-fetch');
-    console.log(`🔍 Intentando acceder a Supabase (${SUPABASE_URL}) con node-fetch...`);
-    try {
-      const nodeFetchResponse = await nodeFetch(`${SUPABASE_URL}/rest/v1/conversations?limit=1`, {
-        headers: {
-          'apikey': SUPABASE_KEY
-        }
-      });
-      const data = await nodeFetchResponse.json();
-      console.log('✅ SUPABASE ACCESIBLE VIA NODE-FETCH:', nodeFetchResponse.status);
-      console.log('✅ CONTENIDO DE RESPUESTA:', JSON.stringify(data).substring(0, 100) + '...');
-    } catch (nodeFetchError) {
-      console.error('❌ ERROR ACCEDIENDO A SUPABASE VIA NODE-FETCH:', nodeFetchError.message);
-    }
-  } catch (requireError) {
-    console.log('ℹ️ node-fetch no está instalado o no es accesible');
-  }
-
-  console.log('📡 FIN DE VERIFICACIÓN DE ACCESO A SUPABASE');
 })();
-
-// Verificar dominios antiguos y corregirlos
-if (process.env.NODE_ENV === 'production' && correctUrl.includes('panel-control-whatsapp.onrender.com')) {
-    correctUrl = correctUrl.replace('panel-control-whatsapp.onrender.com', 'whatsapp-bot-if6z.onrender.com');
-}
-
-// Verificar puerto explícito
-if (correctUrl.includes('render-wa.onrender.com') && !correctUrl.includes(':10000')) {
-    // Los logs muestran que Render está funcionando en puerto 10000
-    console.log('⚠️ Ajustando URL para incluir puerto explícito 10000 para Render...');
-    correctUrl = correctUrl.replace('render-wa.onrender.com', 'whatsapp-bot-if6z.onrender.com');
-    console.log('✅ URL con puerto:', correctUrl);
-} 
