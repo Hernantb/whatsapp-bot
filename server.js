@@ -19,7 +19,8 @@ const fetch = require('node-fetch');
 // Importar funciones de manejo de notificaciones
 const { 
   checkForNotificationPhrases, 
-  handleNotificationUpdate 
+  handleNotificationUpdate,
+  sendBusinessNotification
 } = require('./notification-handler');
 
 dotenv.config({ path: '.env.local' });
@@ -1869,6 +1870,9 @@ const server = app.listen(PORT, () => {
 async function checkPendingNotifications() {
   try {
     console.log(`\n🔍 === VERIFICANDO NOTIFICACIONES PENDIENTES ===`);
+    
+    // Asegurarse de que las funciones de notificación están importadas correctamente
+    const { checkForNotificationPhrases, sendBusinessNotification, handleNotificationUpdate } = require('./notification-handler');
     
     // Buscar mensajes que requieren notificación pero no han sido enviados todavía
     const { data: pendingMessages, error: messagesError } = await supabase
