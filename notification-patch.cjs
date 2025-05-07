@@ -25,35 +25,174 @@ const mailTransport = nodemailer.createTransport({
   }
 });
 
-// Lista de frases que indican que se necesita atención humana
-const NOTIFICATION_PHRASES = [
+// Lista de frases predeterminadas que indican que se necesita atención humana
+const DEFAULT_NOTIFICATION_PHRASES = [
   "¡Perfecto! tu cita ha sido confirmada para",
   "¡Perfecto! un asesor te llamará",
   "¡Perfecto! un asesor te contactará",
   "¡Perfecto! una persona te contactará"
 ];
 
+// Caché de palabras clave por negocio
+const businessKeywordsCache = new Map();
+
+// Tiempo de expiración de caché en milisegundos (5 minutos)
+const CACHE_EXPIRATION = 5 * 60 * 1000;
+
+/**
+ * Carga las palabras clave personalizadas para un negocio desde la base de datos
+ * @param {string} businessId - ID del negocio
+ * @returns {Array} - Array de palabras clave habilitadas
+ */
+async function loadKeywordsForBusiness(businessId) {
+  console.log(`🔍 Cargando palabras clave personalizadas para negocio: ${businessId}`);
+  
+  if (!businessId) {
+    console.warn(`⚠️ No se proporcionó businessId, usando palabras predeterminadas`);
+    return DEFAULT_NOTIFICATION_PHRASES;
+  }
+  
+  try {
+    // Debido a la importancia de tener las palabras clave actualizadas,
+    // forzamos una recarga desde la base de datos en cada llamada
+    console.log(`🔄 Forzando recarga de palabras clave del negocio: ${businessId}`);
+    
+    // Obtener palabras clave desde la base de datos
+    const { data, error } = await supabase
+      .from('notification_keywords')
+      .select('*')
+      .eq('business_id', businessId)
+      .eq('enabled', true);
+    
+    if (error) {
+      console.error(`❌ Error obteniendo palabras clave: ${error.message}`);
+      console.error(`   Código: ${error.code}, Detalles: ${JSON.stringify(error)}`);
+      // En caso de error, usar palabras predeterminadas
+      return DEFAULT_NOTIFICATION_PHRASES;
+    }
+    
+    // Imprimir todos los datos recibidos para diagnóstico
+    console.log(`📊 Datos recibidos de notification_keywords: ${JSON.stringify(data, null, 2)}`);
+    
+    // Si no hay palabras clave personalizadas, usar las predeterminadas
+    if (!data || data.length === 0) {
+      console.log(`ℹ️ No se encontraron palabras clave personalizadas para negocio ${businessId}, usando predeterminadas`);
+      
+      // Almacenar en caché las palabras predeterminadas
+      businessKeywordsCache.set(businessId, {
+        keywords: DEFAULT_NOTIFICATION_PHRASES,
+        timestamp: Date.now()
+      });
+      
+      return DEFAULT_NOTIFICATION_PHRASES;
+    }
+    
+    // Extraer las palabras clave y guardar en caché
+    const keywords = data.map(item => item.keyword);
+    console.log(`✅ Palabras clave personalizadas cargadas (${keywords.length}): ${keywords.join(', ')}`);
+    
+    // Almacenar en caché
+    businessKeywordsCache.set(businessId, {
+      keywords,
+      timestamp: Date.now()
+    });
+    
+    return keywords;
+  } catch (error) {
+    console.error(`❌ Error inesperado cargando palabras clave: ${error.message}`);
+    console.error(error.stack);
+    return DEFAULT_NOTIFICATION_PHRASES;
+  }
+}
+
+/**
+ * Limpia la caché de palabras clave para un negocio específico o para todos
+ * @param {string} businessId - ID del negocio (opcional)
+ */
+function clearKeywordsCache(businessId = null) {
+  if (businessId) {
+    businessKeywordsCache.delete(businessId);
+    console.log(`🧹 Caché de palabras clave limpiada para negocio: ${businessId}`);
+  } else {
+    businessKeywordsCache.clear();
+    console.log(`🧹 Caché de palabras clave limpiada para todos los negocios`);
+  }
+}
+
 /**
  * Verifica si un mensaje contiene alguna de las frases que indican necesidad de atención
  * @param {string} message - El mensaje a revisar
- * @returns {boolean} - True si el mensaje contiene alguna de las frases de notificación
+ * @param {string} businessId - ID del negocio (opcional)
+ * @returns {Promise<boolean>} - True si el mensaje contiene alguna de las frases de notificación
  */
-function checkForNotificationPhrases(message) {
+async function checkForNotificationPhrases(message, businessId = null) {
   if (!message) return false;
   
   // Normalizar el mensaje (convertir a minúsculas, eliminar espacios extras)
   const normalizedMessage = message.toLowerCase().trim();
   
+  console.log(`🔍 Analizando mensaje para notificación: "${normalizedMessage.substring(0, 60)}..."`);
+  console.log(`🏢 Business ID: ${businessId || 'No disponible'}`);
+  
+  // Determinar qué palabras clave usar (personalizadas o predeterminadas)
+  let phrases = DEFAULT_NOTIFICATION_PHRASES;
+  
+  if (businessId) {
+    // Cargar palabras clave personalizadas
+    phrases = await loadKeywordsForBusiness(businessId);
+    console.log(`🔑 Palabras clave cargadas para negocio ${businessId}: ${phrases.join(', ')}`);
+  } else {
+    console.log(`⚠️ Sin businessId, usando palabras clave predeterminadas: ${phrases.join(', ')}`);
+  }
+  
   // Verificar cada frase
-  for (const phrase of NOTIFICATION_PHRASES) {
+  for (const phrase of phrases) {
     const normalizedPhrase = phrase.toLowerCase().trim();
     
+    console.log(`🔎 Verificando si el mensaje contiene: "${normalizedPhrase}"`);
+    
     if (normalizedMessage.includes(normalizedPhrase)) {
-      console.log(`🔔 Frase detectada: "${phrase}"`);
+      console.log(`✅ COINCIDENCIA ENCONTRADA: "${normalizedPhrase}" en "${normalizedMessage.substring(0, 60)}..."`);
+      
+      // Intentar actualizar el estado del cliente a 'pendiente'
+      try {
+        if (businessId) {
+          // Obtener ID de la conversación si solo tenemos el mensaje
+          const { data: msgData, error: msgError } = await supabase
+            .from('messages')
+            .select('conversation_id')
+            .eq('content', message)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          if (!msgError && msgData && msgData.length > 0) {
+            const conversationId = msgData[0].conversation_id;
+            
+            // Actualizar el estado del cliente en la conversación
+            const { error: updateError } = await supabase
+              .from('conversations')
+              .update({ 
+                status: 'pending',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', conversationId);
+            
+            if (updateError) {
+              console.error(`❌ Error al actualizar estado de conversación: ${updateError.message}`);
+            } else {
+              console.log(`✅ Estado de conversación actualizado a 'pending'`);
+            }
+          }
+        }
+      } catch (updateError) {
+        console.error(`❌ Error intentando actualizar estado: ${updateError}`);
+      }
+      
       return true;
     }
   }
   
+  console.log(`❌ No se encontraron coincidencias de palabras clave en el mensaje`);
   return false;
 }
 
@@ -66,23 +205,17 @@ function checkForNotificationPhrases(message) {
  */
 async function processMessageForNotification(message, conversationId, phoneNumber = null) {
   try {
-    // Verificar si el mensaje contiene alguna frase que requiera notificación
-    const requiresNotification = checkForNotificationPhrases(message);
-    
-    if (!requiresNotification) {
-      return { 
-        requiresNotification: false,
-        notificationSent: false 
-      };
-    }
-    
-    console.log(`🔔 Notificación requerida para conversación: ${conversationId}`);
-    
-    // Si no tenemos el número de teléfono o ID del negocio, intentar obtenerlos de la base de datos
+    console.log(`
+=== INICIO PROCESAMIENTO DE NOTIFICACIÓN ===
+📱 Conversación: ${conversationId}
+📱 Teléfono (si disponible): ${phoneNumber || 'N/A'}
+💬 Mensaje: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}
+`);
+
+    // Obtener información de la conversación desde Supabase
     let clientPhone = phoneNumber;
     let businessId = null;
     
-    // Obtener información de la conversación desde Supabase
     try {
       console.log(`🔍 Obteniendo información de conversación: ${conversationId}`);
       const { data: conversationData, error: conversationError } = await supabase
@@ -101,6 +234,67 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     } catch (dbError) {
       console.error(`❌ Error consultando conversación: ${dbError.message}`);
     }
+
+    if (!businessId) {
+      console.warn(`⚠️ No se pudo obtener businessId para la conversación ${conversationId}. Buscando por teléfono...`);
+      
+      // Intento alternativo: buscar businessId por número de teléfono en otras conversaciones
+      if (clientPhone) {
+        try {
+          const { data: otherConversations, error: otherError } = await supabase
+            .from('conversations')
+            .select('business_id')
+            .eq('user_id', clientPhone)
+            .not('business_id', 'is', null)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          if (!otherError && otherConversations && otherConversations.length > 0) {
+            businessId = otherConversations[0].business_id;
+            console.log(`✅ BusinessId encontrado en otra conversación del mismo cliente: ${businessId}`);
+          }
+        } catch (err) {
+          console.error(`❌ Error buscando otras conversaciones: ${err.message}`);
+        }
+      }
+    }
+    
+    // Diagnóstico: consultar directamente la tabla notification_keywords por este businessId
+    if (businessId) {
+      try {
+        console.log(`🔍 Consultando directamente table notification_keywords para businessId=${businessId}`);
+        const { data: keywordsData, error: keywordsError } = await supabase
+          .from('notification_keywords')
+          .select('*')
+          .eq('business_id', businessId);
+        
+        if (keywordsError) {
+          console.error(`❌ Error consultando tabla notification_keywords: ${keywordsError.message}`);
+        } else {
+          console.log(`✅ Encontradas ${keywordsData?.length || 0} palabras clave en la tabla para este negocio.`);
+          if (keywordsData && keywordsData.length > 0) {
+            const keywords = keywordsData.map(k => k.keyword).join(', ');
+            console.log(`📋 Palabras clave disponibles: ${keywords}`);
+          }
+        }
+      } catch (kwErr) {
+        console.error(`❌ Error inesperado consultando keywords: ${kwErr.message}`);
+      }
+    }
+    
+    // Verificar si el mensaje contiene alguna frase que requiera notificación
+    // Ahora pasamos el businessId para obtener palabras clave personalizadas
+    const requiresNotification = await checkForNotificationPhrases(message, businessId);
+    
+    if (!requiresNotification) {
+      console.log('❌ No se requiere notificación. Finalizando procesamiento.');
+      return { 
+        requiresNotification: false,
+        notificationSent: false 
+      };
+    }
+    
+    console.log(`🔔 NOTIFICACIÓN REQUERIDA para conversación: ${conversationId}`);
     
     if (!businessId) {
       console.error(`❌ No se pudo obtener el ID del negocio para la conversación: ${conversationId}`);
@@ -791,10 +985,28 @@ if (require.main === module) {
     });
 }
 
+// Exportar funciones
 module.exports = {
-  checkForNotificationPhrases,
   processMessageForNotification,
+  checkForNotificationPhrases,
+  loadKeywordsForBusiness,
+  clearKeywordsCache,
   sendBusinessNotification,
+  getLastMessages,
   fixMessagesInDatabase,
-  fixMessagesFromSample
-}; 
+  fixMessagesFromSample,
+  DEFAULT_NOTIFICATION_PHRASES
+};
+
+// Log de inicialización para saber que el módulo se cargó correctamente
+console.log(`
+🔔 Módulo de notificaciones inicializado
+📧 Remitente: ${EMAIL_USER}
+📧 Destinatario por defecto: ${EMAIL_TO_DEFAULT}
+🔑 Contraseña configurada: ${EMAIL_APP_PASSWORD ? '✅ SÍ' : '❌ NO'}
+🔍 Modo diagnóstico: ACTIVADO
+📝 Frases predeterminadas: ${DEFAULT_NOTIFICATION_PHRASES.length}
+`);
+
+// Limpiar la caché al inicio
+clearKeywordsCache();
