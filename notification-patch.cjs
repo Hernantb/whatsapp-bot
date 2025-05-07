@@ -25,35 +25,175 @@ const mailTransport = nodemailer.createTransport({
   }
 });
 
-// Lista de frases que indican que se necesita atención humana
-const NOTIFICATION_PHRASES = [
+// Lista de frases predeterminadas que indican que se necesita atención humana
+const DEFAULT_NOTIFICATION_PHRASES = [
   "¡Perfecto! tu cita ha sido confirmada para",
   "¡Perfecto! un asesor te llamará",
   "¡Perfecto! un asesor te contactará",
   "¡Perfecto! una persona te contactará"
 ];
 
+// Caché de palabras clave por negocio
+const businessKeywordsCache = new Map();
+
+// Tiempo de expiración de caché en milisegundos (5 minutos)
+const CACHE_EXPIRATION = 5 * 60 * 1000;
+
+/**
+ * Carga las palabras clave personalizadas para un negocio desde la base de datos
+ * @param {string} businessId - ID del negocio
+ * @returns {Array} - Array de palabras clave habilitadas
+ */
+async function loadKeywordsForBusiness(businessId) {
+  console.log(`🔍 Cargando palabras clave personalizadas para negocio: ${businessId}`);
+  
+  if (!businessId) {
+    console.warn(`⚠️ No se proporcionó businessId, usando palabras predeterminadas`);
+    return DEFAULT_NOTIFICATION_PHRASES;
+  }
+  
+  try {
+    // Debido a la importancia de tener las palabras clave actualizadas,
+    // forzamos una recarga desde la base de datos en cada llamada
+    console.log(`🔄 Forzando recarga de palabras clave del negocio: ${businessId}`);
+    
+    // Obtener palabras clave desde la base de datos
+    const { data, error } = await supabase
+      .from('notification_keywords')
+      .select('*')
+      .eq('business_id', businessId)
+      .eq('enabled', true);
+    
+    if (error) {
+      console.error(`❌ Error obteniendo palabras clave: ${error.message}`);
+      console.error(`   Código: ${error.code}, Detalles: ${JSON.stringify(error)}`);
+      // En caso de error, usar palabras predeterminadas
+      return DEFAULT_NOTIFICATION_PHRASES;
+    }
+    
+    // Imprimir todos los datos recibidos para diagnóstico
+    console.log(`📊 Datos recibidos de notification_keywords: ${JSON.stringify(data, null, 2)}`);
+    
+    // Si no hay palabras clave personalizadas, usar las predeterminadas
+    if (!data || data.length === 0) {
+      console.log(`ℹ️ No se encontraron palabras clave personalizadas para negocio ${businessId}, usando predeterminadas`);
+      
+      // Almacenar en caché las palabras predeterminadas
+      businessKeywordsCache.set(businessId, {
+        keywords: DEFAULT_NOTIFICATION_PHRASES,
+        timestamp: Date.now()
+      });
+      
+      return DEFAULT_NOTIFICATION_PHRASES;
+    }
+    
+    // Extraer las palabras clave y guardar en caché
+    const keywords = data.map(item => item.keyword);
+    console.log(`✅ Palabras clave personalizadas cargadas (${keywords.length}): ${keywords.join(', ')}`);
+    
+    // Almacenar en caché
+    businessKeywordsCache.set(businessId, {
+      keywords,
+      timestamp: Date.now()
+    });
+    
+    return keywords;
+  } catch (error) {
+    console.error(`❌ Error inesperado cargando palabras clave: ${error.message}`);
+    console.error(error.stack);
+    return DEFAULT_NOTIFICATION_PHRASES;
+  }
+}
+
+/**
+ * Limpia la caché de palabras clave para un negocio específico o para todos
+ * @param {string} businessId - ID del negocio (opcional)
+ */
+function clearKeywordsCache(businessId = null) {
+  if (businessId) {
+    businessKeywordsCache.delete(businessId);
+    console.log(`🧹 Caché de palabras clave limpiada para negocio: ${businessId}`);
+  } else {
+    businessKeywordsCache.clear();
+    console.log(`🧹 Caché de palabras clave limpiada para todos los negocios`);
+  }
+}
+
 /**
  * Verifica si un mensaje contiene alguna de las frases que indican necesidad de atención
  * @param {string} message - El mensaje a revisar
- * @returns {boolean} - True si el mensaje contiene alguna de las frases de notificación
+ * @param {string} businessId - ID del negocio (opcional)
+ * @returns {Promise<boolean>} - True si el mensaje contiene alguna de las frases de notificación
  */
-function checkForNotificationPhrases(message) {
+async function checkForNotificationPhrases(message, businessId = null) {
   if (!message) return false;
   
   // Normalizar el mensaje (convertir a minúsculas, eliminar espacios extras)
   const normalizedMessage = message.toLowerCase().trim();
   
+  console.log(`🔍 Analizando mensaje para notificación: "${normalizedMessage.substring(0, 60)}..."`);
+  console.log(`🏢 Business ID: ${businessId || 'No disponible'}`);
+  
+  // Determinar qué palabras clave usar (personalizadas o predeterminadas)
+  let phrases = DEFAULT_NOTIFICATION_PHRASES;
+  
+  if (businessId) {
+    // Cargar palabras clave personalizadas
+    phrases = await loadKeywordsForBusiness(businessId);
+    console.log(`🔑 Palabras clave cargadas para negocio ${businessId}: ${phrases.join(', ')}`);
+  } else {
+    console.log(`⚠️ Sin businessId, usando palabras clave predeterminadas: ${phrases.join(', ')}`);
+  }
+  
   // Verificar cada frase
-  for (const phrase of NOTIFICATION_PHRASES) {
+  for (const phrase of phrases) {
     const normalizedPhrase = phrase.toLowerCase().trim();
     
+    console.log(`🔎 Verificando si el mensaje contiene: "${normalizedPhrase}"`);
+    
     if (normalizedMessage.includes(normalizedPhrase)) {
-      console.log(`🔔 Frase detectada: "${phrase}"`);
+      console.log(`✅ COINCIDENCIA ENCONTRADA: "${normalizedPhrase}" en "${normalizedMessage.substring(0, 60)}..."`);
+      
+      // Intentar actualizar el estado del cliente a 'important'
+      try {
+        if (businessId) {
+          // Obtener ID de la conversación si solo tenemos el mensaje
+          const { data: msgData, error: msgError } = await supabase
+            .from('messages')
+            .select('conversation_id')
+            .eq('content', message)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          if (!msgError && msgData && msgData.length > 0) {
+            const conversationId = msgData[0].conversation_id;
+            
+            // Actualizar el estado del cliente en la conversación
+            const { error: updateError } = await supabase
+              .from('conversations')
+              .update({ 
+                status: 'important',
+                user_category: 'important',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', conversationId);
+            
+            if (updateError) {
+              console.error(`❌ Error al actualizar estado de conversación: ${updateError.message}`);
+            } else {
+              console.log(`✅ Estado de conversación actualizado a 'important'`);
+            }
+          }
+        }
+      } catch (updateError) {
+        console.error(`❌ Error intentando actualizar estado: ${updateError}`);
+      }
+      
       return true;
     }
   }
   
+  console.log(`❌ No se encontraron coincidencias de palabras clave en el mensaje`);
   return false;
 }
 
@@ -62,45 +202,108 @@ function checkForNotificationPhrases(message) {
  * @param {string} message - El mensaje a procesar
  * @param {string} conversationId - ID de la conversación
  * @param {string} phoneNumber - Número de teléfono del cliente (opcional)
+ * @param {string} forcedBusinessId - ID del negocio (opcional, para forzar un negocio específico)
  * @returns {Object} - Resultado del procesamiento
  */
-async function processMessageForNotification(message, conversationId, phoneNumber = null) {
+async function processMessageForNotification(message, conversationId, phoneNumber = null, forcedBusinessId = null) {
   try {
+    console.log(`
+=== INICIO PROCESAMIENTO DE NOTIFICACIÓN ===
+📱 Conversación: ${conversationId}
+📱 Teléfono (si disponible): ${phoneNumber || 'N/A'}
+💬 Mensaje: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}
+`);
+
+    // Si se proporciona un businessId forzado, usarlo directamente
+    let businessId = forcedBusinessId;
+    
+    // Si no hay businessId forzado, intentar obtenerlo de la conversación
+    if (!businessId) {
+      // Obtener información de la conversación desde Supabase
+      let clientPhone = phoneNumber;
+      
+      try {
+        console.log(`🔍 Obteniendo información de conversación: ${conversationId}`);
+        const { data: conversationData, error: conversationError } = await supabase
+          .from('conversations')
+          .select('user_id, business_id')
+          .eq('id', conversationId)
+          .single();
+        
+        if (conversationError) {
+          console.error(`❌ Error obteniendo datos de conversación: ${conversationError.message}`);
+        } else if (conversationData) {
+          clientPhone = conversationData.user_id;
+          businessId = conversationData.business_id;
+          console.log(`✅ Datos de conversación obtenidos: phone=${clientPhone}, businessId=${businessId}`);
+        }
+      } catch (dbError) {
+        console.error(`❌ Error consultando conversación: ${dbError.message}`);
+      }
+
+      if (!businessId) {
+        console.warn(`⚠️ No se pudo obtener businessId para la conversación ${conversationId}. Buscando por teléfono...`);
+        
+        // Intento alternativo: buscar businessId por número de teléfono en otras conversaciones
+        if (clientPhone) {
+          try {
+            const { data: otherConversations, error: otherError } = await supabase
+              .from('conversations')
+              .select('business_id')
+              .eq('user_id', clientPhone)
+              .not('business_id', 'is', null)
+              .order('created_at', { ascending: false })
+              .limit(1);
+            
+            if (!otherError && otherConversations && otherConversations.length > 0) {
+              businessId = otherConversations[0].business_id;
+              console.log(`✅ BusinessId encontrado en otra conversación del mismo cliente: ${businessId}`);
+            }
+          } catch (err) {
+            console.error(`❌ Error buscando otras conversaciones: ${err.message}`);
+          }
+        }
+      }
+    } else {
+      console.log(`💼 Usando businessId forzado: ${businessId}`);
+    }
+    
+    // Diagnóstico: consultar directamente la tabla notification_keywords por este businessId
+    if (businessId) {
+      try {
+        console.log(`🔍 Consultando directamente table notification_keywords para businessId=${businessId}`);
+        const { data: keywordsData, error: keywordsError } = await supabase
+          .from('notification_keywords')
+          .select('*')
+          .eq('business_id', businessId);
+        
+        if (keywordsError) {
+          console.error(`❌ Error consultando tabla notification_keywords: ${keywordsError.message}`);
+        } else {
+          console.log(`✅ Encontradas ${keywordsData?.length || 0} palabras clave en la tabla para este negocio.`);
+          if (keywordsData && keywordsData.length > 0) {
+            const keywords = keywordsData.map(k => k.keyword).join(', ');
+            console.log(`📋 Palabras clave disponibles: ${keywords}`);
+          }
+        }
+      } catch (kwErr) {
+        console.error(`❌ Error inesperado consultando keywords: ${kwErr.message}`);
+      }
+    }
+    
     // Verificar si el mensaje contiene alguna frase que requiera notificación
-    const requiresNotification = checkForNotificationPhrases(message);
+    // Ahora pasamos el businessId para obtener palabras clave personalizadas
+    const requiresNotification = await checkForNotificationPhrases(message, businessId);
     
     if (!requiresNotification) {
+      console.log('❌ No se requiere notificación. Finalizando procesamiento.');
       return { 
         requiresNotification: false,
         notificationSent: false 
       };
     }
     
-    console.log(`🔔 Notificación requerida para conversación: ${conversationId}`);
-    
-    // Si no tenemos el número de teléfono o ID del negocio, intentar obtenerlos de la base de datos
-    let clientPhone = phoneNumber;
-    let businessId = null;
-    
-    // Obtener información de la conversación desde Supabase
-    try {
-      console.log(`🔍 Obteniendo información de conversación: ${conversationId}`);
-      const { data: conversationData, error: conversationError } = await supabase
-        .from('conversations')
-        .select('user_id, business_id')
-        .eq('id', conversationId)
-        .single();
-      
-      if (conversationError) {
-        console.error(`❌ Error obteniendo datos de conversación: ${conversationError.message}`);
-      } else if (conversationData) {
-        clientPhone = conversationData.user_id;
-        businessId = conversationData.business_id;
-        console.log(`✅ Datos de conversación obtenidos: phone=${clientPhone}, businessId=${businessId}`);
-      }
-    } catch (dbError) {
-      console.error(`❌ Error consultando conversación: ${dbError.message}`);
-    }
+    console.log(`🔔 NOTIFICACIÓN REQUERIDA para conversación: ${conversationId}`);
     
     if (!businessId) {
       console.error(`❌ No se pudo obtener el ID del negocio para la conversación: ${conversationId}`);
@@ -256,7 +459,7 @@ async function processMessageForNotification(message, conversationId, phoneNumbe
     const notificationSent = await sendBusinessNotification(
       message,
       conversationId,
-      clientPhone,
+      phoneNumber,
       businessEmail,
       businessId,
       businessName
@@ -309,152 +512,115 @@ async function getLastMessages(conversationId, limit = 20) {
 }
 
 /**
- * Envía una notificación por correo electrónico
- * @param {string} message - El mensaje del bot
+ * Envía una notificación por correo a un negocio cuando un mensaje requiere atención
+ * @param {string} message - El mensaje que requiere atención
  * @param {string} conversationId - ID de la conversación
  * @param {string} phoneNumber - Número de teléfono del cliente
- * @param {string} emailTo - Correo electrónico de destino
+ * @param {string} toEmail - Correo al que se enviará la notificación
  * @param {string} businessId - ID del negocio
  * @param {string} businessName - Nombre del negocio
  * @returns {boolean} - True si la notificación se envió correctamente
  */
-async function sendBusinessNotification(message, conversationId, phoneNumber, emailTo, businessId, businessName = 'BEXOR') {
+async function sendBusinessNotification(message, conversationId, phoneNumber, toEmail, businessId, businessName) {
   try {
-    if (!EMAIL_APP_PASSWORD) {
-      console.error('⚠️ IMPORTANTE: No se puede enviar notificación por correo: falta configurar EMAIL_APP_PASSWORD');
-      console.error('⚠️ Agrega la variable EMAIL_APP_PASSWORD a las variables de entorno en Render');
-      console.error('⚠️ Mensaje que requiere atención: ' + message.substring(0, 100));
-      console.error('⚠️ Teléfono del cliente: ' + phoneNumber);
-      console.error('⚠️ ID del negocio: ' + businessId);
-      console.error('⚠️ Correo de destino: ' + emailTo);
-      
-      // Registrar la falta de configuración pero no fallar
+    console.log(`📧 Enviando notificación por correo a ${toEmail} (${businessName})`);
+    
+    // Si no hay correo o mensaje, no enviar notificación
+    if (!toEmail || !message) {
+      console.error('❌ Faltan datos para enviar notificación por correo');
       return false;
     }
     
-    // Obtener los últimos 20 mensajes de la conversación
-    const lastMessages = await getLastMessages(conversationId, 20);
-    console.log(`✅ Obtenidos ${lastMessages.length} mensajes para incluir en la notificación`);
-    
-    // Formatear el mensaje para el correo
-    const formattedPhone = phoneNumber ? phoneNumber : 'No disponible';
-    const timestamp = new Date().toLocaleString('es-ES', { 
-      timeZone: 'America/Mexico_City'
-    });
-    
-    // Generar HTML con el historial de mensajes
-    let messagesHtml = '';
-    if (lastMessages && lastMessages.length > 0) {
-      messagesHtml = `
-        <h3>📝 Historial de mensajes recientes:</h3>
-        <div style="background-color: #f9f9f9; padding: 10px; border-radius: 5px; margin: 10px 0; max-height: 400px; overflow-y: auto;">
-      `;
+    // Obtener los últimos mensajes de la conversación como contexto
+    let conversationHistory = '';
+    try {
+      const lastMessages = await getLastMessages(conversationId, 10);
       
-      // Log para depuración
-      console.log('🔍 CLASIFICACIÓN ESTRICTA DE MENSAJES EN EMAIL:');
-      console.log(`📱 Teléfono del cliente: ${phoneNumber}`);
-      console.log(`🏢 ID del negocio: ${businessId}`);
-      
-      // Ordenar mensajes cronológicamente (más viejos primero)
-      lastMessages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-      
-      lastMessages.forEach(msg => {
-        // Log detallado de cada mensaje para depuración
-        console.log(`
-📩 MENSAJE (ID: ${msg.id?.substring(0,8) || 'N/A'}):
-   - sender_type: "${msg.sender_type || 'undefined'}"
-   - Contenido: "${msg.content?.substring(0,40)}..."
-        `);
+      if (lastMessages && lastMessages.length > 0) {
+        conversationHistory = 'Últimos mensajes de la conversación:\n\n';
         
-        // IMPORTANTE: USAR DIRECTAMENTE EL CAMPO SENDER_TYPE COMO CRITERIO ABSOLUTO
-        // Cualquier mensaje con sender_type 'user' está a la izquierda
-        // Cualquier otro tipo (bot, agent, undefined, etc) está a la derecha
-        const isFromClient = msg.sender_type === 'user';
-        
-        // Determinar el nombre a mostrar según el sender_type
-        const senderLabel = isFromClient 
-          ? 'Cliente' 
-          : (msg.sender_type === 'bot' 
-              ? 'Bot' 
-              : msg.sender_type === 'agent' 
-                ? 'Asesor' 
-                : 'Sistema');
-        
-        // Log para confirmar la posición
-        console.log(`   → ${isFromClient ? 'IZQUIERDA (Cliente)' : 'DERECHA (Sistema)'} - ${senderLabel}`);
-        
-        // Formatear la hora del mensaje
-        const msgTime = new Date(msg.created_at).toLocaleTimeString('es-ES', {
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-        
-        // Marcar específicamente si es el mensaje que activó la notificación
-        const isTriggerMessage = msg.content === message;
-        
-        // Estilos para los diferentes tipos de mensajes
-        if (isFromClient) {
-          // CLIENTE - IZQUIERDA (fondo blanco)
-          messagesHtml += `
-            <div style="overflow: hidden; margin-bottom: 12px;">
-              <div style="background-color: #FFFFFF; border: 1px solid #e0e0e0; padding: 8px; border-radius: 10px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: left; float: left; clear: both; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
-                <div style="font-size: 0.8em; color: #666; margin-bottom: 4px;"><strong>Cliente</strong> - ${msgTime}</div>
-                <div style="color: #333;">${msg.content.replace(/\n/g, '<br>')}</div>
-              </div>
-            </div>
-          `;
-        } else {
-          // SISTEMA (BOT/DASHBOARD) - DERECHA (fondo oscuro)
-          messagesHtml += `
-            <div style="overflow: hidden; margin-bottom: 12px;">
-              <div style="background-color: #2d2d3d; color: #FFFFFF; padding: 8px; border-radius: 10px; margin: 5px 0; display: inline-block; max-width: 80%; text-align: right; float: right; clear: both; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
-                <div style="font-size: 0.8em; color: #FFFFFF; margin-bottom: 4px;"><strong>${senderLabel}</strong> - ${msgTime}</div>
-                <div style="color: #FFFFFF;">${msg.content.replace(/\n/g, '<br>')}</div>
-                ${isTriggerMessage ? '<div style="color: #FFD0D0; font-weight: bold; margin-top: 5px; font-size: 0.85em;">⚠️ MENSAJE QUE ACTIVÓ LA NOTIFICACIÓN</div>' : ''}
-              </div>
-            </div>
-          `;
+        for (const msg of lastMessages) {
+          const senderType = msg.sender_type === 'user' ? 'CLIENTE' : 'BOT';
+          const date = new Date(msg.created_at);
+          const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+          
+          conversationHistory += `[${formattedDate}] ${senderType}: ${msg.content}\n`;
         }
-      });
-      
-      messagesHtml += `
-        <div style="clear: both;"></div>
-        </div>
-      `;
+      }
+    } catch (historyError) {
+      console.error(`❌ Error obteniendo historial: ${historyError.message}`);
+      conversationHistory = 'No se pudo obtener el historial de la conversación.';
     }
     
-    // Crear contenido del correo
-    const emailSubject = `🔔 Atención requerida: Cliente en WhatsApp (${formattedPhone})`;
-    const emailHtml = `
-      <h2>🤖 Notificación de Bot de WhatsApp - ${businessName}</h2>
-      <p><strong>Se requiere atención humana para un cliente.</strong></p>
-      <hr>
-      <p><strong>📱 Número de teléfono:</strong> ${formattedPhone}</p>
-      <p><strong>🆔 ID de conversación:</strong> ${conversationId}</p>
-      <p><strong>🏢 ID de negocio:</strong> ${businessId || 'No disponible'}</p>
-      <p><strong>⏰ Fecha y hora:</strong> ${timestamp}</p>
-      <p><strong>💬 Mensaje del bot que generó la alerta:</strong></p>
-      <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #FF0000;">
-        ${message.replace(/\n/g, '<br>')}
+    // URL para ver la conversación en el dashboard (sustituir por URL real)
+    const dashboardUrl = `https://dashboard.tuasistenteia.com/conversations/${conversationId}`;
+    
+    // Formatear el mensaje
+    const emailSubject = `🔔 Notificación: Se requiere atención para cliente ${phoneNumber || 'desconocido'} - ${businessName}`;
+    
+    const emailBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background-color: #4CAF50; color: white; padding: 10px; text-align: center; }
+    .content { padding: 20px; background-color: #f9f9f9; border-radius: 5px; }
+    .message { background-color: #e6f7ff; padding: 15px; border-left: 4px solid #1890ff; margin: 15px 0; }
+    .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+    .button { display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
+    .history { background-color: #f5f5f5; padding: 10px; font-family: monospace; white-space: pre-wrap; margin-top: 20px; max-height: 300px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>🔔 Notificación de WhatsApp</h2>
+    </div>
+    <div class="content">
+      <h3>Se requiere tu atención</h3>
+      <p>Un mensaje en una conversación de WhatsApp requiere tu atención:</p>
+      
+      <div class="message">
+        <p><strong>Mensaje:</strong> "${message}"</p>
+        <p><strong>Cliente:</strong> ${phoneNumber || 'Número desconocido'}</p>
+        <p><strong>ID de conversación:</strong> ${conversationId}</p>
+        <p><strong>Negocio:</strong> ${businessName}</p>
       </div>
-      ${messagesHtml}
-      <hr>
-      <p>Por favor, continúe la conversación con el cliente lo antes posible.</p>
-    `;
+      
+      <p>Por favor, revisa la conversación lo antes posible para atender al cliente.</p>
+      
+      <div style="text-align: center; margin: 25px 0;">
+        <a href="${dashboardUrl}" class="button">Ver conversación en dashboard</a>
+      </div>
+      
+      <div class="history">
+${conversationHistory}
+      </div>
+    </div>
+    <div class="footer">
+      <p>Este es un mensaje automático. Por favor, no respondas a este correo.</p>
+      <p>Powered by TuAsistenteIA</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
     
     // Configurar opciones del correo
     const mailOptions = {
       from: EMAIL_USER,
-      to: emailTo,
+      to: toEmail,
       subject: emailSubject,
-      html: emailHtml
+      html: emailBody
     };
     
-    // Enviar el correo
-    console.log(`📧 Enviando notificación por correo a ${emailTo}...`);
-    const info = await mailTransport.sendMail(mailOptions);
+    // Enviar correo
+    await mailTransport.sendMail(mailOptions);
     
-    console.log(`✅ Notificación enviada: ${info.messageId}`);
+    console.log(`✅ Notificación enviada a ${toEmail}`);
     return true;
   } catch (error) {
     console.error(`❌ Error enviando notificación por correo: ${error.message}`);
@@ -791,10 +957,28 @@ if (require.main === module) {
     });
 }
 
+// Exportar funciones
 module.exports = {
-  checkForNotificationPhrases,
   processMessageForNotification,
+  checkForNotificationPhrases,
+  loadKeywordsForBusiness,
+  clearKeywordsCache,
   sendBusinessNotification,
+  getLastMessages,
   fixMessagesInDatabase,
-  fixMessagesFromSample
-}; 
+  fixMessagesFromSample,
+  DEFAULT_NOTIFICATION_PHRASES
+};
+
+// Log de inicialización para saber que el módulo se cargó correctamente
+console.log(`
+🔔 Módulo de notificaciones inicializado
+📧 Remitente: ${EMAIL_USER}
+📧 Destinatario por defecto: ${EMAIL_TO_DEFAULT}
+🔑 Contraseña configurada: ${EMAIL_APP_PASSWORD ? '✅ SÍ' : '❌ NO'}
+🔍 Modo diagnóstico: ACTIVADO
+📝 Frases predeterminadas: ${DEFAULT_NOTIFICATION_PHRASES.length}
+`);
+
+// Limpiar la caché al inicio
+clearKeywordsCache();
