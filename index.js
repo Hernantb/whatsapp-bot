@@ -3098,3 +3098,56 @@ async function processMessageGroup(conversationId) {
     console.error(`❌ Error procesando mensaje con OpenAI: ${aiError.message}`);
   }
 }
+
+// Variables para agrupamiento de mensajes
+const pendingMessageGroups = new Map(); // Almacena los mensajes pendientes por conversación
+const MESSAGE_GROUP_WAIT_TIME = 3000; // 3 segundos de espera para agrupar mensajes
+const MAX_MESSAGE_GROUP_WAIT = 5000; // Máximo 5 segundos de espera
+
+/**
+ * Añade un mensaje al grupo pendiente de una conversación
+ * @param {string} conversationId ID de la conversación
+ * @param {Object} messageData Datos del mensaje
+ * @returns {boolean} true si el mensaje debe esperar, false en caso contrario
+ */
+function addToPendingMessageGroup(conversationId, messageData) {
+  if (!conversationId) return false;
+  
+  // Obtener o crear el grupo para esta conversación
+  if (!pendingMessageGroups.has(conversationId)) {
+    pendingMessageGroups.set(conversationId, {
+      messages: [],
+      timeoutId: null,
+      firstMessageTime: Date.now()
+    });
+  }
+  
+  const group = pendingMessageGroups.get(conversationId);
+  
+  // Agregar el mensaje al grupo
+  group.messages.push(messageData);
+  console.log(`📎 Mensaje añadido al grupo de ${conversationId}. Total: ${group.messages.length}`);
+  
+  // Limpiar el timeout anterior si existe
+  if (group.timeoutId) {
+    clearTimeout(group.timeoutId);
+  }
+  
+  // Calcular cuánto tiempo debe esperar para ver si llegan más mensajes
+  const elapsedTime = Date.now() - group.firstMessageTime;
+  let remainingWaitTime = MESSAGE_GROUP_WAIT_TIME;
+  
+  // Si ya ha pasado mucho tiempo desde el primer mensaje, reducir el tiempo de espera
+  if (elapsedTime > MAX_MESSAGE_GROUP_WAIT) {
+    remainingWaitTime = 500; // Espera mínima de 500ms
+  } else {
+    remainingWaitTime = Math.min(MESSAGE_GROUP_WAIT_TIME, MAX_MESSAGE_GROUP_WAIT - elapsedTime);
+  }
+  
+  // Establecer un nuevo timeout para procesar este grupo
+  group.timeoutId = setTimeout(() => {
+    processMessageGroup(conversationId);
+  }, remainingWaitTime);
+  
+  return true; // Indicar que debe esperar y no procesar inmediatamente
+}
