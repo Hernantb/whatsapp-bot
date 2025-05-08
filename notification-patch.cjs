@@ -173,6 +173,10 @@ async function checkForNotificationPhrases(message, businessId = null) {
               .from('conversations')
               .update({ 
                 is_important: true, // Usar is_important en lugar de status
+                user_category: 'important', // Necesario para el dashboard
+                tag: 'yellow', // Color para conversaciones importantes
+                colorLabel: 'yellow', // Color visual en la UI
+                manuallyMovedToAll: false, // Asegurar que aparezca en la columna "Importantes"
                 notification_sent: true,
                 notification_timestamp: new Date().toISOString(),
                 last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada",
@@ -187,13 +191,16 @@ async function checkForNotificationPhrases(message, businessId = null) {
               try {
                 const { error: importantError } = await supabase
                   .from('conversations')
-                  .update({ is_important: true })
+                  .update({ 
+                    is_important: true,
+                    user_category: 'important'
+                  })
                   .eq('id', conversationId);
                 
                 if (importantError) {
                   console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
                 } else {
-                  console.log(`✅ Campo is_important actualizado correctamente`);
+                  console.log(`✅ Campos is_important y user_category actualizados correctamente`);
                 }
               } catch (fieldError) {
                 console.error(`❌ Error actualizando campo individual: ${fieldError.message}`);
@@ -670,48 +677,34 @@ async function sendBusinessNotification(message, conversationId, phoneNumber, em
     
     console.log(`✅ Notificación enviada: ${info.messageId}`);
     
-    // Actualizar el estado de la conversación a importante
+    // Marcar la conversación como importante en el dashboard
+    console.log(`🔍 Actualizando conversación ${conversationId} como importante después de enviar correo...`);
+    
     try {
-      console.log(`🔍 Actualizando conversación ${conversationId} como importante después de enviar correo...`);
-      
       const { error: updateError } = await supabase
         .from('conversations')
-        .update({ 
+        .update({
           is_important: true,
-          notification_sent: true,
-          notification_timestamp: new Date().toISOString(),
+          user_category: 'important',
+          tag: 'yellow',
+          colorLabel: 'yellow',
+          manuallyMovedToAll: false,
           last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada"
         })
         .eq('id', conversationId);
       
       if (updateError) {
-        console.error(`❌ Error actualizando conversación como importante: ${updateError.message}`);
-        
-        // Intentar actualizar solo el campo is_important
-        try {
-          const { error: importantError } = await supabase
-            .from('conversations')
-            .update({ is_important: true })
-            .eq('id', conversationId);
-          
-          if (importantError) {
-            console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
-          } else {
-            console.log(`✅ Campo is_important actualizado correctamente`);
-          }
-        } catch (fieldError) {
-          console.error(`❌ Error actualizando campo individual: ${fieldError.message}`);
-        }
+        console.error(`❌ Error al actualizar conversación: ${updateError.message}`);
       } else {
         console.log(`✅ Conversación ${conversationId} marcada como importante exitosamente`);
       }
     } catch (updateError) {
-      console.error(`❌ Error al actualizar estado de la conversación: ${updateError.message}`);
+      console.error(`❌ Error al actualizar conversación: ${updateError.message}`);
     }
     
     return true;
   } catch (error) {
-    console.error(`❌ Error enviando notificación por correo: ${error.message}`);
+    console.error(`❌ Error al enviar notificación: ${error.message}`);
     return false;
   }
 }

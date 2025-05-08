@@ -203,7 +203,11 @@ async function sendBusinessNotification(conversationId, botMessage, clientPhoneN
           is_important: true,
           notification_sent: true,
           notification_timestamp: new Date().toISOString(),
-          last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada"
+          last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada",
+          user_category: 'important', // Necesario para el dashboard
+          tag: 'yellow', // Color para conversaciones importantes
+          colorLabel: 'yellow', // Color visual en la UI
+          manuallyMovedToAll: false // Asegurar que aparezca en la columna "Importantes"
         })
         .eq('id', conversationId);
       
@@ -239,7 +243,11 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
       notification_sent: success,
       notification_timestamp: new Date().toISOString(),
       last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada",
-      is_important: true // Usar is_important en lugar de status
+      is_important: true, // Usar is_important en lugar de status
+      user_category: 'important', // Esto es necesario para el dashboard
+      tag: 'yellow', // Color de la etiqueta para conversaciones importantes
+      colorLabel: 'yellow', // Color para mostrar en la UI
+      manuallyMovedToAll: false // Esto evita que sea filtrado de la vista de importantes
     };
     
     // Actualización principal
@@ -263,6 +271,42 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
           console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
         } else {
           console.log(`✅ Campo is_important actualizado correctamente`);
+        }
+        
+        // Actualizar user_category
+        const { error: categoryError } = await supabase
+          .from('conversations')
+          .update({ user_category: 'important' })
+          .eq('id', conversationId);
+        
+        if (categoryError) {
+          console.error(`❌ Error al actualizar user_category: ${categoryError.message}`);
+        } else {
+          console.log(`✅ Campo user_category actualizado correctamente`);
+        }
+        
+        // Actualizar tag y colorLabel
+        const { error: tagError } = await supabase
+          .from('conversations')
+          .update({ tag: 'yellow', colorLabel: 'yellow' })
+          .eq('id', conversationId);
+        
+        if (tagError) {
+          console.error(`❌ Error al actualizar tag/colorLabel: ${tagError.message}`);
+        } else {
+          console.log(`✅ Campos tag y colorLabel actualizados correctamente`);
+        }
+        
+        // Actualizar manuallyMovedToAll
+        const { error: movedError } = await supabase
+          .from('conversations')
+          .update({ manuallyMovedToAll: false })
+          .eq('id', conversationId);
+        
+        if (movedError) {
+          console.error(`❌ Error al actualizar manuallyMovedToAll: ${movedError.message}`);
+        } else {
+          console.log(`✅ Campo manuallyMovedToAll actualizado correctamente`);
         }
         
         // Actualizar notification_sent
