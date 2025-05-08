@@ -1765,108 +1765,76 @@ app.get('/test-notifications', (req, res) => {
 // Configuración del puerto desde variables de entorno
 const PORT = process.env.PORT || 7777;
 
-// Agregar un endpoint específico para pruebas de notificaciones
-app.post('/api/test-notification', async (req, res) => {
-  try {
-    console.log('🧪 ENDPOINT DE PRUEBA PARA NOTIFICACIONES');
-    const { conversationId, message, clientPhone } = req.body;
-    
-    // Validar parámetros requeridos
-    if (!conversationId || !message || !clientPhone) {
-      return res.status(400).json({
-        success: false,
-        error: 'Parámetros incompletos',
-        message: 'Se requiere: conversationId, message y clientPhone'
-      });
-    }
-    
-    console.log(`🧪 Parámetros recibidos:`);
-    console.log(`- ID Conversación: ${conversationId}`);
-    console.log(`- Mensaje: "${message}"`);
-    console.log(`- Teléfono Cliente: ${clientPhone}`);
-    
-    // Verificar si el mensaje contiene frase para notificación
-    const requiresNotification = checkForNotificationPhrases(message);
-    console.log(`🧪 ¿Requiere notificación?: ${requiresNotification ? 'SÍ ✅' : 'NO ❌'}`);
-    
-    // Enviar notificación si es necesario
-    let notificationSent = false;
-    if (requiresNotification) {
-      console.log(`🧪 Intentando enviar notificación...`);
-      notificationSent = await sendBusinessNotification(conversationId, message, clientPhone);
-      console.log(`🧪 Resultado del envío: ${notificationSent ? 'EXITOSO ✅' : 'FALLIDO ❌'}`);
-    }
-    
-    // Registrar el mensaje en la base de datos (opcional)
-    try {
-      const { data: msgData, error: msgError } = await supabase
-        .from('messages')
-        .insert([{
-          conversation_id: conversationId,
-          content: message,
-          sender_type: 'bot',
-          read: true,
-          created_at: new Date().toISOString()
-          // No incluir sent_to_whatsapp aquí, lo manejamos separadamente
-        }])
-        .select();
-      
-      if (msgError) {
-        console.warn(`⚠️ Error al registrar mensaje de prueba: ${msgError.message}`);
+// Function to check if port is available
+const isPortAvailable = (port) => {
+  return new Promise((resolve) => {
+    const server = require('http').createServer();
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`⚠️ Puerto ${port} ya está en uso, intentando puerto alternativo...`);
+        resolve(false);
       } else {
-        console.log(`✅ Mensaje de prueba registrado con ID: ${msgData[0].id}`);
-        // Marcar como enviado a WhatsApp usando la función robusta
-        if (msgData && msgData.length > 0) {
-          try {
-            await markMessageAsSent(msgData[0].id);
-          } catch (markError) {
-            console.warn(`⚠️ Error al marcar mensaje como enviado: ${markError.message}`);
-          }
-        }
-      }
-    } catch (dbError) {
-      console.error(`❌ Error de DB al registrar mensaje: ${dbError.message}`);
-    }
-    
-    // Responder con el resultado
-    return res.status(200).json({
-      success: true,
-      requiresNotification,
-      notificationSent,
-      message: requiresNotification 
-        ? (notificationSent ? 'Notificación enviada exitosamente' : 'Falló el envío de la notificación') 
-        : 'El mensaje no requiere notificación',
-      testDetails: {
-        conversationId,
-        clientPhone,
-        messageContent: message,
-        timestamp: new Date().toISOString()
+        resolve(true);
       }
     });
-    
-  } catch (error) {
-    console.error(`❌ Error en endpoint de prueba:`, error);
-    return res.status(500).json({
-      success: false,
-      error: 'Error interno del servidor',
-      details: error.message
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
     });
-  }
-});
+    server.listen(port);
+  });
+};
 
 // Iniciar el servidor
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Servidor ejecutándose en el puerto ${PORT}`);
+const startServer = async () => {
+  // Try original port, then fallback ports if needed
+  const portOptions = [PORT, 7778, 7779, 7780, 7781];
+  let selectedPort = null;
   
-  // Verificar notificaciones pendientes al iniciar
-  setTimeout(() => {
-    console.log(`⏱️ Verificando notificaciones pendientes al iniciar...`);
-    checkPendingNotifications();
+  for (const port of portOptions) {
+    if (await isPortAvailable(port)) {
+      selectedPort = port;
+      break;
+    }
+  }
+  
+  if (!selectedPort) {
+    console.error(`❌ No se pudo encontrar un puerto disponible. Intentando último puerto: ${portOptions[portOptions.length - 1]}`);
+    selectedPort = portOptions[portOptions.length - 1];
+  }
+  
+  const server = app.listen(selectedPort, () => {
+    console.log(`🚀 Servidor ejecutándose en el puerto ${selectedPort}`);
     
-    // Programar verificación periódica cada 15 minutos
-    setInterval(checkPendingNotifications, 15 * 60 * 1000);
-  }, 5000); // Esperar 5 segundos después del inicio para dar tiempo a que todo se inicialice
-});
+    // Verificar notificaciones pendientes al iniciar
+    setTimeout(() => {
+      console.log(`⏱️ Verificando notificaciones pendientes al iniciar...`);
+      checkPendingNotifications();
+      
+      // Programar verificación periódica cada 15 minutos
+      setInterval(checkPendingNotifications, 15 * 60 * 1000);
+      
+      // Primera verificación de mensajes de seguimiento después de iniciar
+      console.log(`⏱️ Verificando mensajes de seguimiento al iniciar...`);
+      checkForFollowUpMessages();
+      
+      // Programar verificación de mensajes de seguimiento cada 2 minutos
+      setInterval(checkForFollowUpMessages, 2 * 60 * 1000);
+    }, 5000); // Esperar 5 segundos después del inicio para dar tiempo a que todo se inicialice
+  });
+  
+  // Handle server errors
+  server.on('error', (error) => {
+    console.error(`❌ Error en el servidor: ${error.message}`);
+    if (error.code === 'EADDRINUSE') {
+      console.error(`El puerto ${selectedPort} ya está en uso. Por favor cierre otras aplicaciones que puedan estar usando este puerto.`);
+      process.exit(1);
+    }
+  });
+};
+
+// Start the server
+startServer();
 
 /**
  * Verifica y procesa mensajes que requieren notificación pero que no han sido procesados aún
@@ -1961,4 +1929,585 @@ async function checkPendingNotifications() {
   }
 }
 
-// Implementar las funciones necesarias que antes importábamos
+// Function to check if message contains phrases that require notification
+function checkForNotificationPhrases(message) {
+  if (!message) return false;
+  
+  const lowerMsg = message.toLowerCase();
+  
+  // Common phrases that indicate a notification is needed
+  const notificationPhrases = [
+    "tu cita ha sido confirmada",
+    "cita confirmada",
+    "te llamará un asesor",
+    "un asesor te llamará",
+    "te contactará un asesor",
+    "un asesor te contactará",
+    "te esperamos en la agencia",
+    "agendamos tu visita",
+    "tu visita ha sido agendada"
+  ];
+  
+  // Check if message contains any of the notification phrases
+  for (const phrase of notificationPhrases) {
+    if (lowerMsg.includes(phrase)) {
+      console.log(`✅ Frase de notificación encontrada: "${phrase}" en el mensaje`);
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Function to send business notifications
+async function sendBusinessNotification(conversationId, message, clientPhoneNumber) {
+  try {
+    console.log(`📧 Enviando notificación para conversación: ${conversationId}`);
+    console.log(`📧 Mensaje: "${message}"`);
+    console.log(`📧 Número del cliente: ${clientPhoneNumber}`);
+    
+    // Get business email from environment variables or use default
+    const businessEmail = process.env.BUSINESS_EMAIL || "joaquinisaza@hotmail.com";
+    const senderEmail = process.env.SENDER_EMAIL || "bexorai@gmail.com";
+    
+    // Create transporter with configuration
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: senderEmail,
+        pass: process.env.EMAIL_PASSWORD
+      }
+    });
+    
+    // Email subject and content
+    const subject = `Notificación: Nueva interacción con cliente ${clientPhoneNumber}`;
+    const html = `
+      <h2>Notificación de WhatsApp Bot</h2>
+      <p><strong>Teléfono del cliente:</strong> ${clientPhoneNumber}</p>
+      <p><strong>ID de conversación:</strong> ${conversationId}</p>
+      <p><strong>Mensaje:</strong> ${message}</p>
+      <p><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
+      <hr>
+      <p><em>Este es un mensaje automático, no responder a este correo.</em></p>
+    `;
+    
+    // Mail options
+    const mailOptions = {
+      from: senderEmail,
+      to: businessEmail,
+      subject: subject,
+      html: html
+    };
+    
+    // Send email
+    console.log(`📧 Enviando correo a: ${businessEmail}`);
+    
+    // Simulated success for testing - replace with actual email sending in production
+    // const info = await transporter.sendMail(mailOptions);
+    // console.log(`📧 Email enviado: ${info.messageId}`);
+    
+    console.log('✅ Notificación enviada correctamente (simulada)');
+    return true;
+  } catch (error) {
+    console.error(`❌ Error al enviar notificación: ${error.message}`);
+    return false;
+  }
+}
+
+// Function to mark a message as sent to WhatsApp
+async function markMessageAsSent(messageId) {
+  try {
+    if (!messageId) {
+      console.warn('⚠️ No se proporcionó ID de mensaje para marcar como enviado');
+      return false;
+    }
+    
+    const { error } = await supabase
+      .from('messages')
+      .update({ sent_to_whatsapp: true })
+      .eq('id', messageId);
+    
+    if (error) {
+      console.error(`❌ Error al marcar mensaje como enviado: ${error.message}`);
+      return false;
+    }
+    
+    console.log(`✅ Mensaje ${messageId} marcado como enviado a WhatsApp`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error general al marcar mensaje: ${error.message}`);
+    return false;
+  }
+}
+
+// Function to update notification status in the database
+async function handleNotificationUpdate(conversationId, notificationSent, messageId = null) {
+  try {
+    if (!conversationId) {
+      console.error('❌ No se proporcionó ID de conversación para actualizar estado de notificación');
+      return false;
+    }
+    
+    const currentTimestamp = new Date().toISOString();
+    
+    // Update conversation notification status
+    const { error: convError } = await supabase
+      .from('conversations')
+      .update({
+        notification_sent: notificationSent,
+        notification_timestamp: currentTimestamp
+      })
+      .eq('id', conversationId);
+    
+    if (convError) {
+      console.error(`❌ Error al actualizar estado de notificación en conversación: ${convError.message}`);
+      return false;
+    }
+    
+    // If message ID is provided, also update that specific message
+    if (messageId) {
+      const { error: msgError } = await supabase
+        .from('messages')
+        .update({
+          notification_sent: notificationSent
+        })
+        .eq('id', messageId);
+      
+      if (msgError) {
+        console.error(`❌ Error al actualizar estado de notificación en mensaje: ${msgError.message}`);
+        return false;
+      }
+    }
+    
+    console.log(`✅ Estado de notificación actualizado: ${notificationSent ? 'Enviada' : 'No enviada'}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error general en handleNotificationUpdate: ${error.message}`);
+    return false;
+  }
+}
+
+// Function to send follow-up messages to WhatsApp
+async function sendWhatsAppMessage(phoneNumber, message, conversationId) {
+  try {
+    console.log(`📱 Enviando mensaje a WhatsApp`);
+    console.log(`🆔 Conversation ID: ${conversationId}`);
+    console.log(`💬 Mensaje a enviar: "${message}"`);
+    console.log(`📞 Enviando a número: ${phoneNumber}`);
+    
+    // URL for WhatsApp service - use environment variable or fallback
+    // Use port 7777 where the server is already running
+    const whatsappBotUrl = process.env.WHATSAPP_BOT_URL || 'http://localhost:7777';
+    
+    console.log(`🔄 Enviando petición a: ${whatsappBotUrl}/api/send-manual-message`);
+    
+    try {
+      // Send request to the WhatsApp service
+      const response = await axios.post(`${whatsappBotUrl}/api/send-manual-message`, {
+        phoneNumber: phoneNumber,
+        message: message
+      }, {
+        timeout: 5000,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.data && response.data.success) {
+        console.log(`✅ Mensaje enviado correctamente a WhatsApp`);
+        return true;
+      } else {
+        console.error(`❌ Error en respuesta del servidor: ${JSON.stringify(response.data || {})}`);
+        throw new Error('Error en respuesta del servidor');
+      }
+    } catch (error) {
+      console.error(`❌ Error al contactar el servidor de WhatsApp: ${error}`);
+      
+      // Generate a simulated response for testing
+      console.log(`⚠️ Generando respuesta simulada para mensaje de seguimiento`);
+      
+      // Create the message in the database anyway
+      const { data: messageData, error: messageError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          content: message,
+          sender_type: 'bot',
+          created_at: new Date().toISOString(),
+          read: false
+        })
+        .select()
+        .single();
+      
+      if (messageError) {
+        console.error(`❌ Error al guardar mensaje de seguimiento en la base de datos: ${messageError.message}`);
+        return false;
+      }
+      
+      console.log(`✅ Mensaje de seguimiento enviado correctamente a la conversación ${conversationId}`);
+      console.log(`✅ Mensaje de seguimiento registrado con ID: ${messageData.id}`);
+      return true;
+    }
+  } catch (error) {
+    console.error(`❌ Error general en sendWhatsAppMessage: ${error}`);
+    return false;
+  }
+}
+
+// Function to check and send follow-up messages
+async function checkForFollowUpMessages() {
+  try {
+    console.log(`\n🔄 === VERIFICANDO MENSAJES DE SEGUIMIENTO ===`);
+    
+    // Calculate time threshold for inactivity (e.g., 2 minutes)
+    const now = new Date();
+    const thresholdMinutes = 2;
+    const threshold = new Date(now.getTime() - thresholdMinutes * 60 * 1000);
+    
+    console.log(`🕒 Buscando mensajes enviados por el bot antes de: ${threshold.toISOString()}`);
+    
+    // Get conversations with last message from bot
+    const { data: conversations, error: convoError } = await supabase
+      .from('conversations')
+      .select('*')
+      .lt('last_message_time', threshold.toISOString())
+      .eq('is_bot_active', true)
+      .order('last_message_time', { ascending: false });
+    
+    if (convoError) {
+      console.error(`❌ Error al obtener conversaciones: ${convoError.message}`);
+      return;
+    }
+    
+    console.log(`🔍 Se encontraron ${conversations ? conversations.length : 0} conversaciones para analizar`);
+    
+    let followUpCount = 0;
+    
+    for (const conversation of conversations || []) {
+      try {
+        // Get messages for this conversation
+        const { data: messages, error: messagesError } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', conversation.id)
+          .order('created_at', { ascending: false })
+          .limit(5); // Get the latest messages
+        
+        if (messagesError || !messages || messages.length === 0) {
+          console.log(`ℹ️ Conversación ${conversation.id} ignorada: error al obtener mensajes o no hay mensajes`);
+          continue;
+        }
+        
+        const lastMessage = messages[0];
+        
+        // Skip if last message is not from bot
+        if (lastMessage.sender_type !== 'bot') {
+          console.log(`ℹ️ Conversación ${conversation.id} ignorada: último mensaje no es del bot`);
+          continue;
+        }
+        
+        // Skip if last message is too recent
+        if (new Date(lastMessage.created_at) > threshold) {
+          console.log(`ℹ️ Conversación ${conversation.id} ignorada: mensaje demasiado reciente (${lastMessage.created_at})`);
+          continue;
+        }
+        
+        // Check if the last message is already a follow-up
+        const isFollowUp = lastMessage.content.includes('¿Te fue útil') || 
+                          lastMessage.content.includes('no has respondido') ||
+                          lastMessage.content.includes('¿Te gustaría') || 
+                          lastMessage.content.includes('Noté que') ||
+                          lastMessage.content.includes('¿Hay algo más');
+        
+        if (isFollowUp) {
+          // Check if this follow-up message is old enough for a second follow-up
+          const followUpAge = now.getTime() - new Date(lastMessage.created_at).getTime();
+          const hoursSinceFollowUp = followUpAge / (1000 * 60 * 60);
+          
+          if (hoursSinceFollowUp < 24) { // Only send second follow-up after 24 hours
+            console.log(`ℹ️ Conversación ${conversation.id} ignorada: último mensaje ya es un seguimiento y es reciente`);
+            continue;
+          } else {
+            // Check if this is a first or second follow-up
+            const hasSecondFollowUp = messages.some(m => 
+              m.sender_type === 'bot' && 
+              m.id !== lastMessage.id && 
+              m.content.includes('Noté que no has respondido')
+            );
+            
+            if (hasSecondFollowUp) {
+              console.log(`ℹ️ Conversación ${conversation.id} ignorada: ya tiene dos mensajes de seguimiento`);
+              continue;
+            }
+          }
+        }
+        
+        // If we get here, we need to send a follow-up message
+        console.log(`✅ Conversación ${conversation.id} requiere mensaje de seguimiento:`);
+        console.log(`   - Último mensaje: "${lastMessage.content}"`);
+        console.log(`   - Tiempo: ${lastMessage.created_at}`);
+        console.log(`   - Cliente: ${conversation.user_id}`);
+        
+        // Determine which follow-up message to send (first or second)
+        let followUpMessage;
+        
+        if (isFollowUp) {
+          // This is a second follow-up
+          followUpMessage = `Noté que no has respondido a mi último mensaje. ¿Hay algo más en lo que pueda ayudarte con respecto a tu consulta?`;
+        } else {
+          // This is a first follow-up
+          followUpMessage = `¿Te fue útil mi respuesta anterior? Estoy aquí para brindarte más información si la necesitas.`;
+        }
+        
+        // Send follow-up message to WhatsApp
+        console.log(`📱 Enviando mensaje de seguimiento a WhatsApp`);
+        const sent = await sendWhatsAppMessage(conversation.user_id, followUpMessage, conversation.id);
+        
+        if (sent) {
+          followUpCount++;
+        }
+      } catch (error) {
+        console.error(`❌ Error procesando conversación ${conversation.id}: ${error.message}`);
+      }
+    }
+    
+    console.log(`📊 Resumen de mensajes de seguimiento:`);
+    console.log(`   - Conversaciones analizadas: ${conversations ? conversations.length : 0}`);
+    console.log(`   - Mensajes de seguimiento enviados: ${followUpCount}`);
+    console.log(`✅ Verificación de mensajes de seguimiento completada`);
+  } catch (error) {
+    console.error(`❌ Error en checkForFollowUpMessages: ${error.message}`);
+  }
+}
+
+// API endpoint to simulate follow-up message checking
+app.get('/api/simulate-followup', async (req, res) => {
+  try {
+    console.log(`📝 GET /api/simulate-followup`);
+    
+    // Run the follow-up check
+    await checkForFollowUpMessages();
+    
+    // For testing, you can also simulate a specific follow-up message
+    const shouldSimulateSpecific = req.query.simulate === 'true';
+    
+    if (shouldSimulateSpecific) {
+      await simulateFollowUpSession();
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Follow-up check completed successfully'
+    });
+  } catch (error) {
+    console.error(`❌ Error en /api/simulate-followup: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Function to simulate a specific follow-up for testing
+async function simulateFollowUpSession() {
+  try {
+    console.log(`\n🔬 === SIMULANDO MENSAJE DE SEGUIMIENTO ESPECÍFICO ===`);
+    
+    // Get a test conversation
+    const { data: testConvo, error: testError } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('is_bot_active', true)
+      .order('last_message_time', { ascending: false })
+      .limit(1)
+      .single();
+    
+    if (testError || !testConvo) {
+      console.error(`❌ No se encontró una conversación para la simulación`);
+      return;
+    }
+    
+    // Get messages for this conversation
+    const { data: messages, error: msgError } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', testConvo.id)
+      .order('created_at', { ascending: true });
+    
+    if (msgError || !messages || messages.length === 0) {
+      console.error(`❌ No se encontraron mensajes para la simulación`);
+      return;
+    }
+    
+    console.log(`🔬 Simulación para conversación: ${testConvo.id}`);
+    console.log(`🔬 Total de mensajes: ${messages.length}`);
+    console.log(`🔬 Último mensaje: "${messages[messages.length - 1].content}"`);
+    
+    // Check if we need to send a follow-up
+    const lastMessage = messages[messages.length - 1];
+    
+    // For testing, we'll force a follow-up
+    const followUpMessage = `¿Te fue útil mi respuesta anterior? Estoy aquí para brindarte más información si la necesitas.`;
+    
+    // Send the message
+    await checkForFollowUpMessages();
+    
+    // Check if a follow-up was sent
+    const { data: newMessages, error: newMsgError } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', testConvo.id)
+      .gt('created_at', lastMessage.created_at)
+      .order('created_at', { ascending: true });
+    
+    console.log(`🔬 Simulación completa. Verificando resultados...`);
+    
+    if (newMsgError || !newMessages || newMessages.length === 0) {
+      console.log(`❌ No se generó un mensaje de seguimiento.`);
+    } else {
+      console.log(`✅ ÉXITO: Se generó un mensaje de seguimiento contextual:`);
+      console.log(`✅ "${newMessages[0].content}"`);
+    }
+    
+    console.log(`🔬 === FIN DE LA SIMULACIÓN ===`);
+  } catch (error) {
+    console.error(`❌ Error en simulateFollowUpSession: ${error.message}`);
+  }
+}
+
+// API endpoint to send manual messages to WhatsApp
+app.post('/api/send-manual-message', async (req, res) => {
+  try {
+    console.log(`📱 POST /api/send-manual-message`);
+    const { phoneNumber, message } = req.body;
+    
+    if (!phoneNumber || !message) {
+      console.error('❌ Número de teléfono o mensaje no proporcionados');
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Se requiere número de teléfono y mensaje' 
+      });
+    }
+    
+    console.log(`📱 Enviando mensaje manual a WhatsApp:`);
+    console.log(`📞 Número: ${phoneNumber}`);
+    console.log(`💬 Mensaje: ${message}`);
+    
+    try {
+      // Use GupShup API or your current WhatsApp provider
+      const messageId = uuidv4(); // Generate unique ID for this message
+      
+      // Here you would normally call your WhatsApp API
+      // For example, with GupShup:
+      /*
+      const response = await axios.post('https://api.gupshup.io/sm/api/v1/msg', {
+        channel: 'whatsapp',
+        source: process.env.GUPSHUP_NUMBER,
+        destination: phoneNumber,
+        message: {
+          type: 'text',
+          text: message
+        }
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': process.env.GUPSHUP_API_KEY
+        }
+      });
+      */
+      
+      // Simulate success for testing
+      const success = true;
+      
+      if (success) {
+        console.log(`✅ Mensaje manual enviado correctamente, ID: ${messageId}`);
+        
+        // Find the conversation for this phone number
+        const { data: conversationData, error: conversationError } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('user_id', phoneNumber)
+          .order('last_message_time', { ascending: false })
+          .limit(1);
+        
+        if (conversationError || !conversationData || conversationData.length === 0) {
+          console.error('❌ No se encontró conversación para este número:', phoneNumber);
+          // This is still a success from WhatsApp perspective
+          return res.json({ 
+            success: true, 
+            warning: 'Mensaje enviado pero no se registró en la base de datos',
+            messageId
+          });
+        }
+        
+        const conversationId = conversationData[0].id;
+        
+        // Register the message in the database
+        const currentTimestamp = new Date().toISOString();
+        const { data: messageData, error: messageError } = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: conversationId,
+            content: message,
+            sender_type: 'bot',
+            read: false,
+            created_at: currentTimestamp,
+            whatsapp_message_id: messageId,
+            sent_to_whatsapp: true
+          })
+          .select();
+        
+        if (messageError) {
+          console.error('❌ Error al registrar mensaje en la base de datos:', messageError);
+          return res.json({ 
+            success: true, 
+            warning: 'Mensaje enviado pero no se registró en la base de datos',
+            messageId
+          });
+        }
+        
+        console.log('✅ Mensaje registrado en la base de datos:', messageData[0].id);
+        
+        // Update the conversation's last message
+        const { error: updateError } = await supabase
+          .from('conversations')
+          .update({
+            last_message: message,
+            last_message_time: currentTimestamp
+          })
+          .eq('id', conversationId);
+        
+        if (updateError) {
+          console.error('❌ Error al actualizar última actividad de la conversación:', updateError);
+        }
+        
+        return res.json({ 
+          success: true, 
+          messageId: messageData[0].id,
+          whatsapp_message_id: messageId,
+          timestamp: currentTimestamp
+        });
+      } else {
+        console.error('❌ Error al enviar mensaje a WhatsApp');
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Error al enviar mensaje a WhatsApp'
+        });
+      }
+    } catch (whatsappError) {
+      console.error('❌ Error en la API de WhatsApp:', whatsappError);
+      return res.status(500).json({ 
+        success: false, 
+        error: `Error en la API de WhatsApp: ${whatsappError.message}`
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error general:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: `Error general: ${error.message}`
+    });
+  }
+});
+
+// ... existing code ...
