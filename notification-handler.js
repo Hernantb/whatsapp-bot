@@ -39,7 +39,8 @@ function checkForNotificationPhrases(message) {
     "gracias por tu paciencia",
     "asesor te llamará",
     "asesor te llamara",
-    "perfecto"
+    "perfecto",
+    "has ganado un helado"
   ];
   
   // Verificar si el mensaje contiene alguna de las frases
@@ -191,6 +192,30 @@ async function sendBusinessNotification(conversationId, botMessage, clientPhoneN
     await transporter.sendMail(mailOptions);
     
     console.log(`✅ Notificación enviada a ${recipientEmail}`);
+    
+    // Actualizar estado de la conversación directamente a importante
+    try {
+      console.log(`🔍 Actualizando conversación ${conversationId} como importante después de enviar correo...`);
+      
+      const { error: updateError } = await supabase
+        .from('conversations')
+        .update({ 
+          is_important: true,
+          notification_sent: true,
+          notification_timestamp: new Date().toISOString(),
+          last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada"
+        })
+        .eq('id', conversationId);
+      
+      if (updateError) {
+        console.error(`❌ Error actualizando conversación como importante: ${updateError.message}`);
+      } else {
+        console.log(`✅ Conversación ${conversationId} marcada como importante exitosamente`);
+      }
+    } catch (updateError) {
+      console.error(`❌ Error al actualizar estado de la conversación: ${updateError.message}`);
+    }
+    
     return true;
   } catch (error) {
     console.error(`❌ Error general en sendBusinessNotification:`, error);
@@ -213,11 +238,11 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
     const conversationUpdate = {
       notification_sent: success,
       notification_timestamp: new Date().toISOString(),
-      last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada"
+      last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada",
+      is_important: true // Siempre establecer is_important a true
     };
     
-    // SOLUCIÓN ALTERNATIVA: Actualizar al menos notification_sent y timestamp
-    // si no podemos actualizar status
+    // Actualización principal
     const { error: basicUpdateError } = await supabase
       .from('conversations')
       .update(conversationUpdate)
@@ -225,48 +250,58 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
     
     if (basicUpdateError) {
       console.error(`❌ Error en actualización básica: ${basicUpdateError.message}`);
+      
+      // Intentar actualizar de forma individual si hay error
+      try {
+        const { error: importantError } = await supabase
+          .from('conversations')
+          .update({ is_important: true })
+          .eq('id', conversationId);
+        
+        if (!importantError) {
+          console.log(`✅ Conversación marcada como importante (is_important=true)`);
+        } else {
+          console.error(`❌ Error al marcar como importante: ${importantError.message}`);
+        }
+        
+        // Intentar actualizar otros campos individualmente
+        const { error: notificationError } = await supabase
+          .from('conversations')
+          .update({ notification_sent: success })
+          .eq('id', conversationId);
+        
+        if (!notificationError) {
+          console.log(`✅ Flag notification_sent actualizado correctamente`);
+        } else {
+          console.error(`❌ Error al actualizar notification_sent: ${notificationError.message}`);
+        }
+        
+        const { error: timestampError } = await supabase
+          .from('conversations')
+          .update({ notification_timestamp: new Date().toISOString() })
+          .eq('id', conversationId);
+        
+        if (!timestampError) {
+          console.log(`✅ Timestamp de notificación actualizado correctamente`);
+        } else {
+          console.error(`❌ Error al actualizar timestamp: ${timestampError.message}`);
+        }
+        
+        const { error: messageError } = await supabase
+          .from('conversations')
+          .update({ last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada" })
+          .eq('id', conversationId);
+        
+        if (!messageError) {
+          console.log(`✅ Mensaje actualizado correctamente`);
+        } else {
+          console.error(`❌ Error al actualizar mensaje: ${messageError.message}`);
+        }
+      } catch (individualError) {
+        console.error(`❌ Error en actualización individual: ${individualError.message}`);
+      }
     } else {
       console.log(`✅ Actualización básica completada correctamente`);
-    }
-    
-    // Intentamos marcar como importante con is_important (si existe)
-    try {
-      const { error: importantError } = await supabase
-        .from('conversations')
-        .update({ is_important: true })
-        .eq('id', conversationId);
-      
-      if (!importantError) {
-        console.log(`✅ Conversación marcada como importante (is_important=true)`);
-      } else if (importantError.message.includes('does not exist')) {
-        console.log(`⚠️ No existe campo is_important: ${importantError.message}`);
-      } else {
-        console.error(`❌ Error al marcar como importante: ${importantError.message}`);
-      }
-    } catch (importantError) {
-      console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
-    }
-    
-    // Intentamos marcar la importancia directamente usando SQL
-    try {
-      // Consulta SQL para actualizar el campo sin causar errores de schema cache
-      const { error: sqlError } = await supabase.rpc('execute_sql', { 
-        sql_statement: `
-          UPDATE conversations 
-          SET is_important = true, 
-              notification_sent = true,
-              notification_timestamp = now()
-          WHERE id = '${conversationId}'
-        `
-      }).single();
-      
-      if (!sqlError) {
-        console.log(`✅ Conversación marcada como importante usando SQL directo`);
-      } else {
-        console.log(`⚠️ Error al ejecutar SQL directo: ${sqlError.message}`);
-      }
-    } catch (sqlError) {
-      console.log(`⚠️ Error al ejecutar SQL directo: ${sqlError.message}`);
     }
     
     // 2. Si se proporcionó un ID de mensaje, actualizar ese mensaje
