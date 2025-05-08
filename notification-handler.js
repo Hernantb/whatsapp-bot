@@ -239,63 +239,66 @@ async function handleNotificationUpdate(conversationId, success, messageId = nul
       notification_sent: success,
       notification_timestamp: new Date().toISOString(),
       last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada",
-      is_important: true // Siempre establecer is_important a true
+      is_important: true // Usar is_important en lugar de status
     };
     
     // Actualización principal
-    const { error: basicUpdateError } = await supabase
+    const { error: updateError } = await supabase
       .from('conversations')
       .update(conversationUpdate)
       .eq('id', conversationId);
     
-    if (basicUpdateError) {
-      console.error(`❌ Error en actualización básica: ${basicUpdateError.message}`);
+    if (updateError) {
+      console.error(`❌ Error en actualización básica: ${updateError.message}`);
       
-      // Intentar actualizar de forma individual si hay error
+      // Intentar actualización por partes
       try {
+        // Actualizar is_important primero
         const { error: importantError } = await supabase
           .from('conversations')
           .update({ is_important: true })
           .eq('id', conversationId);
         
-        if (!importantError) {
-          console.log(`✅ Conversación marcada como importante (is_important=true)`);
+        if (importantError) {
+          console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
         } else {
-          console.error(`❌ Error al marcar como importante: ${importantError.message}`);
+          console.log(`✅ Campo is_important actualizado correctamente`);
         }
         
-        // Intentar actualizar otros campos individualmente
+        // Actualizar notification_sent
         const { error: notificationError } = await supabase
           .from('conversations')
           .update({ notification_sent: success })
           .eq('id', conversationId);
         
-        if (!notificationError) {
-          console.log(`✅ Flag notification_sent actualizado correctamente`);
-        } else {
+        if (notificationError) {
           console.error(`❌ Error al actualizar notification_sent: ${notificationError.message}`);
+        } else {
+          console.log(`✅ Campo notification_sent actualizado correctamente`);
         }
         
+        // Actualizar notification_timestamp
         const { error: timestampError } = await supabase
           .from('conversations')
           .update({ notification_timestamp: new Date().toISOString() })
           .eq('id', conversationId);
         
-        if (!timestampError) {
-          console.log(`✅ Timestamp de notificación actualizado correctamente`);
+        if (timestampError) {
+          console.error(`❌ Error al actualizar notification_timestamp: ${timestampError.message}`);
         } else {
-          console.error(`❌ Error al actualizar timestamp: ${timestampError.message}`);
+          console.log(`✅ Campo notification_timestamp actualizado correctamente`);
         }
         
+        // Actualizar last_message
         const { error: messageError } = await supabase
           .from('conversations')
           .update({ last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada" })
           .eq('id', conversationId);
         
-        if (!messageError) {
-          console.log(`✅ Mensaje actualizado correctamente`);
+        if (messageError) {
+          console.error(`❌ Error al actualizar last_message: ${messageError.message}`);
         } else {
-          console.error(`❌ Error al actualizar mensaje: ${messageError.message}`);
+          console.log(`✅ Campo last_message actualizado correctamente`);
         }
       } catch (individualError) {
         console.error(`❌ Error en actualización individual: ${individualError.message}`);

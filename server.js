@@ -609,12 +609,13 @@ async function ensureColumnsExist() {
           .update({
             notification_sent: true,
             notification_timestamp: new Date().toISOString(),
-            status: 'normal' // Nueva columna status
+            is_important: true, // Columna is_important
+            status: 'normal' // Columna status
           })
           .eq('id', '00000000-0000-0000-0000-000000000000');
         
         if (!updateError || updateError.code === 'PGRST116') {
-          console.log('✅ Columnas notification_sent, notification_timestamp y status existen o fueron creadas');
+          console.log('✅ Columnas notification_sent y notification_timestamp existen o fueron creadas');
         } else if (updateError.message.includes('column') && updateError.message.includes('does not exist')) {
           console.log('⚠️ Algunas columnas no existen en conversations. Intentando SQL directo...');
           
@@ -629,6 +630,9 @@ async function ensureColumnsExist() {
               
               ALTER TABLE conversations 
               ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'normal';
+              
+              ALTER TABLE conversations 
+              ADD COLUMN IF NOT EXISTS is_important BOOLEAN DEFAULT false;
               
               -- Refrescar el schema cache para Supabase
               NOTIFY pgrst, 'reload schema';
@@ -648,6 +652,9 @@ async function ensureColumnsExist() {
               
               ALTER TABLE conversations 
               ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'normal';
+              
+              ALTER TABLE conversations 
+              ADD COLUMN IF NOT EXISTS is_important BOOLEAN DEFAULT false;
             `);
             
             if (fallbackError) {
@@ -694,7 +701,9 @@ async function ensureColumnsExist() {
         const { error: updateError } = await supabase
           .from('messages')
           .update({
-            sent_to_whatsapp: true
+            sent_to_whatsapp: true,
+            needs_notification: false,
+            notification_sent: false
           })
           .eq('id', '00000000-0000-0000-0000-000000000000');
         
@@ -709,6 +718,12 @@ async function ensureColumnsExist() {
               ALTER TABLE messages 
               ADD COLUMN IF NOT EXISTS sent_to_whatsapp BOOLEAN DEFAULT false;
               
+              ALTER TABLE messages 
+              ADD COLUMN IF NOT EXISTS needs_notification BOOLEAN DEFAULT false;
+              
+              ALTER TABLE messages 
+              ADD COLUMN IF NOT EXISTS notification_sent BOOLEAN DEFAULT false;
+              
               -- Refrescar el schema cache para Supabase
               NOTIFY pgrst, 'reload schema';
             `
@@ -721,6 +736,12 @@ async function ensureColumnsExist() {
             const { error: fallbackError } = await supabase.from('_exec_sql').select('*').eq('query', `
               ALTER TABLE messages 
               ADD COLUMN IF NOT EXISTS sent_to_whatsapp BOOLEAN DEFAULT false;
+              
+              ALTER TABLE messages 
+              ADD COLUMN IF NOT EXISTS needs_notification BOOLEAN DEFAULT false;
+              
+              ALTER TABLE messages 
+              ADD COLUMN IF NOT EXISTS notification_sent BOOLEAN DEFAULT false;
             `);
             
             if (fallbackError) {
@@ -1276,7 +1297,7 @@ app.post('/api/send-whatsapp-media', async (req, res) => {
         console.log(`✅ Archivo guardado localmente como respaldo: ${localPath}`);
         
         // Construir URL completa para acceso local
-        const serverUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 7777}`;
+        const serverUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 7778}`;
         fileData = {
           path: localPath,
           url: `${serverUrl}${localPath}`, // URL absoluta completa
@@ -1527,7 +1548,7 @@ app.post('/api/send-image-to-whatsapp', async (req, res) => {
       console.log(`✅ Archivo guardado correctamente en: ${filePath}`);
       
       // Construir URL local (no accesible desde fuera)
-      const serverUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 7777}`;
+      const serverUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 7778}`;
       fileData = {
         path: relativeFilePath,
         url: `${serverUrl}${relativeFilePath}`,
@@ -1759,7 +1780,7 @@ app.get('/test-notifications', (req, res) => {
 });
 
 // Configuración del puerto desde variables de entorno
-const PORT = process.env.PORT || 7777;
+const PORT = process.env.PORT || 7778;
 
 // Agregar un endpoint específico para pruebas de notificaciones
 app.post('/api/test-notification', async (req, res) => {
@@ -1918,36 +1939,40 @@ async function checkPendingNotifications() {
         console.log(`📱 Número de teléfono del cliente: ${clientPhoneNumber}`);
         
         // Verificar si el mensaje requiere notificación
-        const requiresNotification = checkForNotificationPhrases(message.content);
-        
-        if (requiresNotification) {
-          console.log(`🔔 El mensaje requiere notificación. Enviando...`);
+        try {
+          const requiresNotification = checkForNotificationPhrases(message.content);
           
-          // Enviar notificación
-          const emailSent = await sendBusinessNotification(
-            message.conversation_id,
-            message.content,
-            clientPhoneNumber
-          );
-          
-          console.log(`📧 Resultado de notificación: ${emailSent ? '✅ Enviada' : '❌ Fallida'}`);
-          
-          // Actualizar estado de notificación
-          await handleNotificationUpdate(message.conversation_id, emailSent, message.id);
-    } else {
-          console.log(`ℹ️ El mensaje ya no requiere notificación según las reglas actuales`);
-          
-          // Marcar como procesado aunque no requiera notificación
-          const { error: updateError } = await supabase
-      .from('messages')
-            .update({ needs_notification: false })
-            .eq('id', message.id);
+          if (requiresNotification) {
+            console.log(`🔔 El mensaje requiere notificación. Enviando...`);
             
-          if (updateError) {
-            console.error(`❌ Error al actualizar estado del mensaje: ${updateError.message}`);
+            // Enviar notificación
+            const emailSent = await sendBusinessNotification(
+              message.conversation_id,
+              message.content,
+              clientPhoneNumber
+            );
+            
+            console.log(`✅ Se ha enviado una notificación por correo: ${emailSent}`);
+            
+            // Actualizar estado de notificación
+            await handleNotificationUpdate(message.conversation_id, emailSent, message.id);
           } else {
-            console.log(`✅ Mensaje marcado como procesado`);
+            console.log(`ℹ️ El mensaje ya no requiere notificación según las reglas actuales`);
+            
+            // Marcar como procesado aunque no requiera notificación
+            const { error: updateError } = await supabase
+              .from('messages')
+              .update({ needs_notification: false })
+              .eq('id', message.id);
+                
+            if (updateError) {
+              console.error(`❌ Error al actualizar estado del mensaje: ${updateError.message}`);
+            } else {
+              console.log(`✅ Mensaje marcado como procesado`);
+            }
           }
+        } catch (error) {
+          console.error(`❌ Error procesando mensaje pendiente ${message.id}: ${error.message}`);
         }
       } catch (error) {
         console.error(`❌ Error procesando mensaje pendiente ${message.id}: ${error.message}`);

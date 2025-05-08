@@ -154,7 +154,7 @@ async function checkForNotificationPhrases(message, businessId = null) {
     if (normalizedMessage.includes(normalizedPhrase)) {
       console.log(`✅ COINCIDENCIA ENCONTRADA: "${normalizedPhrase}" en "${normalizedMessage.substring(0, 60)}..."`);
       
-      // Intentar actualizar el estado del cliente a 'important'
+      // Intentar actualizar el estado del cliente a importante
       try {
         if (businessId) {
           // Obtener ID de la conversación si solo tenemos el mensaje
@@ -172,16 +172,34 @@ async function checkForNotificationPhrases(message, businessId = null) {
             const { error: updateError } = await supabase
               .from('conversations')
               .update({ 
-                status: 'important',
-                user_category: 'important',
+                is_important: true, // Usar is_important en lugar de status
+                notification_sent: true,
+                notification_timestamp: new Date().toISOString(),
+                last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada",
                 updated_at: new Date().toISOString()
               })
               .eq('id', conversationId);
             
             if (updateError) {
               console.error(`❌ Error al actualizar estado de conversación: ${updateError.message}`);
+              
+              // Intentar actualizar solo is_important si falló la actualización completa
+              try {
+                const { error: importantError } = await supabase
+                  .from('conversations')
+                  .update({ is_important: true })
+                  .eq('id', conversationId);
+                
+                if (importantError) {
+                  console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
+                } else {
+                  console.log(`✅ Campo is_important actualizado correctamente`);
+                }
+              } catch (fieldError) {
+                console.error(`❌ Error actualizando campo individual: ${fieldError.message}`);
+              }
             } else {
-              console.log(`✅ Estado de conversación actualizado a 'important'`);
+              console.log(`✅ Estado de conversación actualizado a 'importante'`);
             }
           }
         }
@@ -512,115 +530,185 @@ async function getLastMessages(conversationId, limit = 20) {
 }
 
 /**
- * Envía una notificación por correo a un negocio cuando un mensaje requiere atención
- * @param {string} message - El mensaje que requiere atención
+ * Envía una notificación por correo electrónico
+ * @param {string} message - El mensaje del bot
  * @param {string} conversationId - ID de la conversación
  * @param {string} phoneNumber - Número de teléfono del cliente
- * @param {string} toEmail - Correo al que se enviará la notificación
+ * @param {string} emailTo - Correo electrónico de destino
  * @param {string} businessId - ID del negocio
  * @param {string} businessName - Nombre del negocio
  * @returns {boolean} - True si la notificación se envió correctamente
  */
-async function sendBusinessNotification(message, conversationId, phoneNumber, toEmail, businessId, businessName) {
+async function sendBusinessNotification(message, conversationId, phoneNumber, emailTo, businessId, businessName = 'BEXOR') {
   try {
-    console.log(`📧 Enviando notificación por correo a ${toEmail} (${businessName})`);
-    
-    // Si no hay correo o mensaje, no enviar notificación
-    if (!toEmail || !message) {
-      console.error('❌ Faltan datos para enviar notificación por correo');
+    if (!EMAIL_APP_PASSWORD) {
+      console.error('⚠️ IMPORTANTE: No se puede enviar notificación por correo: falta configurar EMAIL_APP_PASSWORD');
+      console.error('⚠️ Agrega la variable EMAIL_APP_PASSWORD a las variables de entorno en Render');
+      console.error('⚠️ Mensaje que requiere atención: ' + message.substring(0, 100));
+      console.error('⚠️ Teléfono del cliente: ' + phoneNumber);
+      console.error('⚠️ ID del negocio: ' + businessId);
+      console.error('⚠️ Correo de destino: ' + emailTo);
+      
+      // Registrar la falta de configuración pero no fallar
       return false;
     }
     
-    // Obtener los últimos mensajes de la conversación como contexto
-    let conversationHistory = '';
-    try {
-      const lastMessages = await getLastMessages(conversationId, 10);
+    // Obtener los últimos 20 mensajes de la conversación
+    const lastMessages = await getLastMessages(conversationId, 20);
+    console.log(`✅ Obtenidos ${lastMessages.length} mensajes para incluir en la notificación`);
+    
+    // Formatear el mensaje para el correo
+    const formattedPhone = phoneNumber ? phoneNumber : 'No disponible';
+    const timestamp = new Date().toLocaleString('es-ES', { 
+      timeZone: 'America/Mexico_City'
+    });
+    
+    // Generar HTML con el historial de mensajes
+    let messagesHtml = '';
+    
+    if (lastMessages && lastMessages.length > 0) {
+      messagesHtml += `<h3>Historial de la conversación</h3>`;
+      messagesHtml += `<div style="max-height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin: 10px 0;">`;
       
-      if (lastMessages && lastMessages.length > 0) {
-        conversationHistory = 'Últimos mensajes de la conversación:\n\n';
+      for (const msg of lastMessages) {
+        const isBot = msg.sender_type === 'bot';
+        const date = new Date(msg.created_at).toLocaleString('es-ES', {
+          timeZone: 'America/Mexico_City'
+        });
         
-        for (const msg of lastMessages) {
-          const senderType = msg.sender_type === 'user' ? 'CLIENTE' : 'BOT';
-          const date = new Date(msg.created_at);
-          const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
-          
-          conversationHistory += `[${formattedDate}] ${senderType}: ${msg.content}\n`;
-        }
+        messagesHtml += `
+          <div style="margin-bottom: 10px; ${isBot ? 'text-align: right;' : ''}">
+            <div style="
+              display: inline-block;
+              max-width: 80%;
+              padding: 8px 12px;
+              border-radius: 8px;
+              background-color: ${isBot ? '#DCF8C6' : '#F1F0F0'};
+              border: 1px solid ${isBot ? '#C5E1A5' : '#E0E0E0'};
+            ">
+              <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+                <strong>${isBot ? 'Bot' : 'Cliente'}</strong> - ${date}
+              </div>
+              <div style="word-break: break-word;">
+                ${msg.content.replace(/\n/g, '<br>')}
+              </div>
+            </div>
+          </div>
+        `;
       }
-    } catch (historyError) {
-      console.error(`❌ Error obteniendo historial: ${historyError.message}`);
-      conversationHistory = 'No se pudo obtener el historial de la conversación.';
+      
+      messagesHtml += `</div>`;
+    } else {
+      messagesHtml = `<p>No hay historial de mensajes disponible para esta conversación.</p>`;
     }
     
-    // URL para ver la conversación en el dashboard (sustituir por URL real)
-    const dashboardUrl = `https://dashboard.tuasistenteia.com/conversations/${conversationId}`;
+    // Obtener información adicional sobre la conversación
+    let extraInfo = '';
+    try {
+      const { data: convInfo, error: convError } = await supabase
+        .from('conversations')
+        .select('created_at, last_message_time, last_message')
+        .eq('id', conversationId)
+        .single();
+      
+      if (!convError && convInfo) {
+        const createdAt = new Date(convInfo.created_at).toLocaleString('es-ES', {
+          timeZone: 'America/Mexico_City'
+        });
+        
+        const lastTime = convInfo.last_message_time ? 
+          new Date(convInfo.last_message_time).toLocaleString('es-ES', {
+            timeZone: 'America/Mexico_City'
+          }) : 'No disponible';
+        
+        extraInfo = `
+          <p><strong>Conversación iniciada:</strong> ${createdAt}</p>
+          <p><strong>Último mensaje:</strong> ${lastTime}</p>
+        `;
+      }
+    } catch (infoError) {
+      console.warn(`⚠️ No se pudo obtener información adicional de la conversación: ${infoError.message}`);
+    }
     
-    // Formatear el mensaje
-    const emailSubject = `🔔 Notificación: Se requiere atención para cliente ${phoneNumber || 'desconocido'} - ${businessName}`;
+    // Generar el asunto del correo
+    let emailSubject = `🔔 Notificación importante de cliente WhatsApp - ${businessName}`;
     
-    const emailBody = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background-color: #4CAF50; color: white; padding: 10px; text-align: center; }
-    .content { padding: 20px; background-color: #f9f9f9; border-radius: 5px; }
-    .message { background-color: #e6f7ff; padding: 15px; border-left: 4px solid #1890ff; margin: 15px 0; }
-    .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-    .button { display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
-    .history { background-color: #f5f5f5; padding: 10px; font-family: monospace; white-space: pre-wrap; margin-top: 20px; max-height: 300px; overflow-y: auto; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h2>🔔 Notificación de WhatsApp</h2>
-    </div>
-    <div class="content">
-      <h3>Se requiere tu atención</h3>
-      <p>Un mensaje en una conversación de WhatsApp requiere tu atención:</p>
-      
-      <div class="message">
-        <p><strong>Mensaje:</strong> "${message}"</p>
-        <p><strong>Cliente:</strong> ${phoneNumber || 'Número desconocido'}</p>
-        <p><strong>ID de conversación:</strong> ${conversationId}</p>
-        <p><strong>Negocio:</strong> ${businessName}</p>
+    // Personalizar para Hernán
+    if (businessId === '2d385aa5-40e0-4ec9-9360-19281bc605e4') {
+      emailSubject = `🔔 SEAT ${businessName}: Cliente WhatsApp requiere atención`;
+    }
+    
+    // Generar HTML completo del correo
+    const emailHtml = `
+      <h2>🤖 Notificación de Bot de WhatsApp - ${businessName}</h2>
+      <p><strong>Se requiere atención humana para un cliente.</strong></p>
+      <hr>
+      <p><strong>📱 Número de teléfono:</strong> ${formattedPhone}</p>
+      <p><strong>🆔 ID de conversación:</strong> ${conversationId}</p>
+      <p><strong>🏢 ID de negocio:</strong> ${businessId || 'No disponible'}</p>
+      <p><strong>⏰ Fecha y hora:</strong> ${timestamp}</p>
+      <p><strong>💬 Mensaje del bot que generó la alerta:</strong></p>
+      <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #FF0000;">
+        ${message.replace(/\n/g, '<br>')}
       </div>
-      
-      <p>Por favor, revisa la conversación lo antes posible para atender al cliente.</p>
-      
-      <div style="text-align: center; margin: 25px 0;">
-        <a href="${dashboardUrl}" class="button">Ver conversación en dashboard</a>
-      </div>
-      
-      <div class="history">
-${conversationHistory}
-      </div>
-    </div>
-    <div class="footer">
-      <p>Este es un mensaje automático. Por favor, no respondas a este correo.</p>
-      <p>Powered by TuAsistenteIA</p>
-    </div>
-  </div>
-</body>
-</html>
-`;
+      ${messagesHtml}
+      <hr>
+      <p>Por favor, continúe la conversación con el cliente lo antes posible.</p>
+    `;
     
     // Configurar opciones del correo
     const mailOptions = {
       from: EMAIL_USER,
-      to: toEmail,
+      to: emailTo,
       subject: emailSubject,
-      html: emailBody
+      html: emailHtml
     };
     
-    // Enviar correo
-    await mailTransport.sendMail(mailOptions);
+    // Enviar el correo
+    console.log(`📧 Enviando notificación por correo a ${emailTo}...`);
+    const info = await mailTransport.sendMail(mailOptions);
     
-    console.log(`✅ Notificación enviada a ${toEmail}`);
+    console.log(`✅ Notificación enviada: ${info.messageId}`);
+    
+    // Actualizar el estado de la conversación a importante
+    try {
+      console.log(`🔍 Actualizando conversación ${conversationId} como importante después de enviar correo...`);
+      
+      const { error: updateError } = await supabase
+        .from('conversations')
+        .update({ 
+          is_important: true,
+          notification_sent: true,
+          notification_timestamp: new Date().toISOString(),
+          last_message: "⚠️ REQUIERE ATENCIÓN - Notificación enviada"
+        })
+        .eq('id', conversationId);
+      
+      if (updateError) {
+        console.error(`❌ Error actualizando conversación como importante: ${updateError.message}`);
+        
+        // Intentar actualizar solo el campo is_important
+        try {
+          const { error: importantError } = await supabase
+            .from('conversations')
+            .update({ is_important: true })
+            .eq('id', conversationId);
+          
+          if (importantError) {
+            console.error(`❌ Error al actualizar is_important: ${importantError.message}`);
+          } else {
+            console.log(`✅ Campo is_important actualizado correctamente`);
+          }
+        } catch (fieldError) {
+          console.error(`❌ Error actualizando campo individual: ${fieldError.message}`);
+        }
+      } else {
+        console.log(`✅ Conversación ${conversationId} marcada como importante exitosamente`);
+      }
+    } catch (updateError) {
+      console.error(`❌ Error al actualizar estado de la conversación: ${updateError.message}`);
+    }
+    
     return true;
   } catch (error) {
     console.error(`❌ Error enviando notificación por correo: ${error.message}`);
