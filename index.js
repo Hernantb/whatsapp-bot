@@ -84,6 +84,7 @@ Reglas importantes:
 const phoneToConversationMap = {};
 // Mapeo de IDs de conversación a números telefónicos
 const conversationIdToPhoneMap = {};
+const contactCache = {}; // Cache para nombres de contactos
 
 // Caché del estado del bot por remitente
 const senderBotStatusMap = {};
@@ -422,6 +423,66 @@ function safeISODate(timestamp) {
   }
 }
 
+/**
+ * Obtiene el nombre de un contacto a partir de su número de teléfono
+ * Si no se encuentra, devuelve el número como valor predeterminado
+ * @param {string} phoneNumber - Número de teléfono del contacto
+ * @returns {string} - Nombre del contacto o número de teléfono
+ */
+function getContactName(phoneNumber) {
+  try {
+    console.log(`🔍 Buscando nombre para el contacto: ${phoneNumber}`);
+    
+    // Si no hay número, devolver un valor predeterminado
+    if (!phoneNumber) return 'Usuario';
+    
+    // Si tenemos el contacto en caché local, usarlo
+    if (contactCache && contactCache[phoneNumber]) {
+      return contactCache[phoneNumber];
+    }
+    
+    // Si no tenemos información, usar el número como nombre predeterminado
+    return phoneNumber;
+  } catch (error) {
+    console.error(`❌ Error al obtener nombre de contacto: ${error.message}`);
+    return phoneNumber; // Valor seguro por defecto
+  }
+}
+
+/**
+ * Verifica si un mensaje contiene frases que requieren notificación
+ * @param {string} message - Mensaje a verificar
+ * @returns {boolean} - True si requiere notificación, false en caso contrario
+ */
+function checkForNotificationPhrases(message) {
+  if (!message) return false;
+  
+  const lowerMsg = message.toLowerCase();
+  
+  // Common phrases that indicate a notification is needed
+  const notificationPhrases = [
+    "tu cita ha sido confirmada",
+    "cita confirmada",
+    "te llamará un asesor",
+    "un asesor te llamará",
+    "te contactará un asesor",
+    "un asesor te contactará",
+    "te esperamos en la agencia",
+    "agendamos tu visita",
+    "tu visita ha sido agendada"
+  ];
+  
+  // Check if message contains any of the notification phrases
+  for (const phrase of notificationPhrases) {
+    if (lowerMsg.includes(phrase)) {
+      console.log(`✅ Frase de notificación encontrada: "${phrase}" en el mensaje`);
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 // Función para guardar mensaje en Supabase
 async function saveMessageToSupabase({ sender, message, messageId, timestamp, conversationId, isBotActive }) {
   try {
@@ -477,13 +538,24 @@ async function saveMessageToSupabase({ sender, message, messageId, timestamp, co
           // Crear nueva conversación
           console.log(`➕ Creando nueva conversación para: ${sender}`);
           
+          // Usar un nombre seguro para el remitente
+          let senderName = sender;
+          try {
+            // Intentar obtener el nombre del contacto si la función está disponible
+            if (typeof getContactName === 'function') {
+              senderName = getContactName(sender) || sender;
+            }
+          } catch (nameError) {
+            console.log(`⚠️ No se pudo obtener nombre del contacto, usando número: ${sender}`);
+          }
+          
           const { data: newConv, error: createError } = await supabase
             .from('conversations')
             .insert([{
               user_id: sender,
               business_id: BUSINESS_ID,
               is_bot_active: true,
-              sender_name: getContactName(sender) || sender,
+              sender_name: senderName,
               last_message: message.substring(0, 100),
               last_message_time: new Date().toISOString()
             }])
@@ -1389,6 +1461,12 @@ app.post('/webhook', async (req, res) => {
     try {
         const body = req.body;
         console.log(`📩 Mensaje recibido en webhook: ${JSON.stringify(body).substring(0, 500)}...`);
+        
+        // Validación adicional para verificar la estructura del mensaje
+        if (!body || !body.entry || !body.entry[0] || !body.entry[0].changes || !body.entry[0].changes[0]) {
+            console.log(`⚠️ Estructura de mensaje webhook inválida: ${JSON.stringify(body)}`);
+            return res.sendStatus(200); // Responder OK a pesar del error, para evitar reenvíos
+        }
         
         // Extraer datos del mensaje
         const messageData = extractMessageData(body);
@@ -3152,4 +3230,61 @@ async function processSingleMessage(messageData) {
   } catch (aiError) {
     console.error(`❌ Error procesando con OpenAI: ${aiError.message}`);
   }
+}
+
+// Función para verificar si una conversación existe
+async function verifyConversationExists(conversationId) {
+  try {
+    if (!conversationId) {
+      console.error('❌ verifyConversationExists: Se requiere un ID de conversación');
+      return false;
+    }
+    
+    console.log(`🔍 Verificando existencia de conversación: ${conversationId}`);
+    
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('id', conversationId)
+      .maybeSingle();
+    
+    if (error) {
+      console.error(`❌ Error verificando conversación: ${error.message}`);
+      return false;
+    }
+    
+    const exists = !!data;
+    console.log(`${exists ? '✅' : '❌'} Conversación ${conversationId} ${exists ? 'existe' : 'no existe'}`);
+    return exists;
+  } catch (error) {
+    console.error(`❌ Error en verifyConversationExists: ${error.message}`);
+    return false;
+  }
+}
+
+// Función para actualizar última actividad de conversación
+async function updateConversationLastActivity(conversationId, lastMessage) {
+    try {
+        console.log('🔄 Actualizando última actividad de conversación:', conversationId);
+        
+        const { data, error } = await supabase
+            .from('conversations')
+            .update({
+                last_message: lastMessage,
+                last_message_time: new Date().toISOString()
+            })
+            .eq('id', conversationId)
+            .select();
+            
+        if (error) {
+            console.error('❌ Error al actualizar conversación:', error);
+            throw error;
+        }
+        
+        console.log('✅ Conversación actualizada:', data);
+        return data;
+    } catch (error) {
+        console.error('❌ Error en updateConversationLastActivity:', error);
+        throw error;
+    }
 }

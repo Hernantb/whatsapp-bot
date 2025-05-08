@@ -1999,14 +1999,20 @@ async function sendBusinessNotification(conversationId, message, clientPhoneNumb
       html: html
     };
     
-    // Send email
     console.log(`📧 Enviando correo a: ${businessEmail}`);
     
-    // Simulated success for testing - replace with actual email sending in production
-    // const info = await transporter.sendMail(mailOptions);
-    // console.log(`📧 Email enviado: ${info.messageId}`);
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`📧 Email enviado: ${info.messageId}`);
+    } catch (emailError) {
+      console.error(`📧 Error al enviar email: ${emailError.message}`);
+      console.log('📧 Continuando de todas formas con la notificación');
+    }
     
-    console.log('✅ Notificación enviada correctamente (simulada)');
+    // Update conversation notification status
+    await handleNotificationUpdate(conversationId, true);
+    
+    console.log('✅ Notificación procesada correctamente');
     return true;
   } catch (error) {
     console.error(`❌ Error al enviar notificación: ${error.message}`);
@@ -2095,7 +2101,7 @@ async function sendWhatsAppMessage(phoneNumber, message, conversationId) {
     console.log(`💬 Mensaje a enviar: "${message}"`);
     console.log(`📞 Enviando a número: ${phoneNumber}`);
     
-    // URL for WhatsApp service - use environment variable or fallback
+    // URL for WhatsApp service - use environment variable or fallback to local server
     // Use port 7777 where the server is already running
     const whatsappBotUrl = process.env.WHATSAPP_BOT_URL || 'http://localhost:7777';
     
@@ -2133,8 +2139,9 @@ async function sendWhatsAppMessage(phoneNumber, message, conversationId) {
           conversation_id: conversationId,
           content: message,
           sender_type: 'bot',
+          sender_id: 'system',
           created_at: new Date().toISOString(),
-          read: false
+          sent_to_whatsapp: true
         })
         .select()
         .single();
