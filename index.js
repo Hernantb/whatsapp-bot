@@ -122,16 +122,49 @@ async function updateConversationMappings() {
     
     console.log(`🔍 Encontradas ${data.length} conversaciones para mapeo`);
     
+    // Crear nuevos mapeos temporales
+    const newPhoneToConversationMap = {};
+    const newConversationIdToPhoneMap = {};
+    
     // Actualizar mapeos en memoria
     data.forEach(conv => {
       if (conv.id && conv.user_id) {
         // Solo actualizar si ambos valores existen
-        phoneToConversationMap[conv.user_id] = conv.id;
-        conversationIdToPhoneMap[conv.id] = conv.user_id;
+        newPhoneToConversationMap[conv.user_id] = conv.id;
+        newConversationIdToPhoneMap[conv.id] = conv.user_id;
       }
     });
     
+    // Verificar mapeos inconsistentes para limpiarlos
+    const inconsistentNumbers = [];
+    const inconsistentIds = [];
+    
+    // Verificar números de teléfono que apuntan a IDs que ya no existen
+    for (const [phone, convId] of Object.entries(phoneToConversationMap)) {
+      if (!newConversationIdToPhoneMap[convId]) {
+        inconsistentNumbers.push(phone);
+        console.log(`⚠️ Limpiando mapeo inconsistente: el número ${phone} apunta a conversación inexistente ${convId}`);
+      }
+    }
+    
+    // Verificar IDs que apuntan a números que ya no están asociados con ellos
+    for (const [convId, phone] of Object.entries(conversationIdToPhoneMap)) {
+      if (newPhoneToConversationMap[phone] !== convId) {
+        inconsistentIds.push(convId);
+        console.log(`⚠️ Limpiando mapeo inconsistente: la conversación ${convId} ya no está asociada con el número ${phone}`);
+      }
+    }
+    
+    // Limpiar mapeos inconsistentes
+    inconsistentNumbers.forEach(phone => delete phoneToConversationMap[phone]);
+    inconsistentIds.forEach(id => delete conversationIdToPhoneMap[id]);
+    
+    // Actualizar con los nuevos mapeos
+    Object.assign(phoneToConversationMap, newPhoneToConversationMap);
+    Object.assign(conversationIdToPhoneMap, newConversationIdToPhoneMap);
+    
     console.log(`✅ Mapeos actualizados: ${Object.keys(phoneToConversationMap).length} números mapeados`);
+    console.log(`✅ Se limpiaron ${inconsistentNumbers.length} mapeos de números y ${inconsistentIds.length} mapeos de conversaciones inconsistentes`);
   } catch (e) {
     console.error('❌ Error crítico en actualización de mapeos:', e.message);
   }
@@ -505,6 +538,30 @@ async function saveMessageToSupabase({ sender, message, messageId, timestamp, co
     if (!actualConversationId && phoneToConversationMap[sender]) {
       actualConversationId = phoneToConversationMap[sender];
       console.log(`✅ ID de conversación encontrado en caché: ${actualConversationId}`);
+      
+      // NUEVO: Verificar que la conversación cacheada realmente exista en la base de datos
+      try {
+        console.log(`🔍 Verificando si la conversación en caché ${actualConversationId} todavía existe en la base de datos...`);
+        const { data: existingConvCheck, error: checkError } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('id', actualConversationId)
+          .single();
+          
+        if (checkError || !existingConvCheck) {
+          console.log(`⚠️ La conversación en caché ${actualConversationId} ya no existe en la base de datos. Se creará una nueva.`);
+          // Limpiar la entrada en caché si la conversación ya no existe
+          delete phoneToConversationMap[sender];
+          delete conversationIdToPhoneMap[actualConversationId];
+          actualConversationId = null; // Forzar creación de una nueva conversación
+        } else {
+          console.log(`✅ Verificado: La conversación ${actualConversationId} existe en la base de datos.`);
+        }
+      } catch (verifyError) {
+        console.error(`❌ Error verificando existencia de conversación: ${verifyError.message}`);
+        // Por seguridad, anular el ID en caché si no podemos verificarlo
+        actualConversationId = null;
+      }
     }
 
     // Paso 2: Si no tenemos conversación, buscarla o crearla
@@ -1415,9 +1472,18 @@ app.listen(PORT, async () => {
     } else {
       console.log('✅ Conexión a Supabase verificada correctamente');
   
-  // Cargar mapeos iniciales
-  console.log('🔄 Inicializando mapeos y estados...');
-    await updateConversationMappings();
+      // Cargar mapeos iniciales
+      console.log('🔄 Inicializando mapeos y estados...');
+      await updateConversationMappings();
+      
+      // NUEVO: Configurar actualización periódica de mapeos
+      const UPDATE_MAPPINGS_INTERVAL = 1000 * 60 * 10; // 10 minutos
+      console.log(`⏱️ Configurando actualización periódica de mapeos cada ${UPDATE_MAPPINGS_INTERVAL/1000/60} minutos`);
+      
+      setInterval(async () => {
+        console.log('⏰ Ejecutando actualización periódica de mapeos...');
+        await updateConversationMappings();
+      }, UPDATE_MAPPINGS_INTERVAL);
     }
   } catch (error) {
     console.error('❌ Error crítico al verificar conexión con Supabase:', error.message);
@@ -1501,6 +1567,26 @@ app.post('/webhook', async (req, res) => {
         // Responder inmediatamente al webhook para evitar timeouts de WhatsApp
         res.sendStatus(200);
         
+        // NUEVO: Verificar si hay una conversación en caché y si todavía existe
+        let cachedConversationId = phoneToConversationMap[sender];
+        if (cachedConversationId) {
+            console.log(`🔍 Verificando conversación en caché: ${cachedConversationId} para ${sender}`);
+            const conversationStillExists = await verifyConversationExists(cachedConversationId);
+            
+            if (!conversationStillExists) {
+                console.log(`⚠️ Conversación en caché ${cachedConversationId} ya no existe, limpiando caché.`);
+                delete phoneToConversationMap[sender];
+                delete conversationIdToPhoneMap[cachedConversationId];
+                cachedConversationId = null;
+                
+                // Forzar actualización de mapeos
+                console.log('🔄 Forzando actualización de mapeos después de detectar inconsistencia...');
+                await updateConversationMappings();
+            } else {
+                console.log(`✅ Conversación en caché ${cachedConversationId} verificada y existente.`);
+            }
+        }
+        
         // Guardar mensaje en Supabase
         console.log(`💾 Guardando mensaje entrante para ${sender}`);
         let conversationId = null;
@@ -1520,12 +1606,46 @@ app.post('/webhook', async (req, res) => {
             
             if (!saveResult || !saveResult.success) {
                 console.error('❌ Error al guardar mensaje:', saveResult?.error || 'Error desconocido');
-                // Si no pudimos guardar el mensaje, no continuamos
-                return;
+                
+                // NUEVO: Si el error es por una clave foránea, intentar limpiar y recrear
+                if (saveResult?.error && saveResult.error.includes('foreign key constraint')) {
+                    console.log(`🔄 Error de clave foránea detectado, limpiando mapeo en caché para ${sender} y reintentando...`);
+                    
+                    // Limpiar mapeo en caché
+                    if (phoneToConversationMap[sender]) {
+                        const oldId = phoneToConversationMap[sender];
+                        delete phoneToConversationMap[sender];
+                        delete conversationIdToPhoneMap[oldId];
+                        
+                        // Reintentar con el mapeo limpio
+                        console.log('🔄 Reintentando guardar mensaje con nuevo mapeo...');
+                        const retryResult = await saveMessageToSupabase({
+                            sender,
+                            message,
+                            messageId,
+                            timestamp
+                        });
+                        
+                        if (retryResult && retryResult.success) {
+                            console.log(`✅ Mensaje guardado exitosamente en el segundo intento.`);
+                            conversationId = retryResult.conversationId;
+                            botActive = retryResult.isBotActive === true;
+                        } else {
+                            console.error(`❌ Falló también el segundo intento:`, retryResult?.error || 'Error desconocido');
+                            return; // No continuar
+                        }
+                    } else {
+                        console.log(`⚠️ No hay mapeo en caché para ${sender}, no se puede reintentar.`);
+                        return; // No continuar
+                    }
+                } else {
+                    // Si no es un error de clave foránea, no continuamos
+                    return;
+                }
+            } else {
+                conversationId = saveResult.conversationId;
+                botActive = saveResult.isBotActive === true;
             }
-            
-            conversationId = saveResult.conversationId;
-            botActive = saveResult.isBotActive === true;
             
             console.log(`✅ Mensaje guardado en conversación ${conversationId} (Bot activo: ${botActive ? 'SÍ' : 'NO'})`);
             
