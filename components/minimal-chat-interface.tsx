@@ -50,6 +50,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
   const [showAnalytics, setShowAnalytics] = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
   const isMobile = useMediaQuery("(max-width: 768px)")
   const { theme, setTheme } = useTheme()
@@ -146,7 +147,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
           console.log(`✅ Se encontraron ${conversationsData.length} conversaciones reales`);
           
           // Ordenar explícitamente las conversaciones por fecha de último mensaje (más reciente primero)
-          const sortedConversations = conversationsData.sort((a, b) => {
+          const sortedConversations = conversationsData.sort((a: any, b: any) => {
             const dateA = new Date(a.last_message_time || a.created_at).getTime();
             const dateB = new Date(b.last_message_time || b.created_at).getTime();
             return dateB - dateA;
@@ -156,19 +157,61 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
           setConversations(prevConversations => {
             // Si no hay conversaciones previas, simplemente devolver las nuevas
             if (prevConversations.length === 0) {
-              return sortedConversations.map((conv: any) => ({
-                id: conv.id,
-                name: conv.sender_name || conv.user_id || 'Sin nombre',
-                phone: conv.user_id || '',
-                user_id: conv.user_id || '',
-                lastMessage: conv.last_message || "Nueva conversación",
-                timestamp: conv.last_message_time || conv.created_at,
-                unread: conv.unread_count || 0,
-                tag: conv.tag || "gray",
-                colorLabel: conv.tag || "gray",
-                botActive: conv.is_bot_active !== undefined ? conv.is_bot_active : true,
-                userCategory: conv.user_category || "default"
-              }));
+              return sortedConversations.map((conv: any) => {
+                // Verificar localStorage para ver si esta conversación fue manualmente movida a "Todos"
+                let manuallyMovedToAll = conv.manuallyMovedToAll || false;
+                let manuallyMovedToAllTimestamp = conv.manuallyMovedToAllTimestamp || null;
+                
+                // Verificar si hay información en localStorage para esta conversación
+                if (typeof window !== 'undefined') {
+                  const storedMoved = localStorage.getItem(`manually_moved_${conv.id}`);
+                  const storedMovedTime = localStorage.getItem(`manually_moved_time_${conv.id}`);
+                  
+                  if (storedMoved === 'true') {
+                    console.log(`🔍 Usando información de localStorage para conversación ${conv.id}: marcada como movida manualmente a "Todos"`);
+                    manuallyMovedToAll = true;
+                    manuallyMovedToAllTimestamp = storedMovedTime || new Date().toISOString();
+                  }
+                }
+                
+                // Determinar categoría de usuario basado en campos disponibles y estado de manuallyMovedToAll
+                let userCategory = conv.user_category || "default";
+                
+                // Si tiene una frase clave pero fue movida manualmente a "Todos", debe quedar como "default"
+                const keyPhrases = [
+                  "¡Perfecto! tu cita ha sido confirmada para",
+                  "¡Perfecto! un asesor te llamará",
+                  "¡Perfecto! un asesor te contactará",
+                  "¡Perfecto! una persona te contactará"
+                ];
+                
+                const containsKeyPhrase = conv.last_message && keyPhrases.some(phrase => 
+                  conv.last_message.toLowerCase().includes(phrase.toLowerCase())
+                );
+                
+                // Si tiene una categoría "important" pero fue manualmente movida a todos,
+                // respetamos la decisión manual
+                if (userCategory === "important" && manuallyMovedToAll) {
+                  console.log(`👀 Detectada conversación ${conv.id} que estaba marcada como importante pero fue manualmente movida a "Todos"`);
+                  userCategory = "default";
+                }
+                
+                return {
+                  id: conv.id,
+                  name: conv.sender_name || conv.user_id || 'Sin nombre',
+                  phone: conv.user_id || '',
+                  user_id: conv.user_id || '',
+                  lastMessage: conv.last_message || "Nueva conversación",
+                  timestamp: conv.last_message_time || conv.created_at,
+                  unread: conv.unread_count || 0,
+                  tag: manuallyMovedToAll ? "gray" : (conv.tag || "gray"),
+                  colorLabel: manuallyMovedToAll ? "gray" : (conv.tag || "gray"),
+                  botActive: conv.is_bot_active !== undefined ? conv.is_bot_active : true,
+                  userCategory: userCategory,
+                  manuallyMovedToAll: manuallyMovedToAll,
+                  manuallyMovedToAllTimestamp: manuallyMovedToAllTimestamp
+                };
+              });
             }
             
             // Convertir el arreglo previo a un mapa para búsqueda rápida por ID
@@ -180,7 +223,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
             const processedIds = new Set();
             
             // Crear un nuevo mapa para las conversaciones actualizadas con sus posiciones
-            const updatedConvsWithPos = sortedConversations.map((conv: any, index) => {
+            const updatedConvsWithPos = sortedConversations.map((conv: any, index: number) => {
               const existingConv = prevConvsMap.get(conv.id);
               processedIds.add(conv.id);
               
@@ -207,7 +250,9 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
                   tag: conv.tag || "gray",
                   colorLabel: conv.tag || "gray",
                   botActive: conv.is_bot_active !== undefined ? conv.is_bot_active : true,
-                  userCategory: conv.user_category || "default"
+                  userCategory: conv.user_category || "default",
+                  manuallyMovedToAll: conv.manuallyMovedToAll || false, 
+                  manuallyMovedToAllTimestamp: conv.manuallyMovedToAllTimestamp || null
                 },
                 position: index
               };
@@ -215,8 +260,8 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
             
             // Ordenar el resultado final según las posiciones y extraer solo las conversaciones
             return updatedConvsWithPos
-              .sort((a, b) => a.position - b.position)
-              .map(item => item.conv);
+              .sort((a: any, b: any) => a.position - b.position)
+              .map((item: any) => item.conv);
           });
           
           setServerError(null);
@@ -416,7 +461,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
     loadMessages();
     
     // Suscribirse a cambios en tiempo real para esta conversación
-    const subscription = subscribeToConversationMessages(chatId, (payload) => {
+    const subscription = subscribeToConversationMessages(chatId, (payload: any) => {
       if (!payload || !payload.new) {
         console.log("Evento de tiempo real recibido sin datos nuevos");
         return;
@@ -556,7 +601,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
               manuallyMovedToAllTimestamp: null
             })
             .eq('id', chatId)
-            .then(({ error }) => {
+            .then(({ error }: { error: any }) => {
               if (error) {
                 console.error('Error al actualizar categoría en la base de datos:', error);
               } else {
@@ -802,6 +847,35 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
           return updatedMessages;
         });
         
+        // Enviar el mensaje a través de la API
+        console.log(`📤 Enviando mensaje "${content}" a la API para conversación ${conversationId}`);
+        const response = await sendMessage(conversationId, content, undefined, 'agent');
+        
+        if (response) {
+          console.log(`✅ Mensaje enviado correctamente a través de la API:`, response);
+          
+          // Actualizar el mensaje optimista con los datos reales si es necesario
+          if (response.id && response.id !== tempId) {
+            console.log(`🔄 Actualizando mensaje optimista ${tempId} con el ID real ${response.id}`);
+            setMessages(prevMessages => {
+              return prevMessages.map(msg => {
+                if (msg.id === tempId) {
+                  return { ...msg, id: response.id, status: 'delivered' };
+                }
+                return msg;
+              });
+            });
+          }
+        } else {
+          console.error(`❌ Error al enviar mensaje a través de la API`);
+          toast({
+            title: "Error al enviar mensaje",
+            description: "No se pudo enviar el mensaje a WhatsApp. Se muestra localmente.",
+            variant: "destructive",
+            duration: 5000
+          });
+        }
+        
         // Verificar si el mensaje contiene alguna de las frases clave
         const keyPhrases = [
           "¡Perfecto! tu cita ha sido confirmada para",
@@ -836,7 +910,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
                 manuallyMovedToAllTimestamp: null
               })
               .eq('id', conversationId)
-              .then(({ error }) => {
+              .then(({ error }: { error: any }) => {
                 if (error) {
                   console.error('Error al actualizar categoría en la base de datos:', error);
                 } else {
@@ -1033,7 +1107,46 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
     
     // Luego enviar a la base de datos con prioridad alta
     console.log(`⚠️ Enviando actualización prioritaria a la base de datos para conversación ${id}`);
-    handleUpdateConversation(id, updates);
+    
+    // Usar una función directa a Supabase para garantizar que la actualización se realiza
+    // incluso si hay errores en otras partes de la aplicación
+    const updateDatabase = async () => {
+      try {
+        // Actualización directa en Supabase
+        const { data, error } = await supabase
+          .from('conversations')
+          .update({
+            user_category: newCategory,
+            tag: newCategory === "important" ? "yellow" : "gray",
+            manuallyMovedToAll: newCategory === "important" ? false : true,
+            manuallyMovedToAllTimestamp: newCategory === "important" ? null : now
+          })
+          .eq('id', id);
+        
+        if (error) {
+          console.error('❌ Error al actualizar en Supabase:', error);
+          toast({
+            title: "Error de sincronización",
+            description: "No se pudo guardar el cambio en el servidor. Los cambios podrían perderse al recargar.",
+            variant: "destructive"
+          });
+          return false;
+        }
+        
+        console.log('✅ Actualización en Supabase completada con éxito');
+        return true;
+      } catch (e) {
+        console.error('❌ Excepción al actualizar en Supabase:', e);
+        return false;
+      }
+    };
+    
+    // Ejecutar la actualización de Supabase y también la función normal para actualizar el resto del estado
+    updateDatabase().then(success => {
+      if (success) {
+        handleUpdateConversation(id, updates);
+      }
+    });
     
     // Forzar refresco completo y cambio de pestaña
     setTimeout(() => {
@@ -1115,13 +1228,19 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
 
   // Cambiar a la vista de analytics
   const toggleAnalytics = useCallback(() => {
-    setShowAnalytics(!showAnalytics)
-    if (!showAnalytics) {
-      router.push("/dashboard/analytics")
-    } else {
-      router.push("/dashboard")
-    }
-  }, [showAnalytics, router])
+    setShowAnalytics(true)
+    setShowConfig(false)
+    setSelectedChat(null)
+    router.push('/dashboard/analytics')
+  }, [router])
+
+  // Cambiar a la vista de configuración
+  const toggleConfig = useCallback(() => {
+    setShowConfig(true)
+    setShowAnalytics(false)
+    setSelectedChat(null)
+    router.push('/dashboard/config')
+  }, [router])
 
   // Cerrar sesión
   const handleLogout = useCallback(async () => {
@@ -1189,6 +1308,155 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
     handleUpdateConversation(id, { sender_name: name });
   }, []);
 
+  // Efecto para comprobar y restaurar la sesión si es necesario
+  useEffect(() => {
+    const checkAndRestoreSession = async () => {
+      // Comprobar si acabamos de navegar desde otra página usando el parámetro keepSession
+      if (typeof window !== 'undefined' && window.location.search.includes('keepSession=true')) {
+        try {
+          // Intentar obtener la sesión actual
+          const { data: { session } }: { data: { session: any } } = await supabase.auth.getSession();
+          
+          // Si no hay sesión pero tenemos un token de respaldo, intentar restaurarla
+          if (!session) {
+            const backupToken = localStorage.getItem('supabase_auth_token_backup');
+            const backupExpiry = localStorage.getItem('supabase_auth_token_backup_expiry');
+            
+            if (backupToken && backupExpiry && parseInt(backupExpiry) > Date.now()) {
+              console.log('🔄 Intentando restaurar sesión desde token de respaldo');
+              
+              // Intentar restaurar la sesión con el token de respaldo
+              const { error } = await supabase.auth.setSession({
+                access_token: backupToken,
+                refresh_token: backupToken // Usar como refresh token en caso de emergencia
+              });
+              
+              if (error) {
+                console.error('❌ Error al restaurar sesión:', error);
+                toast({
+                  title: "Error de sesión",
+                  description: "No se pudo restaurar la sesión. Por favor, inicie sesión nuevamente.",
+                  variant: "destructive"
+                });
+                router.push('/login');
+              } else {
+                console.log('✅ Sesión restaurada correctamente');
+                toast({
+                  title: "Sesión restaurada",
+                  description: "Su sesión se ha restaurado correctamente.",
+                  duration: 2000
+                });
+              }
+            }
+          } else {
+            console.log('✅ Sesión activa detectada');
+          }
+        } catch (error) {
+          console.error('❌ Error al verificar sesión:', error);
+        } finally {
+          // Limpiar parámetros de URL para evitar problemas
+          if (window.history && window.history.replaceState) {
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+          }
+        }
+      }
+    };
+    
+    if (mounted) {
+      checkAndRestoreSession();
+    }
+  }, [mounted, router, toast]);
+
+  // Set up a global subscription to conversations table to detect important status changes
+  useEffect(() => {
+    console.log('🔄 Configurando suscripción global a actualizaciones de conversaciones');
+    
+    // Create a channel for conversations updates
+    const channel = supabase
+      .channel('conversations-status-changes')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'conversations',
+      }, (payload: any) => {
+        // If no data or no updated conversation, ignore
+        if (!payload || !payload.new || !payload.old) {
+          return;
+        }
+        
+        const updatedConversation = payload.new;
+        const oldConversation = payload.old;
+        
+        // If is_important or user_category changed, update our UI
+        const importantStatusChanged = 
+          updatedConversation.is_important !== oldConversation.is_important ||
+          updatedConversation.user_category !== oldConversation.user_category;
+        
+        if (importantStatusChanged) {
+          console.log(`🔔 Actualización de estado importante detectada para conversación: ${updatedConversation.id}`);
+          console.log(`   - is_important: ${oldConversation.is_important} → ${updatedConversation.is_important}`);
+          console.log(`   - user_category: ${oldConversation.user_category} → ${updatedConversation.user_category}`);
+          
+          // Update the conversations state
+          setConversations(prevConversations => {
+            // First check if we already have this conversation
+            const existingConversation = prevConversations.find(c => c.id === updatedConversation.id);
+            
+            if (!existingConversation) {
+              console.log(`📊 Conversación ${updatedConversation.id} no encontrada en el estado actual, recargando todas las conversaciones...`);
+              
+              // If we don't have this conversation, refresh all conversations
+              if (loadConversationsRef.current) {
+                setTimeout(() => {
+                  try {
+                    loadConversationsRef.current();
+                    console.log('✅ Lista de conversaciones actualizada en tiempo real');
+                  } catch (err) {
+                    console.error('❌ Error al recargar conversaciones:', err);
+                  }
+                }, 100);
+              }
+              
+              return prevConversations;
+            }
+            
+            // Update just this conversation
+            return prevConversations.map(conv => {
+              if (conv.id === updatedConversation.id) {
+                return {
+                  ...conv,
+                  userCategory: updatedConversation.user_category || conv.userCategory,
+                  is_important: updatedConversation.is_important,
+                  manuallyMovedToAll: updatedConversation.manuallyMovedToAll,
+                  colorLabel: updatedConversation.colorLabel || conv.colorLabel,
+                  tag: updatedConversation.tag || conv.tag,
+                };
+              }
+              return conv;
+            });
+          });
+          
+          // If is_important changed to true, switch to important tab
+          if (updatedConversation.is_important === true && oldConversation.is_important === false) {
+            if (activeTab !== "important") {
+              console.log('🔄 Cambiando automáticamente a la pestaña IMPORTANTES debido a actualización en tiempo real');
+              setTimeout(() => setActiveTab("important"), 300);
+            }
+          }
+        }
+      })
+      .subscribe((status: string) => {
+        console.log(`🔄 Estado de suscripción a cambios de conversaciones: ${status}`);
+      });
+    
+    // Clean up the subscription on unmount
+    return () => {
+      channel.unsubscribe();
+      console.log('🔕 Suscripción a conversaciones cancelada');
+    };
+  }, []); // Empty dependency array to run only once on mount
+
   // Si no está montado, no renderizar nada
   if (!mounted) return null
 
@@ -1217,7 +1485,7 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
                 fetchConversations(hardcodedId)
                   .then(conversations => {
                     if (conversations && conversations.length > 0) {
-                      const sortedConversations = conversations.sort((a, b) => {
+                      const sortedConversations = conversations.sort((a: any, b: any) => {
                         const dateA = new Date(a.last_message_time || a.created_at).getTime();
                         const dateB = new Date(b.last_message_time || b.created_at).getTime();
                         return dateB - dateA;
@@ -1257,52 +1525,21 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
 
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-        <div className="w-16 h-16 bg-gray-200 rounded-full mb-4 flex items-center justify-center">
-          <span className="text-gray-500 text-2xl">📨</span>
+        <div className="flex-1 flex items-center justify-center bg-gray-100 dark:bg-gray-900 rounded-r-2xl">
+          <div className="text-center">
+            <div className="mb-6 flex items-center justify-center">
+              <img
+                src={theme === "dark" ? "/logobalanco/blancotransparte.png" : "/logo longin/BEXO (8).png"}
+                alt="BEXOR Logo"
+                className="h-40 w-auto object-contain"
+              />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100">Powered by BEXOR</h3>
+            <p className="text-gray-600 dark:text-gray-300 mt-2">
+              Selecciona un chat para comenzar a enviar mensajes
+            </p>
+          </div>
         </div>
-        <h3 className="text-lg font-semibold text-gray-700 mb-2">No hay conversaciones</h3>
-        <p className="text-gray-500 mb-4">No se encontraron conversaciones para este negocio.</p>
-        <button
-          onClick={() => {
-            // Usar directamente el ID conocido que funciona
-            const hardcodedId = "2d385aa5-40e0-4ec9-9360-19281bc605e4";
-            setIsLoadingConversations(true);
-            fetchConversations(hardcodedId)
-              .then(conversations => {
-                if (conversations && conversations.length > 0) {
-                  const sortedConversations = conversations.sort((a, b) => {
-                    const dateA = new Date(a.last_message_time || a.created_at).getTime();
-                    const dateB = new Date(b.last_message_time || b.created_at).getTime();
-                    return dateB - dateA;
-                  });
-                  
-                  setConversations(sortedConversations.map((conv: any) => ({
-                    id: conv.id,
-                    name: conv.sender_name || conv.user_id || 'Sin nombre',
-                    phone: conv.user_id || '',
-                    lastMessage: conv.last_message || "Nueva conversación",
-                    timestamp: conv.last_message_time || conv.created_at,
-                    unread: conv.unread_count || 0,
-                    tag: conv.tag || "gray",
-                    colorLabel: conv.tag || "gray",
-                    botActive: conv.is_bot_active !== undefined ? conv.is_bot_active : true,
-                    userCategory: conv.user_category || "default"
-                  })));
-                  setServerError(null);
-                }
-              })
-              .catch(error => {
-                console.error('Error al recargar conversaciones:', error);
-                setServerError("Error al conectar con el servidor. Verifica que esté ejecutándose.");
-              })
-              .finally(() => {
-                setIsLoadingConversations(false);
-              });
-          }}
-          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-        >
-          Actualizar
-        </button>
       </div>
     );
   }
@@ -1312,16 +1549,17 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
     <div className="flex h-full bg-gray-100 dark:bg-gray-950 p-2">
       <div className="flex w-full max-w-[98%] mx-auto rounded-2xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800">
         {/* Barra de navegación principal */}
-        <div className="w-16 bg-[#332c40] dark:bg-[#26212f] flex flex-col items-center py-6 text-white rounded-xl">
+        <div className="w-16 bg-[#f2e8df] dark:bg-[#4e6b95] flex flex-col items-center py-6 text-[#2e3c53] dark:text-white rounded-xl">
           <div className="flex-1 flex flex-col items-center mt-8 space-y-10">
             <Button
               variant="ghost"
               className={cn(
-                "w-12 h-12 p-0 hover:bg-[#26212f] dark:hover:bg-[#15121b] rounded-xl",
-                !showAnalytics && !selectedChat && "bg-[#26212f] dark:bg-[#15121b]",
+                "w-12 h-12 p-0 hover:bg-[#afc5de] dark:hover:bg-[#364863] rounded-xl",
+                !showAnalytics && !showConfig && !selectedChat && "bg-[#afc5de] dark:bg-[#364863]",
               )}
               onClick={() => {
                 setShowAnalytics(false)
+                setShowConfig(false)
                 setSelectedChat(null)
               }}
             >
@@ -1330,25 +1568,35 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
             <Button
               variant="ghost"
               className={cn(
-                "w-12 h-12 p-0 hover:bg-[#26212f] dark:hover:bg-[#15121b] rounded-xl",
-                showAnalytics && "bg-[#26212f] dark:bg-[#15121b]",
+                "w-12 h-12 p-0 hover:bg-[#afc5de] dark:hover:bg-[#364863] rounded-xl",
+                showAnalytics && "bg-[#afc5de] dark:bg-[#364863]",
               )}
               onClick={toggleAnalytics}
             >
               <BarChart2 className="h-6 w-6" />
             </Button>
+            <Button
+              variant="ghost"
+              className={cn(
+                "w-12 h-12 p-0 hover:bg-[#afc5de] dark:hover:bg-[#364863] rounded-xl",
+                showConfig && "bg-[#afc5de] dark:bg-[#364863]",
+              )}
+              onClick={toggleConfig}
+            >
+              <Settings className="h-6 w-6 text-[#40E0D0]" />
+            </Button>
           </div>
           <div className="flex flex-col items-center space-y-10 mb-10 mt-10">
             <Button
               variant="ghost"
-              className="w-12 h-12 p-0 hover:bg-[#26212f] dark:hover:bg-[#15121b] rounded-xl"
+              className="w-12 h-12 p-0 hover:bg-[#afc5de] dark:hover:bg-[#364863] rounded-xl"
               onClick={toggleTheme}
             >
               {theme === "dark" ? <Sun className="h-6 w-6" /> : <Moon className="h-6 w-6" />}
             </Button>
             <Button
               variant="ghost"
-              className="w-12 h-12 p-0 hover:bg-[#26212f] dark:hover:bg-[#15121b] rounded-xl"
+              className="w-12 h-12 p-0 hover:bg-[#afc5de] dark:hover:bg-[#364863] rounded-xl"
               onClick={handleLogout}
             >
               <LogOut className="h-6 w-6" />
@@ -1425,13 +1673,11 @@ export default function MinimalChatInterface({ businessId }: MinimalChatInterfac
               <div className="flex-1 flex items-center justify-center bg-gray-100 dark:bg-gray-900 rounded-r-2xl">
                 <div className="text-center">
                   <div className="mb-6 flex items-center justify-center">
-                    <div className="rounded-full bg-white p-4 w-32 h-32 flex items-center justify-center">
-                      <img
-                        src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/BEXO%20%281%29-ioN7LHMsHngPVmhgPVNy7Pns2XPtZH.png"
-                        alt="BEXOR Logo"
-                        className="h-20 w-auto object-contain"
-                      />
-                    </div>
+                    <img
+                      src={theme === "dark" ? "/logobalanco/blancotransparte.png" : "/logo longin/BEXO (8).png"}
+                      alt="BEXOR Logo"
+                      className="h-40 w-auto object-contain"
+                    />
                   </div>
                   <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100">Powered by BEXOR</h3>
                   <p className="text-gray-600 dark:text-gray-300 mt-2">

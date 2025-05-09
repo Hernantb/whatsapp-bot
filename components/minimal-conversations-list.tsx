@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "./ui/dialog"
 import { Badge } from "./ui/badge"
+import { useTheme } from "next-themes"
 
 interface MinimalConversationsListProps {
   conversations: UIConversation[]
@@ -58,7 +59,38 @@ const formatRelativeDate = (timestamp: string) => {
   // Si no está en caché, calcularla
   try {
     const date = new Date(timestamp);
-    const formatted = formatDistanceToNow(date, { addSuffix: true });
+    const now = new Date();
+    
+    // Resetear a medianoche para comparaciones de día
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const oneWeekAgo = new Date(today);
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    
+    let formatted;
+    
+    // Si es hoy, mostrar solo la hora
+    if (date >= today) {
+      formatted = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    } 
+    // Si fue ayer, mostrar "Ayer"
+    else if (date >= yesterday) {
+      formatted = "Ayer";
+    } 
+    // Si fue dentro de la semana pasada, mostrar el día de la semana
+    else if (date >= oneWeekAgo) {
+      const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      formatted = days[date.getDay()];
+    } 
+    // Si fue hace más de una semana, mostrar fecha DD/MM/YYYY
+    else {
+      formatted = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
+    }
+    
     // Guardar en caché
     dateCache.set(timestamp, formatted);
     return formatted;
@@ -129,7 +161,7 @@ const ConversationItem = memo(({
           ? "bg-primary-50 dark:bg-primary-900/30"
           : "hover:bg-gray-100 dark:hover:bg-gray-800",
         isImportant 
-          ? "border-l-4 border-yellow-400" 
+          ? "border-l-4 border-[#2188f3]" 
           : ""
       )}
     >
@@ -254,6 +286,7 @@ function MinimalConversationsList({
   const [isUpdating, setIsUpdating] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false)
   const [selectedConversation, setSelectedConversation] = useState<any>(null)
+  const { theme } = useTheme()
 
   // Función simple para determinar si una conversación es importante
   const isImportant = (conv: UIConversation) => {
@@ -303,22 +336,32 @@ function MinimalConversationsList({
     // Verificar si fue movida manualmente a "Todos"
     const wasManuallyMovedToAll = conv.manuallyMovedToAll === true;
     
+    // Comprobar localStorage por si hay información más actualizada
+    if (typeof window !== 'undefined') {
+      const storedManuallyMoved = localStorage.getItem(`manually_moved_${conv.id}`);
+      if (storedManuallyMoved === 'true' && !wasManuallyMovedToAll) {
+        console.log(`⚠️ LocalStorage indica que la conversación ${conv.id} fue movida a TODOS pero el estado no lo refleja`);
+      }
+    }
+    
     // Una conversación es importante si:
-    // 1. Tiene categoría "important"/"urgent" O
-    // 2. Contiene frases clave PERO no fue movida manualmente a "Todos"
+    // 1. Tiene categoría "important"/"urgent" Y NO fue movida manualmente a "Todos" O
+    // 2. Contiene frases clave Y NO fue movida manualmente a "Todos"
     const isImportant = 
-      (conv.userCategory === "important" || conv.userCategory === "urgent") || 
+      ((conv.userCategory === "important" || conv.userCategory === "urgent") && !wasManuallyMovedToAll) || 
       (containsKeyPhrase && !wasManuallyMovedToAll);
     
     // Mostrar por qué esta conversación se considera importante o no
     console.log(`🏷️ Conversación ${conv.id} (${conv.name}): ${isImportant ? '✅ IMPORTANTE' : '❌ NORMAL'}`);
     if (isImportant) {
-      if (conv.userCategory === "important" || conv.userCategory === "urgent") {
+      if ((conv.userCategory === "important" || conv.userCategory === "urgent") && !wasManuallyMovedToAll) {
         console.log(`  - Por categoría: ${conv.userCategory}`);
       }
       if (containsKeyPhrase && !wasManuallyMovedToAll) {
         console.log(`  - Por frase clave en: "${conv.lastMessage}"`);
       }
+    } else if ((conv.userCategory === "important" || conv.userCategory === "urgent") && wasManuallyMovedToAll) {
+      console.log(`  - Categoría ${conv.userCategory} PERO fue movida manualmente a TODOS`);
     } else if (containsKeyPhrase && wasManuallyMovedToAll) {
       console.log(`  - Contiene frase clave PERO fue movida manualmente a TODOS`);
     }
@@ -330,10 +373,10 @@ function MinimalConversationsList({
       return shouldShow;
     }
     
-    // PESTAÑA TODOS: Mostrar SOLO las conversaciones NO importantes
+    // PESTAÑA TODOS: Mostrar las conversaciones NO importantes O las que fueron movidas manualmente a TODOS
     if (activeTab === "all") {
-      const shouldShow = !isImportant;
-      console.log(`  - En pestaña TODOS: ${shouldShow ? '✅ MOSTRAR' : '❌ OCULTAR'}`);
+      const shouldShow = !isImportant || wasManuallyMovedToAll;
+      console.log(`  - En pestaña TODOS: ${shouldShow ? '✅ MOSTRAR' : '❌ OCULTAR'} (${!isImportant ? 'no importante' : 'movida manualmente'})`);
       return shouldShow;
     }
     
@@ -384,20 +427,54 @@ function MinimalConversationsList({
       : selectedChatId.id === convId;
   };
 
+  // Add this useEffect to filter conversations into appropriate tabs when the list changes
+  useEffect(() => {
+    if (!conversations || conversations.length === 0) return;
+    
+    // Check if there are newly important conversations
+    const importantConvs = conversations.filter(conv => 
+      (conv.userCategory === "important" || conv.userCategory === "urgent") ||
+      ((conv as any).is_important === true && conv.manuallyMovedToAll !== true)
+    );
+    
+    // Log for debugging
+    console.log(`🔍 Verificando conversaciones importantes: ${importantConvs.length} encontradas`);
+    
+    // If we're in the 'all' tab but there are new important conversations, switch to 'important'
+    if (activeTab === "all" && importantConvs.length > 0) {
+      // Check if there are any important conversations that were recently updated
+      const recentlyUpdatedImportant = importantConvs.some(conv => {
+        // If we have a marker in localStorage that we already saw this conversation, skip
+        if (typeof window !== 'undefined') {
+          const lastSeen = localStorage.getItem(`seen_important_${conv.id}`);
+          if (lastSeen) return false;
+          
+          // Mark as seen
+          localStorage.setItem(`seen_important_${conv.id}`, new Date().toISOString());
+        }
+        return true;
+      });
+      
+      if (recentlyUpdatedImportant) {
+        console.log('🔄 Nuevas conversaciones importantes detectadas, cambiando a pestaña "important"');
+        setActiveTab("important");
+      }
+    }
+  }, [conversations, activeTab, setActiveTab]);
+
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
       {/* Header */}
       <div className="p-4 border-b dark:border-gray-700 bg-white dark:bg-gray-800">
         <div className="flex items-center gap-3 mb-4">
-          <div className="flex items-center justify-center bg-white rounded-full p-3 h-20 w-20">
-            <img
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/BEXO%20%281%29-ioN7LHMsHngPVmhgPVNy7Pns2XPtZH.png"
-              alt="BEXOR Logo"
-              className="h-16 w-auto object-contain"
-            />
-          </div>
           <div className="flex-1">
-            <h2 className="font-semibold dark:text-white text-lg">Chat Control</h2>
+            <div className="flex items-center">
+              <img
+                src={theme === "dark" ? "/logobalanco/blancotransparte.png" : "/logo longin/BEXO (8).png"}
+                alt="BEXOR Logo"
+                className="h-10 w-auto mr-2"
+              />
+            </div>
           </div>
           <button
             onClick={handleManualRefresh}
@@ -435,14 +512,14 @@ function MinimalConversationsList({
           className={cn(
             "flex-1 py-3 text-sm font-medium rounded-lg transition-colors relative",
             activeTab === "all"
-              ? "text-white bg-[#332c40] dark:bg-[#26212f]"
+              ? "text-[#2e3c53] bg-[#f2e8df] dark:bg-[#4e6b95] dark:text-white"
               : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700",
           )}
           onClick={() => setActiveTab("all")}
         >
           Todos
           {(allConversations || conversations) && (
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-400 text-black">
+            <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-[#2288f4] text-white">
               {(allConversations || conversations).filter(conv => !isImportant(conv)).length}
             </span>
           )}
@@ -451,14 +528,14 @@ function MinimalConversationsList({
           className={cn(
             "flex-1 py-3 text-sm font-medium rounded-lg transition-colors relative",
             activeTab === "important"
-              ? "text-white bg-[#332c40] dark:bg-[#26212f]"
+              ? "text-[#2e3c53] bg-[#f2e8df] dark:bg-[#4e6b95] dark:text-white"
               : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700",
           )}
           onClick={() => setActiveTab("important")}
         >
           Importantes
           {(allConversations || conversations) && (
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-400 text-black">
+            <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-[#2288f4] text-white">
               {(allConversations || conversations).filter(conv => isImportant(conv)).length}
             </span>
           )}
