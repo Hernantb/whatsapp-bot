@@ -292,7 +292,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
     }
     
     // Primero intentar usando el cliente Supabase
-    try {
+      try {
       const messageObj = {
         conversation_id: conversationId,
         content: message,
@@ -305,7 +305,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
           // Evitar sobreescribir campos clave
           if (!['conversation_id', 'content', 'sender_type'].includes(key)) {
             messageObj[key] = metadata[key];
-          }
+      }
         });
       }
       
@@ -351,13 +351,13 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
           };
           
           // Datos a enviar
-          const messageData = {
+    const messageData = {
             conversationId,
             message,
-            sender_type,
+      sender_type,
             ...(metadata || {})  // Incluir metadatos si existen
-          };
-          
+    };
+    
           // Primera URL
           try {
             // Intentar con /api/register-bot-response
@@ -390,7 +390,7 @@ async function saveMessageToSupabase(conversationId, message, business_id, sende
               message,
               sender_type: sender_type
             });
-            
+    
             if (response.status >= 200 && response.status < 300) {
               console.log(`✅ Mensaje guardado usando URL alternativa: ${alternativeUrl}`);
               return {
@@ -508,10 +508,10 @@ async function registerBotResponse(conversationId, message, business_id = BUSINE
   try {
     // Si llegamos aquí, deberíamos tener un UUID válido o haber fallado
     if (uuidRegex.test(finalConversationId)) {
-      // Intentar guardar directamente en Supabase, pasando los metadatos
+    // Intentar guardar directamente en Supabase, pasando los metadatos
       await saveMessageToSupabase(finalConversationId, message, null, sender_type, metadata);
-      console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
-      return { success: true, message: "Mensaje guardado en Supabase" };
+    console.log(`✅ Mensaje guardado correctamente en Supabase (tipo: ${sender_type})`);
+    return { success: true, message: "Mensaje guardado en Supabase" };
     } else {
       throw new Error(`No se pudo obtener un ID de conversación válido para: ${normalizedInput}`);
     }
