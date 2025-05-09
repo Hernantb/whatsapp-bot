@@ -999,7 +999,7 @@ app.post('/webhook', async (req, res) => {
 
       // Obtener el ID del mensaje insertado
       const messageId = newMessage && newMessage.length > 0 ? newMessage[0].id : null;
-      
+
       console.log('✅ Mensaje guardado exitosamente:', {
         messageId: messageId,
         phoneNumber: processedData.phoneNumber,
@@ -1806,14 +1806,14 @@ const startServer = async () => {
   
   const server = app.listen(selectedPort, () => {
     console.log(`🚀 Servidor ejecutándose en el puerto ${selectedPort}`);
+  
+  // Verificar notificaciones pendientes al iniciar
+  setTimeout(() => {
+    console.log(`⏱️ Verificando notificaciones pendientes al iniciar...`);
+    checkPendingNotifications();
     
-    // Verificar notificaciones pendientes al iniciar
-    setTimeout(() => {
-      console.log(`⏱️ Verificando notificaciones pendientes al iniciar...`);
-      checkPendingNotifications();
-      
-      // Programar verificación periódica cada 15 minutos
-      setInterval(checkPendingNotifications, 15 * 60 * 1000);
+    // Programar verificación periódica cada 15 minutos
+    setInterval(checkPendingNotifications, 15 * 60 * 1000);
       
       // Primera verificación de mensajes de seguimiento después de iniciar
       console.log(`⏱️ Verificando mensajes de seguimiento al iniciar...`);
@@ -1821,8 +1821,8 @@ const startServer = async () => {
       
       // Programar verificación de mensajes de seguimiento cada 2 minutos
       setInterval(checkForFollowUpMessages, 2 * 60 * 1000);
-    }, 5000); // Esperar 5 segundos después del inicio para dar tiempo a que todo se inicialice
-  });
+  }, 5000); // Esperar 5 segundos después del inicio para dar tiempo a que todo se inicialice
+});
   
   // Handle server errors
   server.on('error', (error) => {
@@ -2125,7 +2125,7 @@ async function sendWhatsAppMessage(phoneNumber, message, conversationId) {
     } catch (error) {
       console.error(`❌ Error al contactar el servidor de WhatsApp: ${error}`);
       
-      // Generate a simulated response for testing
+      // Generate a fallback message in database
       console.log(`⚠️ Guardando mensaje en base de datos a pesar del error`);
       
       // Create the message in the database anyway
