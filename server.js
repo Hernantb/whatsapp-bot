@@ -916,6 +916,7 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Error buscando conversación', details: convError });
       }
 
+      let originalSenderName = '';
       let conversationId;
       let senderName = processedData.senderName || 'Usuario';
 
@@ -1959,7 +1960,7 @@ function checkForNotificationPhrases(message) {
   return false;
 }
 
-// Function to send business notifications
+// Function to send business notifications via email
 async function sendBusinessNotification(conversationId, message, clientPhoneNumber) {
   try {
     console.log(`📧 Enviando notificación para conversación: ${conversationId}`);
@@ -1975,47 +1976,43 @@ async function sendBusinessNotification(conversationId, message, clientPhoneNumb
       service: 'gmail',
       auth: {
         user: senderEmail,
-        pass: process.env.EMAIL_PASSWORD
+        pass: process.env.EMAIL_PASSWORD || "your_app_password_here"
       }
     });
     
-    // Email subject and content
-    const subject = `Notificación: Nueva interacción con cliente ${clientPhoneNumber}`;
-    const html = `
-      <h2>Notificación de WhatsApp Bot</h2>
-      <p><strong>Teléfono del cliente:</strong> ${clientPhoneNumber}</p>
-      <p><strong>ID de conversación:</strong> ${conversationId}</p>
-      <p><strong>Mensaje:</strong> ${message}</p>
-      <p><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
-      <hr>
-      <p><em>Este es un mensaje automático, no responder a este correo.</em></p>
-    `;
-    
-    // Mail options
+    // Set up email data
     const mailOptions = {
-      from: senderEmail,
+      from: `"Bot de WhatsApp" <${senderEmail}>`,
       to: businessEmail,
-      subject: subject,
-      html: html
+      subject: `Notificación de mensaje importante - Cliente: ${clientPhoneNumber}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+          <h2 style="color: #4CAF50;">Notificación de mensaje importante</h2>
+          <p><strong>ID de conversación:</strong> ${conversationId}</p>
+          <p><strong>Número de teléfono del cliente:</strong> ${clientPhoneNumber}</p>
+          <p><strong>Mensaje:</strong> "${message}"</p>
+          <p style="margin-top: 20px; font-style: italic; color: #666;">
+            Este mensaje ha sido marcado como importante porque contiene frases clave que indican una acción o seguimiento.
+          </p>
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; color: #888; font-size: 12px;">
+            Enviado desde el Bot de WhatsApp de BEXOR
+          </div>
+        </div>
+      `
     };
     
-    console.log(`📧 Enviando correo a: ${businessEmail}`);
-    
+    // Send email
     try {
       const info = await transporter.sendMail(mailOptions);
-      console.log(`📧 Email enviado: ${info.messageId}`);
+      console.log(`✅ Email enviado correctamente: ${info.messageId}`);
+      return true;
     } catch (emailError) {
-      console.error(`📧 Error al enviar email: ${emailError.message}`);
-      console.log('📧 Continuando de todas formas con la notificación');
+      console.error(`❌ Error enviando email: ${emailError}`);
+      // Continue execution even if email fails
+      return false;
     }
-    
-    // Update conversation notification status
-    await handleNotificationUpdate(conversationId, true);
-    
-    console.log('✅ Notificación procesada correctamente');
-    return true;
   } catch (error) {
-    console.error(`❌ Error al enviar notificación: ${error.message}`);
+    console.error(`❌ Error en sendBusinessNotification: ${error}`);
     return false;
   }
 }
@@ -2102,7 +2099,6 @@ async function sendWhatsAppMessage(phoneNumber, message, conversationId) {
     console.log(`📞 Enviando a número: ${phoneNumber}`);
     
     // URL for WhatsApp service - use environment variable or fallback to local server
-    // Use port 7777 where the server is already running
     const whatsappBotUrl = process.env.WHATSAPP_BOT_URL || 'http://localhost:7777';
     
     console.log(`🔄 Enviando petición a: ${whatsappBotUrl}/api/send-manual-message`);
@@ -2130,7 +2126,7 @@ async function sendWhatsAppMessage(phoneNumber, message, conversationId) {
       console.error(`❌ Error al contactar el servidor de WhatsApp: ${error}`);
       
       // Generate a simulated response for testing
-      console.log(`⚠️ Generando respuesta simulada para mensaje de seguimiento`);
+      console.log(`⚠️ Guardando mensaje en base de datos a pesar del error`);
       
       // Create the message in the database anyway
       const { data: messageData, error: messageError } = await supabase
@@ -2139,7 +2135,6 @@ async function sendWhatsAppMessage(phoneNumber, message, conversationId) {
           conversation_id: conversationId,
           content: message,
           sender_type: 'bot',
-          sender_id: 'system',
           created_at: new Date().toISOString(),
           sent_to_whatsapp: true
         })
