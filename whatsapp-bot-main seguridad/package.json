@@ -1,0 +1,35 @@
+{
+  "name": "whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp con OpenAI y Gupshup",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hernantb/whatsapp-bot.git"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "openai",
+    "gupshup"
+  ],
+  "author": "Hernán Tenorio",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Hernantb/whatsapp-bot/issues"
+  },
+  "homepage": "https://github.com/Hernantb/whatsapp-bot#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.3",
+    "axios": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-fetch": "^2.7.0",
+    "openai": "^4.90.0",
+    "uuid": "^11.1.0"
+  }
+}
