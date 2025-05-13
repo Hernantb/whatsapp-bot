@@ -19,20 +19,19 @@ yarn.lock
 .env.production.local
 .env.development.local
 
-# Archivos de respaldo
-backups/
-*.bak
-*.backup
-*.tmp
-
-# Logs
-logs/
+# Logs y archivos temporales
+server-logs.txt
+server_log.txt
+server_logs.txt
+*.backup-*
 *.log
 
-# Sistema operativo
+# Archivos de sistema
 .DS_Store
 Thumbs.db
-.directory
+
+# Archivos de backup
+BACKUP_*
 
 # Editores
 .idea/
