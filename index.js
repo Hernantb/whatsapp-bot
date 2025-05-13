@@ -1095,6 +1095,9 @@ async function sendWhatsAppResponse(recipient, message) {
         
         if (!GUPSHUP_API_KEY || !GUPSHUP_NUMBER || !GUPSHUP_USERID) {
             console.error('❌ Error: Faltan credenciales GupShup (API_KEY, NUMBER o USERID). No se puede enviar el mensaje.');
+            console.error('GUPSHUP_API_KEY:', GUPSHUP_API_KEY ? 'Configurado' : 'No configurado');
+            console.error('GUPSHUP_NUMBER:', GUPSHUP_NUMBER ? 'Configurado' : 'No configurado');
+            console.error('GUPSHUP_USERID:', GUPSHUP_USERID ? 'Configurado' : 'No configurado');
             return false;
         }
         
@@ -1115,12 +1118,16 @@ async function sendWhatsAppResponse(recipient, message) {
         
         // Asegurar valores obligatorios para GupShup
         const apiKey = GUPSHUP_API_KEY;
+        // Actualizar la URL para usar la URL correcta de WhatsApp
         const apiUrl = 'https://api.gupshup.io/wa/api/v1/msg';
         const source = GUPSHUP_NUMBER;
+        const userid = GUPSHUP_USERID;
         
         console.log('📤 Enviando mensaje a GupShup:');
         console.log(`📞 Destino: ${formattedNumber}`);
         console.log(`💬 Mensaje: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`);
+        console.log(`🔑 API Key: ${apiKey.substring(0, 10)}...`);
+        console.log(`🔑 User ID: ${userid}`);
         
         // Formato del cuerpo de la solicitud (similar a FormData pero como URLSearchParams)
         const formData = new URLSearchParams();
@@ -1138,7 +1145,7 @@ async function sendWhatsAppResponse(recipient, message) {
             'Cache-Control': 'no-cache',
             'Content-Type': 'application/x-www-form-urlencoded',
             'apikey': apiKey,
-            'userid': GUPSHUP_USERID  // Añadimos el userid para mejorar la autenticación
+            'userid': userid  // Añadimos el userid para mejorar la autenticación
         };
         
         console.log('🔄 Enviando mensaje a WhatsApp...');
